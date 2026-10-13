@@ -23,7 +23,7 @@ type App struct {
 
 // Apps keeps the IDs in sync with deploy/vim4-manager-helper.
 var Apps = []App{
-	{ID: "nanokvm", Name: "NanoKVM-Pro", Unit: "nanokvm.service", Port: 8080,
+	{ID: "nanokvm", Name: "NanoKVM", Unit: "nanokvm.service", Port: 8080,
 		Description: "完整界面：H.264/H.265、声音、虚拟介质、网络、账户与更新"},
 	{ID: "jetkvm", Name: "JetKVM", Unit: "vim4-kvm.service", Port: 8080,
 		Description: "精简界面：H.264 视频、键盘与鼠标"},

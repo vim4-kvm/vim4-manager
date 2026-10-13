@@ -44,8 +44,8 @@ function since(unit: Unit, now: number): string | undefined {
   return duration(Math.max(0, (now - Date.parse(unit.since)) / 1000));
 }
 
-function kvmURL(port: number): string {
-  return `${location.protocol}//${location.hostname}:${port}/`;
+function kvmURL(port: number, app: string): string {
+  return `${location.protocol}//${location.hostname}:${port}/?kvm=${encodeURIComponent(app)}`;
 }
 
 function StatusDot({ tone, label }: { tone: Tone; label: string }) {
@@ -123,7 +123,7 @@ function AppCard({
           </div>
         ) : selected ? (
           <>
-            <a className={`button primary${running ? "" : " is-disabled"}`} href={kvmURL(app.port)} aria-disabled={!running}>
+            <a className={`button primary${running ? "" : " is-disabled"}`} href={kvmURL(app.port, app.id)} aria-disabled={!running}>
               打开界面
             </a>
             <button className="button" onClick={onRestart} disabled={busy}>

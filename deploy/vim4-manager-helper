@@ -32,7 +32,10 @@ def select(app):
     if others:
         systemctl('disable', *others)
     systemctl('enable', unit)
-    # Starting the selected unit stops the other through Conflicts=.
+    # Conflicts= does not order shutdown before startup. Wait until the old
+    # process has released port 8080, HID and the encoder before starting.
+    if others:
+        systemctl('stop', *others)
     systemctl('restart', unit)
     # Enablement links must survive the data=writeback root filesystem.
     os.sync()
@@ -42,6 +45,9 @@ def restart(unit):
     if unit not in (*APPS.values(), *PLATFORM):
         raise ValueError('Unit is not managed')
     if unit in APPS.values():
+        others = [other for other in APPS.values() if other != unit and installed(other)]
+        if others:
+            systemctl('stop', *others)
         systemctl('restart', unit)
         return
     # The HDMI service reconfigures capture underneath a running encoder; stop

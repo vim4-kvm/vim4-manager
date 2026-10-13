@@ -25,8 +25,25 @@ class HelperTest(unittest.TestCase):
         with patch.object(helper, 'installed', return_value=True), patch.object(helper.os, 'sync') as sync:
             helper.main(['select', 'jetkvm'])
         self.assertEqual(self.calls, [('disable', 'nanokvm.service'), ('enable', 'vim4-kvm.service'),
+                                      ('stop', 'nanokvm.service'),
                                       ('restart', 'vim4-kvm.service')])
         sync.assert_called_once()
+
+    def test_failed_stop_never_starts_replacement(self):
+        def fail_stop(*args):
+            self.calls.append(args)
+            if args[0] == 'stop':
+                raise TimeoutError('old process still owns encoder')
+        with patch.object(helper, 'installed', return_value=True), \
+             patch.object(helper, 'systemctl', side_effect=fail_stop):
+            with self.assertRaises(TimeoutError):
+                helper.main(['select', 'jetkvm'])
+        self.assertFalse(any(call[0] == 'restart' for call in self.calls))
+
+    def test_restart_also_waits_for_other_application(self):
+        with patch.object(helper, 'installed', return_value=True):
+            helper.main(['restart', 'nanokvm.service'])
+        self.assertEqual(self.calls, [('stop', 'vim4-kvm.service'), ('restart', 'nanokvm.service')])
 
     def test_select_requires_installed_unit(self):
         with patch.object(helper, 'installed', side_effect=lambda unit: unit == 'nanokvm.service'):

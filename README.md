@@ -1,10 +1,11 @@
 # vim4-manager
 
-VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM-Pro 或 JetKVM），
+VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM 或 JetKVM），
 查看 HDMI、USB、温度等板子状态和底层服务。监听 **80** 端口，KVM 界面仍在 8080。
 
 两个界面共用 HDMI 采集、硬件编码器、HID 端点和 8080 端口，同一时间只运行一个。
-nanokvm.service 与 vim4-kvm.service 互相 Conflicts=；启动一个会停止另一个。
+nanokvm.service 与 vim4-kvm.service 互相 Conflicts=；管理器会等待旧服务退出后
+再启动另一个，避免端口和编码器仍被旧进程占用。
 
 ## 结构
 
