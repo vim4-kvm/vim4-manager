@@ -1,0 +1,80 @@
+#!/usr/bin/python3
+"""Root operations for vim4-manager. Only fixed actions are accepted."""
+import fcntl
+import os
+import subprocess
+import sys
+
+# Keep in sync with internal/board/units.go. The units declare Conflicts= with
+# each other: starting one stops the other, so they never share the encoder.
+APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service'}
+# Gadget rebinds and PD renegotiation can drop the host USB link; those stay
+# with the board tools.
+PLATFORM = ('vim4-kvm-hdmi.service',)
+
+
+def systemctl(*args):
+    subprocess.run(['systemctl', *args], check=True, timeout=60, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+
+
+def installed(unit):
+    result = subprocess.run(['systemctl', 'show', '--property=LoadState', '--value', unit],
+                            capture_output=True, text=True, timeout=10, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+    return result.stdout.strip() == 'loaded'
+
+
+def select(app):
+    unit = APPS[app]
+    if not installed(unit):
+        raise ValueError(f'{unit} is not installed')
+    others = [other for other in APPS.values() if other != unit and installed(other)]
+    # Disable first: an interrupted switch must not boot with both enabled.
+    if others:
+        systemctl('disable', *others)
+    systemctl('enable', unit)
+    # Starting the selected unit stops the other through Conflicts=.
+    systemctl('restart', unit)
+    # Enablement links must survive the data=writeback root filesystem.
+    os.sync()
+
+
+def restart(unit):
+    if unit not in (*APPS.values(), *PLATFORM):
+        raise ValueError('Unit is not managed')
+    if unit in APPS.values():
+        systemctl('restart', unit)
+        return
+    # The HDMI service reconfigures capture underneath a running encoder; stop
+    # the active application first, then start it again on the new capture.
+    active = [app for app in APPS.values() if installed(app) and
+              subprocess.run(['systemctl', 'is-active', '--quiet', app], timeout=10).returncode == 0]
+    if active:
+        systemctl('stop', *active)
+    try:
+        systemctl('restart', unit)
+    finally:
+        if active:
+            systemctl('start', *active)
+
+
+def main(argv):
+    match argv:
+        case ['select', app] if app in APPS:
+            select(app)
+        case ['restart', unit]:
+            restart(unit)
+        case _:
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT')
+
+
+if __name__ == '__main__':
+    try:
+        lock = os.open('/run/lock/vim4-manager.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        main(sys.argv[1:])
+    except BlockingIOError:
+        print('Another switch is in progress', file=sys.stderr)
+        sys.exit(75)
+    except (ValueError, subprocess.SubprocessError) as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)

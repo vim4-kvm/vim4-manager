@@ -1,0 +1,49 @@
+port: 1
+HDMI info
+
+Color Space: 3-YUV420
+Dvi: 0
+Interlace: 0
+Htotal: 2200
+Hactive: 1920
+Vtotal: 2250
+Vactive: 2160
+Repetition: 0
+Color Depth: 10
+Frame Rate: 5999
+Skip frame: 0
+avmute skip: 0
+TMDS clock: 92781250
+HDR EOTF: SDR
+Dolby Vision: 0
+
+
+Audio info
+
+CTS: 371250
+N: 6144
+Recovery clock: 47952
+audio receive data: 1
+Audio PLL clock: 5843750
+edid_select_ver: 2.0
+
+
+HDCP info
+
+HDCP Debug Value: 0x0
+HDCP14 state: 0
+HDCP22 state: 0
+
+
+Capacity info
+
+support vrr: 0
+support allm: 1
+support HF_DB: 1
+support DV_DB: 0
+support HDR10P_DB: 1
+support HDR_STATIC_DB: 0
+support HDR_DYNAMIC_DB: 0
+support FREESYNC_DB: 0
+Source Physical address: 3.0.0.0
+HDCP1.4 secure: -1
