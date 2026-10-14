@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  DEFAULT_HDR_CURVE,
   getStatus,
+  previewHDRCurve,
   restartUnit,
   selectApp,
   setHDRCurve,
   type App as KvmApp,
   type Hardware,
-  type HDRCurve,
   type Platform,
   type Status,
   type Unit,
 } from "./api";
+import { HDRPanel } from "./HDRPanel";
 
 const POLL_MS = 3000;
 
@@ -262,67 +262,6 @@ function PlatformList({
   );
 }
 
-function HDRPanel({
-  curve,
-  hdr,
-  busy,
-  onApply,
-}: {
-  curve: HDRCurve;
-  hdr?: string;
-  busy: boolean;
-  onApply: (curve: HDRCurve) => void;
-}) {
-  const [white, setWhite] = useState(String(curve.white));
-  const [peak, setPeak] = useState(String(curve.peak));
-  // Follow the saved values until the user edits a field.
-  const saved = `${curve.white}/${curve.peak}`;
-  const [shown, setShown] = useState(saved);
-  if (shown !== saved) {
-    setShown(saved);
-    setWhite(String(curve.white));
-    setPeak(String(curve.peak));
-  }
-  const w = Number(white);
-  const p = Number(peak);
-  const invalid =
-    !Number.isInteger(w) || w < 80 || w > 1000
-      ? "SDR 白需为 80–1000 的整数"
-      : !Number.isInteger(p) || p <= w || p > 10000
-        ? "高光上限需大于 SDR 白且不超过 10000"
-        : undefined;
-  const changed = w !== curve.white || p !== curve.peak;
-  const isDefault = curve.white === DEFAULT_HDR_CURVE.white && curve.peak === DEFAULT_HDR_CURVE.peak;
-  const label = hdrLabel(hdr);
-  return (
-    <div className="hdr-panel">
-      <div className="hdr-fields">
-        <label className="field">
-          <span>SDR 白（尼特）</span>
-          <input type="number" inputMode="numeric" min={80} max={1000} value={white} disabled={busy} onChange={(e) => setWhite(e.target.value)} />
-          <small className="muted">主机界面白色的亮度。macOS 实测约 199，默认 203（BT.2408）</small>
-        </label>
-        <label className="field">
-          <span>高光上限（尼特）</span>
-          <input type="number" inputMode="numeric" min={w + 1} max={10000} value={peak} disabled={busy} onChange={(e) => setPeak(e.target.value)} />
-          <small className="muted">高于此亮度的高光不再保留层次</small>
-        </label>
-      </div>
-      <div className="hdr-actions">
-        <span className={invalid ? "status status-critical" : "muted"}>
-          {invalid ?? (label ? `当前输入：${label}${label === "SDR" ? "，曲线仅在 HDR 输入时生效" : ""}` : "当前无 HDMI 信号")}
-        </span>
-        <button className="button" disabled={busy || isDefault} onClick={() => onApply(DEFAULT_HDR_CURVE)}>
-          恢复默认
-        </button>
-        <button className="button primary" disabled={busy || !changed || !!invalid} onClick={() => onApply({ white: w, peak: p })}>
-          应用
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function App() {
   const [status, setStatus] = useState<Status>();
   const [error, setError] = useState<string>();
@@ -443,16 +382,15 @@ export function App() {
             <section aria-labelledby="hdr-title">
               <div className="section-head">
                 <h2 id="hdr-title">HDR 转 SDR</h2>
-                <p className="muted">
-                  被控机输出 HDR 时，采集端把它映射为 SDR 再编码。画面偏暗或过曝时调整 SDR 白；应用会重启 HDMI 采集，画面中断几秒。
-                </p>
+                <p className="muted">被控机输出 HDR 时，采集端把它映射为 SDR 再编码。画面偏暗就提高桌面亮度，高光发白就扩大高光范围。</p>
               </div>
               <HDRPanel
                 curve={status.hardware.hdrCurve}
                 hdr={status.hardware.hdmi.hdr}
                 busy={!!busy}
-                onApply={(curve) =>
-                  run("正在应用 HDR 映射并重启 HDMI 采集…", () => setHDRCurve(curve), `HDR 映射已更新：SDR 白 ${curve.white}，高光上限 ${curve.peak}`)
+                onPreview={previewHDRCurve}
+                onSave={(curve) =>
+                  run("正在保存 HDR 映射…", () => setHDRCurve(curve), `HDR 映射已保存：SDR 白 ${curve.white} 尼特，高光保留到 ${curve.peak} 尼特`)
                 }
               />
             </section>

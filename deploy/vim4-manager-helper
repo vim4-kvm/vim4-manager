@@ -11,10 +11,10 @@ APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service'}
 # Gadget rebinds and PD renegotiation can drop the host USB link; those stay
 # with the board tools.
 PLATFORM = ('vim4-kvm-hdmi.service',)
-HDMI = 'vim4-kvm-hdmi.service'
-# HDR -> SDR curve read by hdmi-setup.sh. Separate from vim4-kvm-hdmi because
-# NanoKVM rewrites that file. Limits match hdmi-setup.sh.
+# HDR -> SDR curve read by hdmi-setup.sh at start. Separate from
+# vim4-kvm-hdmi because NanoKVM rewrites that file. Limits match vim4-hdr-curve.
 HDR_CONFIG = '/etc/default/vim4-kvm-hdr'
+HDR_CURVE = '/usr/sbin/vim4-hdr-curve'
 
 
 def systemctl(*args):
@@ -54,29 +54,14 @@ def restart(unit):
             systemctl('stop', *others)
         systemctl('restart', unit)
         return
-    restart_hdmi()
-
-
-def restart_hdmi(rollback=None):
-    """Restart HDMI capture with the running application paused.
-
-    The HDMI service reconfigures capture underneath a running encoder; stop
-    the active application first, then start it again on the new capture.
-    """
+    # The HDMI service reconfigures capture underneath a running encoder; stop
+    # the active application first, then start it again on the new capture.
     active = [app for app in APPS.values() if installed(app) and
               subprocess.run(['systemctl', 'is-active', '--quiet', app], timeout=10).returncode == 0]
     if active:
         systemctl('stop', *active)
     try:
-        systemctl('restart', HDMI)
-    except subprocess.SubprocessError:
-        if rollback is None:
-            raise
-        # Bring capture back on the previous settings before reporting.
-        rollback()
-        systemctl('reset-failed', HDMI)
-        systemctl('restart', HDMI)
-        raise
+        systemctl('restart', unit)
     finally:
         if active:
             systemctl('start', *active)
@@ -88,37 +73,29 @@ def nits(text, low, high):
     return int(text)
 
 
-def read_config(path):
-    try:
-        with open(path, 'rb') as file:
-            return file.read()
-    except FileNotFoundError:
-        return None
-
-
 def write_config(path, content):
-    if content is None:
-        try:
-            os.unlink(path)
-        except FileNotFoundError:
-            pass
-    else:
-        pending = path + '.pending'
-        with open(pending, 'wb') as file:
-            file.write(content)
-            os.fchmod(file.fileno(), 0o644)
-            os.fsync(file.fileno())
-        os.replace(pending, path)
+    pending = path + '.pending'
+    with open(pending, 'wb') as file:
+        file.write(content)
+        os.fchmod(file.fileno(), 0o644)
+        os.fsync(file.fileno())
+    os.replace(pending, path)
     os.sync()
 
 
-def hdr_curve(white, peak):
-    """Write HDR_SDR_WHITE/HDR_SDR_PEAK and restart capture; restore on failure."""
+def apply_hdr_curve(white, peak):
+    """Load the curve into the running capture; it takes effect next frame."""
     white = nits(white, 80, 1000)
     peak = nits(peak, white + 1, 10000)
-    previous = read_config(HDR_CONFIG)
+    subprocess.run([HDR_CURVE, 'apply', str(white), str(peak)], check=True, timeout=10,
+                   env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+    return white, peak
+
+
+def hdr_curve(white, peak):
+    """Apply the curve now and keep it for the next HDMI service start."""
+    white, peak = apply_hdr_curve(white, peak)
     write_config(HDR_CONFIG, f'HDR_SDR_WHITE={white}\nHDR_SDR_PEAK={peak}\n'.encode())
-    restart_hdmi(rollback=lambda: write_config(HDR_CONFIG, previous))
 
 
 def main(argv):
@@ -129,8 +106,11 @@ def main(argv):
             restart(unit)
         case ['hdr-curve', white, peak]:
             hdr_curve(white, peak)
+        case ['hdr-preview', white, peak]:
+            apply_hdr_curve(white, peak)
         case _:
-            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT | hdr-curve WHITE PEAK')
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT | '
+                             'hdr-curve|hdr-preview WHITE PEAK')
 
 
 if __name__ == '__main__':

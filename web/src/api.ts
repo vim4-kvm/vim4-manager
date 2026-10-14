@@ -80,3 +80,4 @@ export const getStatus = () => request<Status>("/api/status");
 export const selectApp = (app: string) => request("/api/select", { app });
 export const restartUnit = (unit: string) => request("/api/restart", { unit });
 export const setHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve", curve);
+export const previewHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve/preview", curve);

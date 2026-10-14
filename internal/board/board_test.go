@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -125,8 +126,12 @@ func TestSetHDRCurveValidatesBeforeHelper(t *testing.T) {
 	if err := s.SetHDRCurve(context.Background(), HDRCurve{White: 203, Peak: 1000}); err != nil {
 		t.Fatal(err)
 	}
-	if want := "sudo -n " + Helper + " hdr-curve 203 1000"; len(calls) != 1 || calls[0] != want {
-		t.Errorf("calls = %v, want %q", calls, want)
+	if err := s.PreviewHDRCurve(context.Background(), HDRCurve{White: 180, Peak: 2000}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sudo -n " + Helper + " hdr-curve 203 1000", "sudo -n " + Helper + " hdr-preview 180 2000"}
+	if !slices.Equal(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
 	}
 }
 

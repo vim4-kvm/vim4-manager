@@ -477,58 +477,212 @@ main {
 
 /* HDR to SDR */
 .hdr-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 28px;
   padding: 20px;
   border-radius: var(--radius);
   background: var(--surface-raised);
   border: 1px solid var(--border);
 }
 
-.hdr-fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 16px;
+.hdr-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
 }
 
-.field {
+.hdr-sliders {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.hdr-slider {
   display: flex;
   flex-direction: column;
   gap: 6px;
   font-size: 13.5px;
 }
 
-.field input {
-  height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text-primary);
-  font: inherit;
+.hdr-slider-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hdr-slider-head strong {
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-.field input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.hdr-slider input {
+  width: 100%;
+  margin: 4px 0 0;
+  accent-color: var(--accent);
 }
 
-.field small {
+.hdr-slider input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.hdr-slider-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.hdr-slider small {
   font-size: 12.5px;
+}
+
+/* The ramp shows output gray levels, so it keeps a hairline frame in both themes. */
+.hdr-ramp {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
 }
 
 .hdr-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 13.5px;
+  gap: 12px;
+  margin-top: auto;
+  font-size: 13px;
 }
 
 .hdr-actions > span {
   margin-right: auto;
+}
+
+.hdr-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+}
+
+.hdr-chart figcaption {
+  display: flex;
+  gap: 16px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+}
+
+.hdr-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hdr-key {
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.hdr-key-muted {
+  background: var(--idle);
+}
+
+.hdr-plot {
+  position: relative;
+  min-width: 0;
+}
+
+.hdr-plot svg {
+  display: block;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+.hdr-plot svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.hdr-grid {
+  stroke: var(--hairline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.hdr-tick {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hdr-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.hdr-line-muted {
+  stroke: var(--idle);
+}
+
+.hdr-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.hdr-dot {
+  fill: var(--accent);
+  stroke: var(--surface-raised);
+  stroke-width: 2;
+}
+
+.hdr-tooltip {
+  position: absolute;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  box-shadow: 0 2px 8px rgba(11, 11, 11, 0.12);
+  font-size: 12.5px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.hdr-tooltip span {
+  color: var(--text-secondary);
+}
+
+.hdr-marker {
+  stroke: var(--hairline);
+  stroke-width: 1;
+  shape-rendering: crispEdges;
+}
+
+.hdr-axis-note {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .hdr-panel {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Platform services */
