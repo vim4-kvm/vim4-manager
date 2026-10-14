@@ -447,7 +447,7 @@ export function App() {
           <div className="section-head">
             <h2 id="apps-title">KVM 界面</h2>
             <p className="muted">
-              两个界面共用 HDMI 采集、硬件编码器和键鼠，同一时间只运行一个。选择会在重启后保持。
+              所有界面共用 HDMI 采集、硬件编码器和键鼠，同一时间只运行一个。选择会在重启后保持。
             </p>
           </div>
           {status ? (
@@ -509,7 +509,7 @@ export function App() {
             <section aria-labelledby="platform-title">
               <div className="section-head">
                 <h2 id="platform-title">底层服务</h2>
-                <p className="muted">两个界面共用。重启 HDMI 采集时会先暂停当前界面，完成后自动恢复。</p>
+                <p className="muted">所有界面共用。重启 HDMI 采集时会先暂停当前界面，完成后自动恢复。</p>
               </div>
               <PlatformList
                 services={status.platform}
