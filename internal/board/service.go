@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +98,18 @@ func (s *Service) Restart(ctx context.Context, unit string) error {
 		return fmt.Errorf("不允许重启 %s", unit)
 	}
 	return s.helper(ctx, "restart", unit)
+}
+
+// SetHDRCurve stores the HDR -> SDR mapping and restarts HDMI capture. The
+// helper applies the same limits as hdmi-setup.sh.
+func (s *Service) SetHDRCurve(ctx context.Context, curve HDRCurve) error {
+	if curve.White < 80 || curve.White > 1000 {
+		return fmt.Errorf("SDR 白需在 80–1000 尼特之间")
+	}
+	if curve.Peak <= curve.White || curve.Peak > 10000 {
+		return fmt.Errorf("高光上限需大于 SDR 白且不超过 10000 尼特")
+	}
+	return s.helper(ctx, "hdr-curve", strconv.Itoa(curve.White), strconv.Itoa(curve.Peak))
 }
 
 func (s *Service) helper(ctx context.Context, args ...string) error {

@@ -11,6 +11,10 @@ APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service'}
 # Gadget rebinds and PD renegotiation can drop the host USB link; those stay
 # with the board tools.
 PLATFORM = ('vim4-kvm-hdmi.service',)
+HDMI = 'vim4-kvm-hdmi.service'
+# HDR -> SDR curve read by hdmi-setup.sh. Separate from vim4-kvm-hdmi because
+# NanoKVM rewrites that file. Limits match hdmi-setup.sh.
+HDR_CONFIG = '/etc/default/vim4-kvm-hdr'
 
 
 def systemctl(*args):
@@ -50,17 +54,71 @@ def restart(unit):
             systemctl('stop', *others)
         systemctl('restart', unit)
         return
-    # The HDMI service reconfigures capture underneath a running encoder; stop
-    # the active application first, then start it again on the new capture.
+    restart_hdmi()
+
+
+def restart_hdmi(rollback=None):
+    """Restart HDMI capture with the running application paused.
+
+    The HDMI service reconfigures capture underneath a running encoder; stop
+    the active application first, then start it again on the new capture.
+    """
     active = [app for app in APPS.values() if installed(app) and
               subprocess.run(['systemctl', 'is-active', '--quiet', app], timeout=10).returncode == 0]
     if active:
         systemctl('stop', *active)
     try:
-        systemctl('restart', unit)
+        systemctl('restart', HDMI)
+    except subprocess.SubprocessError:
+        if rollback is None:
+            raise
+        # Bring capture back on the previous settings before reporting.
+        rollback()
+        systemctl('reset-failed', HDMI)
+        systemctl('restart', HDMI)
+        raise
     finally:
         if active:
             systemctl('start', *active)
+
+
+def nits(text, low, high):
+    if not (text.isascii() and text.isdigit()) or not low <= int(text) <= high:
+        raise ValueError(f'{text!r} must be {low}-{high} nits')
+    return int(text)
+
+
+def read_config(path):
+    try:
+        with open(path, 'rb') as file:
+            return file.read()
+    except FileNotFoundError:
+        return None
+
+
+def write_config(path, content):
+    if content is None:
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+    else:
+        pending = path + '.pending'
+        with open(pending, 'wb') as file:
+            file.write(content)
+            os.fchmod(file.fileno(), 0o644)
+            os.fsync(file.fileno())
+        os.replace(pending, path)
+    os.sync()
+
+
+def hdr_curve(white, peak):
+    """Write HDR_SDR_WHITE/HDR_SDR_PEAK and restart capture; restore on failure."""
+    white = nits(white, 80, 1000)
+    peak = nits(peak, white + 1, 10000)
+    previous = read_config(HDR_CONFIG)
+    write_config(HDR_CONFIG, f'HDR_SDR_WHITE={white}\nHDR_SDR_PEAK={peak}\n'.encode())
+    restart_hdmi(rollback=lambda: write_config(HDR_CONFIG, previous))
 
 
 def main(argv):
@@ -69,8 +127,10 @@ def main(argv):
             select(app)
         case ['restart', unit]:
             restart(unit)
+        case ['hdr-curve', white, peak]:
+            hdr_curve(white, peak)
         case _:
-            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT')
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT | hdr-curve WHITE PEAK')
 
 
 if __name__ == '__main__':

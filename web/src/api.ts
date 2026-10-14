@@ -31,7 +31,16 @@ export interface HDMI {
   audio: boolean;
   captureWidth?: number;
   captureHeight?: number;
+  hdr?: string;
 }
+
+export interface HDRCurve {
+  white: number;
+  peak: number;
+}
+
+// Mirrors tools/hdmi-setup.sh: BT.2408 reference white, 1000-nit highlights.
+export const DEFAULT_HDR_CURVE: HDRCurve = { white: 203, peak: 1000 };
 
 export interface Hardware {
   hostname: string;
@@ -46,6 +55,7 @@ export interface Hardware {
   fanPercent: number;
   usb: string;
   hdmi: HDMI;
+  hdrCurve: HDRCurve;
 }
 
 export interface Status {
@@ -69,3 +79,4 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
 export const getStatus = () => request<Status>("/api/status");
 export const selectApp = (app: string) => request("/api/select", { app });
 export const restartUnit = (unit: string) => request("/api/restart", { unit });
+export const setHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve", curve);

@@ -46,6 +46,13 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		}
 		respond(w, service.Restart(r.Context(), request.Unit))
 	})
+	mux.HandleFunc("POST /api/hdr-curve", func(w http.ResponseWriter, r *http.Request) {
+		var curve board.HDRCurve
+		if !decode(w, r, &curve) {
+			return
+		}
+		respond(w, service.SetHDRCurve(r.Context(), curve))
+	})
 	files := http.FileServerFS(assets)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {

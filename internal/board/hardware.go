@@ -18,22 +18,35 @@ type HDMI struct {
 	Audio      bool    `json:"audio"`
 	CaptureW   int     `json:"captureWidth,omitempty"`
 	CaptureH   int     `json:"captureHeight,omitempty"`
+	// HDR is the receiver's hdmi_hdr_status, e.g. "SDR" or "HDR10-GAMMA_ST2084".
+	HDR string `json:"hdr,omitempty"`
 }
+
+// HDRCurve is the HDR -> SDR mapping hdmi-setup.sh applies to HDR input.
+type HDRCurve struct {
+	White int `json:"white"`
+	Peak  int `json:"peak"`
+}
+
+// DefaultHDRCurve mirrors the tools/hdmi-setup.sh defaults: BT.2408 reference
+// white and a 1000-nit highlight range.
+var DefaultHDRCurve = HDRCurve{White: 203, Peak: 1000}
 
 // Hardware holds sysfs and procfs readings. Unreadable values stay zero.
 type Hardware struct {
-	Hostname  string  `json:"hostname"`
-	Kernel    string  `json:"kernel"`
-	UptimeSec float64 `json:"uptimeSeconds"`
-	Load1     float64 `json:"load1"`
-	CPUs      int     `json:"cpus"`
-	MemTotal  int64   `json:"memTotalKiB"`
-	MemAvail  int64   `json:"memAvailableKiB"`
-	TempC     float64 `json:"tempC"`
-	FanAuto   bool    `json:"fanAuto"`
-	FanPct    int     `json:"fanPercent"`
-	USB       string  `json:"usb"`
-	HDMI      HDMI    `json:"hdmi"`
+	Hostname  string   `json:"hostname"`
+	Kernel    string   `json:"kernel"`
+	UptimeSec float64  `json:"uptimeSeconds"`
+	Load1     float64  `json:"load1"`
+	CPUs      int      `json:"cpus"`
+	MemTotal  int64    `json:"memTotalKiB"`
+	MemAvail  int64    `json:"memAvailableKiB"`
+	TempC     float64  `json:"tempC"`
+	FanAuto   bool     `json:"fanAuto"`
+	FanPct    int      `json:"fanPercent"`
+	USB       string   `json:"usb"`
+	HDMI      HDMI     `json:"hdmi"`
+	HDRCurve  HDRCurve `json:"hdrCurve"`
 }
 
 // ReadHardware reads from root, which is "/" on the board and a fixture in tests.
@@ -74,6 +87,10 @@ func ReadHardware(root string) Hardware {
 	}
 	h.HDMI = parseHDMI(read("sys/class/hdmirx/hdmirx0/info"))
 	h.HDMI.CaptureW, h.HDMI.CaptureH = captureSize(read("etc/default/vim4-kvm-hdmi"))
+	if h.HDMI.Signal {
+		h.HDMI.HDR = read("sys/class/hdmirx/hdmirx0/hdmi_hdr_status")
+	}
+	h.HDRCurve = hdrCurve(read("etc/default/vim4-kvm-hdr"))
 	return h
 }
 
@@ -115,18 +132,45 @@ func parseHDMI(info string) HDMI {
 // captureSize mirrors tools/hdmi-setup.sh defaults for the service override file.
 func captureSize(defaults string) (int, int) {
 	width, height := 3840, 2160
-	for _, line := range strings.Split(defaults, "\n") {
-		key, value, _ := strings.Cut(strings.TrimSpace(line), "=")
-		n, err := strconv.Atoi(strings.Trim(value, `"'`))
-		if err != nil {
-			continue
-		}
-		switch key {
+	for _, n := range envInts(defaults) {
+		switch n.key {
 		case "HDMI_WIDTH":
-			width = n
+			width = n.value
 		case "HDMI_HEIGHT":
-			height = n
+			height = n.value
 		}
 	}
 	return width, height
+}
+
+type envInt struct {
+	key   string
+	value int
+}
+
+// envInts parses the integer KEY=VALUE lines of a systemd EnvironmentFile.
+func envInts(defaults string) []envInt {
+	var values []envInt
+	for _, line := range strings.Split(defaults, "\n") {
+		key, value, _ := strings.Cut(strings.TrimSpace(line), "=")
+		n, err := strconv.Atoi(strings.Trim(value, `"'`))
+		if err == nil {
+			values = append(values, envInt{key, n})
+		}
+	}
+	return values
+}
+
+// hdrCurve reads the HDR curve override file the HDMI service loads.
+func hdrCurve(defaults string) HDRCurve {
+	curve := DefaultHDRCurve
+	for _, n := range envInts(defaults) {
+		switch n.key {
+		case "HDR_SDR_WHITE":
+			curve.White = n.value
+		case "HDR_SDR_PEAK":
+			curve.Peak = n.value
+		}
+	}
+	return curve
 }

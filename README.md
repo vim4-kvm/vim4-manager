@@ -24,6 +24,10 @@ nanokvm.service 与 vim4-kvm.service 互相 Conflicts=；管理器会等待旧�
 - `restart nanokvm.service|vim4-kvm.service|vim4-kvm-hdmi.service`：重启 HDMI
   采集前先停止运行中的界面，完成后再启动。
 
+- `hdr-curve WHITE PEAK`：校验后原子写入 /etc/default/vim4-kvm-hdr（HDR 输入映射为
+  SDR 的 SDR 白和高光上限，单位尼特），再按上条方式重启 HDMI 采集；重启失败时恢复
+  原配置并重新启动采集。
+
 USB gadget、PD 和 CPU 频率服务只显示状态，不提供重启：重新绑定和重新协商会断开
 被控机的 USB 连接，交给板级工具处理。
 
