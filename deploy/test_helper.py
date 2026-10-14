@@ -94,7 +94,7 @@ class HelperTest(unittest.TestCase):
     def test_hdr_curve_rejects_values_the_curve_tool_refuses(self):
         path = self.hdr_config()
         for action in ('hdr-curve', 'hdr-preview'):
-            for white, peak in (('79', '1000'), ('1001', '2000'), ('203', '203'), ('203', '10001'),
+            for white, peak in (('159', '1000'), ('1001', '2000'), ('203', '203'), ('203', '10001'),
                                 ('2e2', '1000'), ('²⁰³', '1000'), ('203', '-1'), ('203', '1000\nHDMI_WIDTH=1')):
                 with self.subTest(action=action, white=white, peak=peak), self.assertRaises(ValueError):
                     helper.main([action, white, peak])

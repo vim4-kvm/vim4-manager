@@ -115,7 +115,7 @@ func TestSetHDRCurveValidatesBeforeHelper(t *testing.T) {
 		calls = append(calls, name+" "+strings.Join(args, " "))
 		return "", nil
 	}}
-	for _, curve := range []HDRCurve{{79, 1000}, {1001, 2000}, {203, 203}, {203, 10001}, {-1, 1000}} {
+	for _, curve := range []HDRCurve{{159, 1000}, {1001, 2000}, {203, 203}, {203, 10001}, {-1, 1000}} {
 		if err := s.SetHDRCurve(context.Background(), curve); err == nil {
 			t.Errorf("SetHDRCurve(%+v) accepted", curve)
 		}

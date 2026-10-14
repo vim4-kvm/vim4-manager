@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } fr
 import { DEFAULT_HDR_CURVE, type HDRCurve } from "./api";
 
 // Slider ranges. SDR white runs high to low so that "right" means brighter.
-const WHITE_MIN = 100;
+// The 12-bit HDR gain register limits SDR white to 157 nits and up.
+const WHITE_MIN = 160;
 const WHITE_MAX = 400;
 const PEAK_MAX = 10000;
 // The curve chart spans 0.1 to 10000 nits on a log axis.

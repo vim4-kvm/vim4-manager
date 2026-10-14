@@ -85,7 +85,7 @@ def write_config(path, content):
 
 def apply_hdr_curve(white, peak):
     """Load the curve into the running capture; it takes effect next frame."""
-    white = nits(white, 80, 1000)
+    white = nits(white, 160, 1000)
     peak = nits(peak, white + 1, 10000)
     subprocess.run([HDR_CURVE, 'apply', str(white), str(peak)], check=True, timeout=10,
                    env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})

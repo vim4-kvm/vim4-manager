@@ -113,8 +113,8 @@ func (s *Service) PreviewHDRCurve(ctx context.Context, curve HDRCurve) error {
 
 // hdrCurve checks the vim4-hdr-curve limits before reaching the helper.
 func (s *Service) hdrCurve(ctx context.Context, action string, curve HDRCurve) error {
-	if curve.White < 80 || curve.White > 1000 {
-		return fmt.Errorf("SDR 白需在 80–1000 尼特之间")
+	if curve.White < 160 || curve.White > 1000 {
+		return fmt.Errorf("SDR 白需在 160–1000 尼特之间")
 	}
 	if curve.Peak <= curve.White || curve.Peak > 10000 {
 		return fmt.Errorf("高光上限需大于 SDR 白且不超过 10000 尼特")
