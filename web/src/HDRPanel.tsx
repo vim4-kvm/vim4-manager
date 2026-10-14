@@ -32,6 +32,10 @@ function mapNits(nits: number, curve: HDRCurve): number {
 // from about 300 nits on; approximated here as the same shoulder.
 const VENDOR: HDRCurve = { white: 400, peak: 10000 };
 
+function srgbToLinear(v: number): number {
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
 function srgb(linear: number): number {
   const l = Math.min(1, Math.max(0, linear));
   return l <= 0.0031308 ? 12.92 * l : 1.055 * l ** (1 / 2.4) - 0.055;
@@ -126,6 +130,12 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
             ))}
             <line className="hdr-marker" x1={x(curve.white)} x2={x(curve.white)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
             <line className="hdr-marker" x1={x(curve.peak)} x2={x(curve.peak)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+            <text className="hdr-tick" x={x(curve.white) - 6} y={PAD_TOP + HEIGHT - 6} textAnchor="end">
+              桌面白
+            </text>
+            <text className="hdr-tick" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
+              高光上限
+            </text>
             <path className="hdr-line hdr-line-muted" d={path(VENDOR)} />
             <path className="hdr-line" d={path(curve)} />
             <circle className="hdr-dot" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
@@ -159,19 +169,26 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
   );
 }
 
-/** HDR input luminance ramp as it will look after mapping. */
+/**
+ * The mapped gray ramp: 0 to desktop white in even sRGB steps, then the
+ * highlight range from white to the peak, which shares the top 5%.
+ */
 function Ramp({ curve }: { curve: HDRCurve }) {
-  const steps = 24;
-  const cells = Array.from({ length: steps }, (_, i) => {
-    const n = fromLog((i + 0.5) / steps, 0.5, curve.peak * 1.5);
+  const cell = (n: number) => {
     const v = Math.round(srgb(mapNits(n, curve)) * 255);
     return { n, color: `rgb(${v},${v},${v})` };
-  });
+  };
+  const body = Array.from({ length: 16 }, (_, i) => cell(curve.white * srgbToLinear(i / 15)));
+  const highlights = Array.from({ length: 4 }, (_, i) => cell(fromLog((i + 1) / 4, curve.white, curve.peak)));
+  const strip = (cells: { n: number; color: string }[]) =>
+    cells.map((c, i) => <span key={i} style={{ background: c.color }} title={`${nitsLabel(c.n)} 尼特`} />);
   return (
-    <div className="hdr-ramp" role="img" aria-label="映射后的灰阶预览，从暗部到高光">
-      {cells.map((c, i) => (
-        <span key={i} style={{ background: c.color }} title={`${nitsLabel(c.n)} 尼特`} />
-      ))}
+    <div className="hdr-ramp" role="img" aria-label={`映射后的灰阶：黑到桌面白 ${curve.white} 尼特，再到高光上限 ${curve.peak} 尼特`}>
+      <div className="hdr-ramp-body">{strip(body)}</div>
+      <div className="hdr-ramp-highlights">{strip(highlights)}</div>
+      <span className="muted">黑</span>
+      <span className="muted">桌面白 {curve.white}</span>
+      <span className="muted">高光 {nitsLabel(curve.peak)}</span>
     </div>
   );
 }
