@@ -4,10 +4,12 @@ import fcntl
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 # Keep in sync with internal/board/units.go. The units declare Conflicts= with
 # each other: starting one stops the other, so they never share the encoder.
-APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service', 'onekvm': 'one-kvm.service'}
+APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service', 'onekvm': 'one-kvm.service',
+        'pikvm': 'vim4-pikvm.service'}
 # Gadget rebinds and PD renegotiation can drop the host USB link; those stay
 # with the board tools.
 PLATFORM = ('vim4-kvm-hdmi.service',)
@@ -15,6 +17,13 @@ PLATFORM = ('vim4-kvm-hdmi.service',)
 # vim4-kvm-hdmi because NanoKVM rewrites that file. Limits match vim4-hdr-curve.
 HDR_CONFIG = '/etc/default/vim4-kvm-hdr'
 HDR_CURVE = '/usr/sbin/vim4-hdr-curve'
+PIKVM_USB_STATE = Path('/run/vim4-pikvm-usb/state.json')
+PIKVM_LUN_FILE = Path('/sys/kernel/config/usb_gadget/kvm/functions/mass_storage.disk0/lun.0/file')
+
+
+def check_pikvm_media():
+    if PIKVM_USB_STATE.exists() and PIKVM_LUN_FILE.read_text().strip():
+        raise ValueError('Eject the PiKVM virtual disk on the USB host before switching or restarting')
 
 
 def systemctl(*args):
@@ -28,6 +37,7 @@ def installed(unit):
 
 
 def select(app):
+    check_pikvm_media()
     unit = APPS[app]
     if not installed(unit):
         raise ValueError(f'{unit} is not installed')
@@ -48,6 +58,7 @@ def select(app):
 def restart(unit):
     if unit not in (*APPS.values(), *PLATFORM):
         raise ValueError('Unit is not managed')
+    check_pikvm_media()
     if unit in APPS.values():
         others = [other for other in APPS.values() if other != unit and installed(other)]
         if others:
@@ -126,7 +137,7 @@ def main(argv):
         case ['hdr-preview', white, peak]:
             apply_hdr_curve(white, peak)
         case _:
-            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm | restart UNIT | '
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
                              'hdr-curve|hdr-preview WHITE PEAK | wifi on|off')
 
 

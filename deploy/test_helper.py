@@ -13,6 +13,18 @@ loader.exec_module(helper)
 
 
 class HelperTest(unittest.TestCase):
+    def test_mounted_pikvm_media_blocks_switch_before_any_service_change(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        state, lun = root / 'state', root / 'lun'
+        state.write_text('{}')
+        lun.write_text('/var/lib/kvmd/msd/disk.img\n')
+        with patch.object(helper, 'PIKVM_USB_STATE', state), patch.object(helper, 'PIKVM_LUN_FILE', lun):
+            for args in (['select', 'nanokvm'], ['restart', 'vim4-pikvm.service'],
+                         ['restart', 'vim4-kvm-hdmi.service']):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'Eject'):
+                    helper.main(args)
+        self.assertEqual(self.calls, [])
+
     def test_wifi_enable_restores_primary_link_only(self):
         result = type('Result', (), {'stdout': 'eth0:ethernet\nwlan0:wifi\nwlan1:wifi\n'})()
         with patch.object(helper.subprocess, 'run', return_value=result) as run:
@@ -47,8 +59,8 @@ class HelperTest(unittest.TestCase):
     def test_select_disables_other_before_enabling(self):
         with patch.object(helper, 'installed', return_value=True), patch.object(helper.os, 'sync') as sync:
             helper.main(['select', 'jetkvm'])
-        self.assertEqual(self.calls, [('disable', 'nanokvm.service', 'one-kvm.service'), ('enable', 'vim4-kvm.service'),
-                                      ('stop', 'nanokvm.service', 'one-kvm.service'),
+        self.assertEqual(self.calls, [('disable', 'nanokvm.service', 'one-kvm.service', 'vim4-pikvm.service'), ('enable', 'vim4-kvm.service'),
+                                      ('stop', 'nanokvm.service', 'one-kvm.service', 'vim4-pikvm.service'),
                                       ('restart', 'vim4-kvm.service')])
         sync.assert_called_once()
 
@@ -66,9 +78,9 @@ class HelperTest(unittest.TestCase):
     def test_restart_also_waits_for_other_application(self):
         with patch.object(helper, 'installed', return_value=True):
             helper.main(['restart', 'nanokvm.service'])
-        self.assertEqual(self.calls, [('stop', 'vim4-kvm.service', 'one-kvm.service'), ('restart', 'nanokvm.service')])
+        self.assertEqual(self.calls, [('stop', 'vim4-kvm.service', 'one-kvm.service', 'vim4-pikvm.service'), ('restart', 'nanokvm.service')])
 
-    def test_all_three_apps_release_resources_before_replacement(self):
+    def test_all_apps_release_resources_before_replacement(self):
         for app, unit in helper.APPS.items():
             with self.subTest(app=app), patch.object(helper, 'installed', return_value=True), patch.object(helper.os, 'sync'):
                 self.calls.clear()
