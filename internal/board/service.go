@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -102,6 +103,28 @@ func (s *Service) Restart(ctx context.Context, unit string) error {
 		return fmt.Errorf("不允许重启 %s", unit)
 	}
 	return s.helper(ctx, "restart", unit)
+}
+
+// SetHDRCurve applies the HDR -> SDR mapping to the running capture and keeps
+// it for the next HDMI service start.
+func (s *Service) SetHDRCurve(ctx context.Context, curve HDRCurve) error {
+	return s.hdrCurve(ctx, "hdr-curve", curve)
+}
+
+// PreviewHDRCurve applies the mapping without saving it, for slider drags.
+func (s *Service) PreviewHDRCurve(ctx context.Context, curve HDRCurve) error {
+	return s.hdrCurve(ctx, "hdr-preview", curve)
+}
+
+// hdrCurve checks the vim4-hdr-curve limits before reaching the helper.
+func (s *Service) hdrCurve(ctx context.Context, action string, curve HDRCurve) error {
+	if curve.White < 160 || curve.White > 1000 {
+		return fmt.Errorf("SDR 白需在 160–1000 尼特之间")
+	}
+	if curve.Peak <= curve.White || curve.Peak > 10000 {
+		return fmt.Errorf("高光上限需大于 SDR 白且不超过 10000 尼特")
+	}
+	return s.helper(ctx, action, strconv.Itoa(curve.White), strconv.Itoa(curve.Peak))
 }
 
 func (s *Service) helper(ctx context.Context, args ...string) error {

@@ -93,6 +93,63 @@ func TestReadHardware(t *testing.T) {
 	if w, hgt := captureSize(""); w != 3840 || hgt != 2160 {
 		t.Errorf("default capture = %dx%d", w, hgt)
 	}
+	if h.HDRCurve != DefaultHDRCurve {
+		t.Errorf("HDR curve without override = %+v", h.HDRCurve)
+	}
+}
+
+func TestReadHardwareHDR(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, content string) {
+		full := filepath.Join(root, path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The receiver keeps the last HDR state after the signal goes away.
+	write("sys/class/hdmirx/hdmirx0/hdmi_hdr_status", "HDR10-GAMMA_ST2084")
+	write("etc/default/vim4-kvm-hdr", "HDR_SDR_WHITE=250\n")
+	h := ReadHardware(root)
+	if h.HDMI.HDR != "" || h.HDRCurve != (HDRCurve{White: 250, Peak: 1000}) {
+		t.Errorf("no signal: HDR = %q, curve = %+v", h.HDMI.HDR, h.HDRCurve)
+	}
+	info, err := os.ReadFile("testdata/hdmirx-4k60.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("sys/class/hdmirx/hdmirx0/info", string(info))
+	if got := ReadHardware(root).HDMI.HDR; got != "HDR10-GAMMA_ST2084" {
+		t.Errorf("HDR = %q", got)
+	}
+}
+
+func TestSetHDRCurveValidatesBeforeHelper(t *testing.T) {
+	var calls []string
+	s := &Service{Run: func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return "", nil
+	}}
+	for _, curve := range []HDRCurve{{159, 1000}, {1001, 2000}, {203, 203}, {203, 10001}, {-1, 1000}} {
+		if err := s.SetHDRCurve(context.Background(), curve); err == nil {
+			t.Errorf("SetHDRCurve(%+v) accepted", curve)
+		}
+	}
+	if len(calls) != 0 {
+		t.Fatalf("rejected curves reached the helper: %v", calls)
+	}
+	if err := s.SetHDRCurve(context.Background(), HDRCurve{White: 203, Peak: 1000}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PreviewHDRCurve(context.Background(), HDRCurve{White: 180, Peak: 2000}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"sudo -n " + Helper + " hdr-curve 203 1000", "sudo -n " + Helper + " hdr-preview 180 2000"}
+	if !slices.Equal(calls, want) {
+		t.Errorf("calls = %v, want %v", calls, want)
+	}
 }
 
 func TestServiceRejectsUnmanagedOperations(t *testing.T) {

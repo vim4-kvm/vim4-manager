@@ -7,10 +7,14 @@ import sys
 
 # Keep in sync with internal/board/units.go. The units declare Conflicts= with
 # each other: starting one stops the other, so they never share the encoder.
-APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service'}
+APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service', 'onekvm': 'one-kvm.service'}
 # Gadget rebinds and PD renegotiation can drop the host USB link; those stay
 # with the board tools.
 PLATFORM = ('vim4-kvm-hdmi.service',)
+# HDR -> SDR curve read by hdmi-setup.sh at start. Separate from
+# vim4-kvm-hdmi because NanoKVM rewrites that file. Limits match vim4-hdr-curve.
+HDR_CONFIG = '/etc/default/vim4-kvm-hdr'
+HDR_CURVE = '/usr/sbin/vim4-hdr-curve'
 
 
 def systemctl(*args):
@@ -78,6 +82,37 @@ def wifi(enabled):
                        check=True, timeout=15, env=env)
 
 
+def nits(text, low, high):
+    if not (text.isascii() and text.isdigit()) or not low <= int(text) <= high:
+        raise ValueError(f'{text!r} must be {low}-{high} nits')
+    return int(text)
+
+
+def write_config(path, content):
+    pending = path + '.pending'
+    with open(pending, 'wb') as file:
+        file.write(content)
+        os.fchmod(file.fileno(), 0o644)
+        os.fsync(file.fileno())
+    os.replace(pending, path)
+    os.sync()
+
+
+def apply_hdr_curve(white, peak):
+    """Load the curve into the running capture; it takes effect next frame."""
+    white = nits(white, 160, 1000)
+    peak = nits(peak, white + 1, 10000)
+    subprocess.run([HDR_CURVE, 'apply', str(white), str(peak)], check=True, timeout=10,
+                   env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+    return white, peak
+
+
+def hdr_curve(white, peak):
+    """Apply the curve now and keep it for the next HDMI service start."""
+    white, peak = apply_hdr_curve(white, peak)
+    write_config(HDR_CONFIG, f'HDR_SDR_WHITE={white}\nHDR_SDR_PEAK={peak}\n'.encode())
+
+
 def main(argv):
     match argv:
         case ['select', app] if app in APPS:
@@ -86,8 +121,13 @@ def main(argv):
             restart(unit)
         case ['wifi', enabled] if enabled in ('on', 'off'):
             wifi(enabled)
+        case ['hdr-curve', white, peak]:
+            hdr_curve(white, peak)
+        case ['hdr-preview', white, peak]:
+            apply_hdr_curve(white, peak)
         case _:
-            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT | wifi on|off')
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm | restart UNIT | '
+                             'hdr-curve|hdr-preview WHITE PEAK | wifi on|off')
 
 
 if __name__ == '__main__':

@@ -1,8 +1,21 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { getStatus, restartUnit, selectApp, type App as KvmApp, type Hardware, type Platform, type Sample, type Status, type Unit, type Zone } from "./api";
-import { FanCurveChart, TrendChart, tempDomain, type Point } from "./Charts";
-
 import { WifiControl } from "./WifiControl";
+import {
+  getStatus,
+  previewHDRCurve,
+  restartUnit,
+  selectApp,
+  setHDRCurve,
+  type App as KvmApp,
+  type Hardware,
+  type Platform,
+  type Sample,
+  type Zone,
+  type Status,
+  type Unit,
+} from "./api";
+import { HDRPanel } from "./HDRPanel";
+import { FanCurveChart, TrendChart, tempDomain, type Point } from "./Charts";
 
 const POLL_MS = 3000;
 
@@ -45,6 +58,16 @@ function duration(seconds: number): string {
 function since(unit: Unit, now: number): string | undefined {
   if (!unit.since || unit.active !== "active") return undefined;
   return duration(Math.max(0, (now - Date.parse(unit.since)) / 1000));
+}
+
+// hdmi_hdr_status values: "SDR", "HDR10-GAMMA_ST2084", "HDR10-GAMMA_HLG", "HDR10Plus-VSIF", ...
+function hdrLabel(status?: string): string | undefined {
+  if (!status) return undefined;
+  if (status === "SDR") return "SDR";
+  if (status.includes("HLG")) return "HLG";
+  if (status.includes("Plus")) return "HDR10+";
+  if (status.startsWith("HDR")) return "HDR10";
+  return status;
 }
 
 function kvmURL(port: number, app: string): string {
@@ -164,7 +187,9 @@ function LinkTiles({ hw }: { hw: Hardware }) {
   const h = hw.hdmi;
   const hdmiValue = h.signal ? `${h.width}×${h.height}` : "无信号";
   const hdmiDetail = h.signal
-    ? `${h.refreshHz?.toFixed(2).replace(/\.?0+$/, "")} Hz · ${h.colorSpace} · ${h.audio ? "有声音" : "无声音"}`
+    ? [`${h.refreshHz?.toFixed(2).replace(/\.?0+$/, "")} Hz`, h.colorSpace, hdrLabel(h.hdr), h.audio ? "有声音" : "无声音"]
+        .filter(Boolean)
+        .join(" · ")
     : "检查被控机 HDMI 输出";
   const capture = h.captureWidth ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
   const usbConfigured = hw.usb === "configured";
@@ -423,7 +448,7 @@ export function App() {
           <div className="section-head">
             <h2 id="apps-title">KVM 界面</h2>
             <p className="muted">
-              两个界面共用 HDMI 采集、硬件编码器和键鼠，同一时间只运行一个。选择会在重启后保持。
+              所有界面共用 HDMI 采集、硬件编码器和键鼠，同一时间只运行一个。选择会在重启后保持。
             </p>
           </div>
           {status ? (
@@ -468,10 +493,26 @@ export function App() {
               </div>
             </section>
 
+            <section aria-labelledby="hdr-title">
+              <div className="section-head">
+                <h2 id="hdr-title">HDR 转 SDR</h2>
+                <p className="muted">被控机输出 HDR 时，采集端把它映射为 SDR 再编码。画面偏暗就提高桌面亮度，高光发白就扩大高光范围。</p>
+              </div>
+              <HDRPanel
+                curve={status.hardware.hdrCurve}
+                hdr={status.hardware.hdmi.hdr}
+                busy={!!busy}
+                onPreview={previewHDRCurve}
+                onSave={(curve) =>
+                  run("正在保存 HDR 映射…", () => setHDRCurve(curve), `HDR 映射已保存：SDR 白 ${curve.white} 尼特，高光保留到 ${curve.peak} 尼特`)
+                }
+              />
+            </section>
+
             <section aria-labelledby="platform-title">
               <div className="section-head">
                 <h2 id="platform-title">底层服务</h2>
-                <p className="muted">两个界面共用。重启 HDMI 采集时会先暂停当前界面，完成后自动恢复。</p>
+                <p className="muted">所有界面共用。重启 HDMI 采集时会先暂停当前界面，完成后自动恢复。</p>
               </div>
               <PlatformList
                 services={status.platform}
