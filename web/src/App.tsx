@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getStatus,
   previewHDRCurve,
@@ -8,10 +8,13 @@ import {
   type App as KvmApp,
   type Hardware,
   type Platform,
+  type Sample,
+  type Zone,
   type Status,
   type Unit,
 } from "./api";
 import { HDRPanel } from "./HDRPanel";
+import { FanCurveChart, TrendChart, tempDomain, type Point } from "./Charts";
 
 const POLL_MS = 3000;
 
@@ -175,16 +178,11 @@ function Tile({ label, value, detail, tone }: { label: string; value: string; de
   );
 }
 
-function Meter({ fraction, tone }: { fraction: number; tone: Tone }) {
-  const pct = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
-  return (
-    <span className={`meter meter-${tone}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
-      <span style={{ width: `${pct}%` }} />
-    </span>
-  );
+function tempTone(c: number): Tone {
+  return c >= 85 ? "critical" : c >= 70 ? "warning" : "good";
 }
 
-function HardwareTiles({ hw }: { hw: Hardware }) {
+function LinkTiles({ hw }: { hw: Hardware }) {
   const h = hw.hdmi;
   const hdmiValue = h.signal ? `${h.width}×${h.height}` : "无信号";
   const hdmiDetail = h.signal
@@ -193,8 +191,6 @@ function HardwareTiles({ hw }: { hw: Hardware }) {
         .join(" · ")
     : "检查被控机 HDMI 输出";
   const capture = h.captureWidth ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
-  const memUsed = hw.memTotalKiB ? 1 - hw.memAvailableKiB / hw.memTotalKiB : 0;
-  const tempTone: Tone = hw.tempC >= 85 ? "critical" : hw.tempC >= 70 ? "warning" : "good";
   const usbConfigured = hw.usb === "configured";
   return (
     <div className="tiles">
@@ -205,26 +201,136 @@ function HardwareTiles({ hw }: { hw: Hardware }) {
         detail={usbConfigured ? "被控机已枚举键盘与鼠标" : "等待被控机枚举"}
         tone={usbConfigured ? "good" : "warning"}
       />
-      <div className="tile">
-        <span className="tile-label">温度</span>
-        <span className="tile-value">
-          <span className={`tile-mark status-${tempTone}`} aria-hidden="true" />
-          {hw.tempC.toFixed(1)} °C
-        </span>
-        <span className="tile-detail">
-          风扇 {hw.fanPercent}% · {hw.fanAuto ? "自动" : "手动"}
-        </span>
-      </div>
-      <div className="tile">
-        <span className="tile-label">内存</span>
-        <span className="tile-value">{Math.round(memUsed * 100)}%</span>
-        <Meter fraction={memUsed} tone={memUsed > 0.9 ? "critical" : memUsed > 0.75 ? "warning" : "good"} />
-        <span className="tile-detail">
-          可用 {(hw.memAvailableKiB / 1048576).toFixed(1)} / {(hw.memTotalKiB / 1048576).toFixed(1)} GiB
-        </span>
-      </div>
       <Tile label="运行时间" value={duration(hw.uptimeSeconds)} detail={`负载 ${hw.load1.toFixed(2)} · ${hw.cpus} 核`} />
     </div>
+  );
+}
+
+const WINDOW_MS = 15 * 60 * 1000;
+
+const percent = (v: number) => `${Math.round(v)}%`;
+const celsius = (v: number) => `${v.toFixed(1)} °C`;
+
+function TrendCard({
+  title,
+  value,
+  detail,
+  tone,
+  children,
+}: {
+  title: string;
+  value: string;
+  detail: string;
+  tone?: Tone;
+  children: ReactNode;
+}) {
+  return (
+    <figure className="card trend">
+      <figcaption>
+        <span className="tile-label">{title}</span>
+        <span className="trend-value">
+          {tone && <span className={`tile-mark status-${tone}`} aria-hidden="true" />}
+          {value}
+        </span>
+        <span className="tile-detail">{detail}</span>
+      </figcaption>
+      {children}
+    </figure>
+  );
+}
+
+function range(values: number[], format: (v: number) => string): string {
+  if (!values.length) return "正在采样";
+  return `15 分钟 ${format(Math.min(...values))} – ${format(Math.max(...values))}`;
+}
+
+function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; now: number }) {
+  const [hover, setHover] = useState<number>();
+  const series = (pick: (s: Sample) => number): Point[] => history.map((s) => ({ t: s.t, v: pick(s) }));
+  const cpu = series((s) => s.cpu);
+  const mem = series((s) => s.mem);
+  const temp = series((s) => s.tempC);
+  const fan = series((s) => s.fan);
+  const end = Math.max(now, history.length ? history[history.length - 1].t : 0);
+  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover };
+  const memUsed = hw.memTotalKiB ? 1 - hw.memAvailableKiB / hw.memTotalKiB : 0;
+  const lastCPU = cpu.length ? cpu[cpu.length - 1].v : undefined;
+  const hottest = hw.zones.reduce<Zone | undefined>((a, z) => (!a || z.tempC > a.tempC ? z : a), undefined);
+  return (
+    <div className="trends">
+      <TrendCard title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent)}`}>
+        <TrendChart label="CPU 使用率" points={cpu} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
+      </TrendCard>
+      <TrendCard
+        title="内存"
+        value={percent(memUsed * 100)}
+        detail={`可用 ${(hw.memAvailableKiB / 1048576).toFixed(1)} / ${(hw.memTotalKiB / 1048576).toFixed(1)} GiB`}
+        tone={memUsed > 0.9 ? "critical" : memUsed > 0.75 ? "warning" : undefined}
+      >
+        <TrendChart label="内存占用" points={mem} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
+      </TrendCard>
+      <TrendCard
+        title="SoC 温度"
+        value={celsius(hw.tempC)}
+        detail={hottest && hottest.name !== "soc" ? `最高 ${hottest.name.toUpperCase()} ${celsius(hottest.tempC)}` : range(temp.map((p) => p.v), celsius)}
+        tone={tempTone(hw.tempC)}
+      >
+        {(() => {
+          const domain = tempDomain(temp.map((p) => p.v));
+          const ticks = [domain[0], (domain[0] + domain[1]) / 2, domain[1]];
+          return <TrendChart label="SoC 温度" points={temp} domain={domain} ticks={ticks} format={celsius} {...shared} />;
+        })()}
+      </TrendCard>
+      <TrendCard
+        title="风扇"
+        value={hw.fanPercent > 0 ? `${hw.fanPercent}%` : "停转"}
+        detail={`${hw.fanAuto ? "自动调速" : "手动"} · 占空比，无转速反馈`}
+      >
+        <TrendChart label="风扇占空比" points={fan} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
+      </TrendCard>
+    </div>
+  );
+}
+
+function Thermal({ hw }: { hw: Hardware }) {
+  const max = 100;
+  return (
+    <div className="thermal">
+      <section className="card" aria-labelledby="zones-title">
+        <h3 id="zones-title" className="tile-label">
+          各区温度
+        </h3>
+        <ul className="zones">
+          {hw.zones.map((z) => (
+            <li key={z.name}>
+              <span className="zone-name">{z.name.toUpperCase()}</span>
+              <Meter fraction={z.tempC / max} tone={tempTone(z.tempC)} />
+              <span className="zone-value">{celsius(z.tempC)}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+      {hw.fanCurve && (
+        <section className="card" aria-labelledby="curve-title">
+          <h3 id="curve-title" className="tile-label">
+            {hw.fanAuto ? "自动风扇曲线" : "自动风扇曲线（当前为手动）"}
+          </h3>
+          <p className="tile-detail">
+            按 SoC 温度设定占空比，每 30 秒最多变化 5%；圆点为当前 {hw.tempC.toFixed(1)} °C · {hw.fanPercent}%
+          </p>
+          <FanCurveChart curve={hw.fanCurve} tempC={hw.tempC} percent={hw.fanPercent} />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function Meter({ fraction, tone }: { fraction: number; tone: Tone }) {
+  const pct = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
+  return (
+    <span className={`meter meter-${tone}`} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+      <span style={{ width: `${pct}%` }} />
+    </span>
   );
 }
 
@@ -375,8 +481,13 @@ export function App() {
             <section aria-labelledby="board-title">
               <div className="section-head">
                 <h2 id="board-title">板子状态</h2>
+                <p className="muted">趋势每 5 秒采样，保留最近 15 分钟，管理服务重启后重新开始。</p>
               </div>
-              <HardwareTiles hw={status.hardware} />
+              <div className="board">
+                <LinkTiles hw={status.hardware} />
+                <BoardCharts hw={status.hardware} history={status.history} now={now} />
+                <Thermal hw={status.hardware} />
+              </div>
             </section>
 
             <section aria-labelledby="hdr-title">

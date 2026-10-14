@@ -34,19 +34,34 @@ var DefaultHDRCurve = HDRCurve{White: 203, Peak: 1000}
 
 // Hardware holds sysfs and procfs readings. Unreadable values stay zero.
 type Hardware struct {
-	Hostname  string   `json:"hostname"`
-	Kernel    string   `json:"kernel"`
-	UptimeSec float64  `json:"uptimeSeconds"`
-	Load1     float64  `json:"load1"`
-	CPUs      int      `json:"cpus"`
-	MemTotal  int64    `json:"memTotalKiB"`
-	MemAvail  int64    `json:"memAvailableKiB"`
-	TempC     float64  `json:"tempC"`
-	FanAuto   bool     `json:"fanAuto"`
-	FanPct    int      `json:"fanPercent"`
-	USB       string   `json:"usb"`
-	HDMI      HDMI     `json:"hdmi"`
-	HDRCurve  HDRCurve `json:"hdrCurve"`
+	Hostname  string  `json:"hostname"`
+	Kernel    string  `json:"kernel"`
+	UptimeSec float64 `json:"uptimeSeconds"`
+	Load1     float64 `json:"load1"`
+	CPUs      int     `json:"cpus"`
+	MemTotal  int64   `json:"memTotalKiB"`
+	MemAvail  int64   `json:"memAvailableKiB"`
+	TempC     float64 `json:"tempC"`
+	Zones     []Zone  `json:"zones"`
+	FanAuto   bool    `json:"fanAuto"`
+	FanPct    int     `json:"fanPercent"`
+	// The MCU fan has no tachometer; FanCurve is the auto-mode target duty.
+	FanCurve []CurvePoint `json:"fanCurve,omitempty"`
+	USB      string       `json:"usb"`
+	HDMI     HDMI         `json:"hdmi"`
+	HDRCurve HDRCurve     `json:"hdrCurve"`
+}
+
+// Zone is one readable thermal zone, named without the "_thermal" suffix.
+type Zone struct {
+	Name  string  `json:"name"`
+	TempC float64 `json:"tempC"`
+}
+
+// CurvePoint is a vertex of the fan curve: duty percent at a temperature.
+type CurvePoint struct {
+	TempC   int `json:"tempC"`
+	Percent int `json:"percent"`
 }
 
 // ReadHardware reads from root, which is "/" on the board and a fixture in tests.
@@ -65,22 +80,15 @@ func ReadHardware(root string) Hardware {
 		h.Load1, _ = strconv.ParseFloat(fields[0], 64)
 	}
 	h.CPUs = strings.Count(read("proc/cpuinfo"), "processor\t:")
-	for _, line := range strings.Split(read("proc/meminfo"), "\n") {
-		key, value, _ := strings.Cut(line, ":")
-		kib, _ := strconv.ParseInt(strings.TrimSuffix(strings.TrimSpace(value), " kB"), 10, 64)
-		switch key {
-		case "MemTotal":
-			h.MemTotal = kib
-		case "MemAvailable":
-			h.MemAvail = kib
-		}
-	}
+	h.MemTotal, h.MemAvail = memInfo(read("proc/meminfo"))
 	// thermal_zone0 is soc_thermal on VIM4; the fan curve also follows it.
 	if milli, err := strconv.Atoi(read("sys/class/thermal/thermal_zone0/temp")); err == nil {
 		h.TempC = float64(milli) / 1000
 	}
+	h.Zones = readZones(root)
 	h.FanAuto = afterColon(read("sys/class/fan/mode")) == "1"
 	h.FanPct, _ = strconv.Atoi(afterColon(read("sys/class/fan/speed")))
+	h.FanCurve = fanCurve(read("sys/class/fan/temp"))
 	if states, _ := filepath.Glob(filepath.Join(root, "sys/class/udc/*/state")); len(states) > 0 {
 		data, _ := os.ReadFile(states[0])
 		h.USB = strings.TrimSpace(string(data))
@@ -98,6 +106,47 @@ func ReadHardware(root string) Hardware {
 func afterColon(line string) string {
 	_, value, _ := strings.Cut(line, ":")
 	return strings.TrimSpace(value)
+}
+
+func readZones(root string) []Zone {
+	dirs, _ := filepath.Glob(filepath.Join(root, "sys/class/thermal/thermal_zone*"))
+	zones := []Zone{}
+	for _, dir := range dirs {
+		name, err1 := os.ReadFile(filepath.Join(dir, "type"))
+		temp, err2 := os.ReadFile(filepath.Join(dir, "temp"))
+		milli, err3 := strconv.Atoi(strings.TrimSpace(string(temp)))
+		// nna_thermal returns EINVAL while the NPU is powered down.
+		if err1 != nil || err2 != nil || err3 != nil {
+			continue
+		}
+		zones = append(zones, Zone{
+			Name:  strings.TrimSuffix(strings.TrimSpace(string(name)), "_thermal"),
+			TempC: float64(milli) / 1000,
+		})
+	}
+	return zones
+}
+
+// fanCurve mirrors mcu_fan_auto_speed_percent in drivers/misc/khadas-mcu.c:
+// off below level0-15, then linear through 5%, 25%, 35%, 70% and 100% at
+// level0-15, level0-5, level0, level1 and level2. The input is the fan temp
+// attribute, whose second line is "Fan trigger temperature: level0:60 ...".
+func fanCurve(attr string) []CurvePoint {
+	var levels [3]int
+	for _, field := range strings.Fields(attr) {
+		key, value, _ := strings.Cut(field, ":")
+		for i := range levels {
+			if key == "level"+strconv.Itoa(i) {
+				levels[i], _ = strconv.Atoi(value)
+			}
+		}
+	}
+	if levels[0] <= 0 || levels[1] <= levels[0] || levels[2] <= levels[1] {
+		return nil
+	}
+	start := max(levels[0]-15, 0)
+	daily := max(levels[0]-5, start+1)
+	return []CurvePoint{{start, 5}, {daily, 25}, {levels[0], 35}, {levels[1], 70}, {levels[2], 100}}
 }
 
 func parseHDMI(info string) HDMI {
