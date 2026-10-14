@@ -21,9 +21,11 @@ PIKVM_USB_STATE = Path('/run/vim4-pikvm-usb/state.json')
 PIKVM_LUN_FILE = Path('/sys/kernel/config/usb_gadget/kvm/functions/mass_storage.disk0/lun.0/file')
 
 
-def check_pikvm_media():
+def check_pikvm_media(entering=False):
     if PIKVM_USB_STATE.exists() and PIKVM_LUN_FILE.read_text().strip():
         raise ValueError('Eject the PiKVM virtual disk on the USB host before switching or restarting')
+    if entering and PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
+        raise ValueError('请先在被控主机安全弹出虚拟磁盘，再切换到 PiKVM；原界面保持运行')
 
 
 def systemctl(*args):
@@ -37,7 +39,7 @@ def installed(unit):
 
 
 def select(app):
-    check_pikvm_media()
+    check_pikvm_media(entering=app == 'pikvm')
     unit = APPS[app]
     if not installed(unit):
         raise ValueError(f'{unit} is not installed')
@@ -58,7 +60,7 @@ def select(app):
 def restart(unit):
     if unit not in (*APPS.values(), *PLATFORM):
         raise ValueError('Unit is not managed')
-    check_pikvm_media()
+    check_pikvm_media(entering=unit == APPS['pikvm'])
     if unit in APPS.values():
         others = [other for other in APPS.values() if other != unit and installed(other)]
         if others:

@@ -13,6 +13,20 @@ loader.exec_module(helper)
 
 
 class HelperTest(unittest.TestCase):
+    def test_existing_app_media_blocks_entering_pikvm_before_service_changes(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        lun = root / 'lun'
+        lun.write_text('/var/lib/vim4-kvm/usb/disk.img\n')
+        with patch.object(helper, 'PIKVM_USB_STATE', root / 'absent-state'), patch.object(helper, 'PIKVM_LUN_FILE', lun):
+            for args in (['select', 'pikvm'], ['restart', 'vim4-pikvm.service']):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, '安全弹出虚拟磁盘'):
+                    helper.main(args)
+            self.assertEqual(self.calls, [])
+            lun.write_text('\n')
+            with patch.object(helper, 'installed', return_value=True), patch.object(helper.os, 'sync'):
+                helper.main(['select', 'pikvm'])
+            self.assertIn(('restart', 'vim4-pikvm.service'), self.calls)
+
     def test_mounted_pikvm_media_blocks_switch_before_any_service_change(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         state, lun = root / 'state', root / 'lun'
