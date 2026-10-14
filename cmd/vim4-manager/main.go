@@ -26,10 +26,13 @@ func main() {
 		slog.Error("frontend", "error", err)
 		os.Exit(1)
 	}
-	service := &board.Service{Run: board.Exec, Root: "/"}
+	// 180 samples at 5 s cover the last 15 minutes of the trend charts.
+	history := &board.History{Root: "/", Capacity: 180}
+	service := &board.Service{Run: board.Exec, Root: "/", History: history}
 	server := &http.Server{Addr: *listen, Handler: web.Handler(service, assets), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go history.Run(ctx, 5*time.Second)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

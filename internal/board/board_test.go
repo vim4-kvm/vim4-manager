@@ -5,8 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestQueryUnitsMapsMissingUnitsByPosition(t *testing.T) {
@@ -61,12 +63,28 @@ func TestReadHardware(t *testing.T) {
 	write("sys/class/thermal/thermal_zone0/temp", "52800\n")
 	write("sys/class/fan/mode", "Fan mode: 1\n")
 	write("sys/class/fan/speed", "Fan speed: 15\n")
+	write("sys/class/fan/temp", "cpu_temp:52\nFan trigger temperature: level0:60 level1:80 level2:100\n")
+	write("sys/class/thermal/thermal_zone0/type", "soc_thermal\n")
+	write("sys/class/thermal/thermal_zone3/type", "nna_thermal\n")
+	write("sys/class/thermal/thermal_zone3/temp", "")
 	write("sys/class/udc/fdd00000.crgudc2/state", "configured\n")
 	write("proc/meminfo", "MemTotal:        7990828 kB\nMemAvailable:    6775820 kB\n")
 	write("etc/default/vim4-kvm-hdmi", "HDMI_WIDTH=1920\nHDMI_HEIGHT=\"1080\"\n")
 	h := ReadHardware(root)
 	if h.TempC != 52.8 || !h.FanAuto || h.FanPct != 15 || h.USB != "configured" || h.MemAvail != 6775820 {
 		t.Errorf("ReadHardware = %+v", h)
+	}
+	// The powered-down NPU zone fails to read and is skipped.
+	if len(h.Zones) != 1 || h.Zones[0] != (Zone{"soc", 52.8}) {
+		t.Errorf("zones = %+v", h.Zones)
+	}
+	// docs/kernel.md: 45°C→5%, 55°C→25%, 60°C→35%, 80°C→70%, 100°C→100%.
+	want := []CurvePoint{{45, 5}, {55, 25}, {60, 35}, {80, 70}, {100, 100}}
+	if !slices.Equal(h.FanCurve, want) {
+		t.Errorf("fan curve = %v, want %v", h.FanCurve, want)
+	}
+	if fanCurve("cpu_temp:50\n") != nil {
+		t.Error("curve without thresholds")
 	}
 	if h.HDMI.Signal || h.HDMI.CaptureW != 1920 || h.HDMI.CaptureH != 1080 {
 		t.Errorf("HDMI = %+v", h.HDMI)
@@ -145,5 +163,35 @@ func TestStatusReportsEnabledAppAsSelected(t *testing.T) {
 		if p.Restartable != (p.Unit.Name == "vim4-kvm-hdmi.service") {
 			t.Errorf("%s restartable = %v", p.Unit.Name, p.Restartable)
 		}
+	}
+}
+
+func TestHistoryRecordsCPUBetweenReadingsAndDropsOldest(t *testing.T) {
+	root := t.TempDir()
+	write := func(path, content string) {
+		full := filepath.Join(root, path)
+		_ = os.MkdirAll(filepath.Dir(full), 0o755)
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("proc/meminfo", "MemTotal: 1000 kB\nMemAvailable: 250 kB\n")
+	write("sys/class/fan/speed", "Fan speed: 40\n")
+	h := &History{Root: root, Capacity: 2}
+	// user nice system idle iowait irq softirq steal guest guest_nice
+	stats := []string{
+		"cpu  100 0 100 700 100 0 0 0 0 0\ncpu0 1 1 1 1\n",
+		"cpu  200 0 100 750 150 0 0 0 0 0\n", // 100 busy of 200
+		"cpu  200 0 100 850 150 0 0 0 0 0\n", // idle only
+		"cpu  300 0 200 850 150 0 0 0 0 0\n", // busy only
+	}
+	start := time.Unix(1000, 0)
+	for i, stat := range stats {
+		write("proc/stat", stat)
+		h.Sample(start.Add(time.Duration(i) * 5 * time.Second))
+	}
+	got := h.Samples()
+	if len(got) != 2 || got[0].CPU != 0 || got[1].CPU != 100 || got[1].Mem != 75 || got[1].FanPct != 40 || got[1].UnixMs != 1015000 {
+		t.Errorf("samples = %+v", got)
 	}
 }

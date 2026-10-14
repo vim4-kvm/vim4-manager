@@ -18,9 +18,10 @@ var ErrBusy = errors.New("另一项操作正在进行")
 
 // Service answers dashboard queries and serializes privileged operations.
 type Service struct {
-	Run  Runner
-	Root string
-	mu   sync.Mutex
+	Run     Runner
+	Root    string
+	History *History
+	mu      sync.Mutex
 }
 
 // Status is the complete dashboard state.
@@ -29,6 +30,7 @@ type Status struct {
 	Apps     []AppState `json:"apps"`
 	Platform []Platform `json:"platform"`
 	Hardware Hardware   `json:"hardware"`
+	History  []Sample   `json:"history"`
 }
 
 // AppState combines an App with its systemd unit.
@@ -61,7 +63,10 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	status := Status{Hardware: ReadHardware(s.Root)}
+	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}}
+	if s.History != nil {
+		status.History = s.History.Samples()
+	}
 	for _, app := range Apps {
 		unit := units[app.Unit]
 		status.Apps = append(status.Apps, AppState{App: app, Unit: unit})

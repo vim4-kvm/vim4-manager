@@ -33,6 +33,24 @@ export interface HDMI {
   captureHeight?: number;
 }
 
+export interface Zone {
+  name: string;
+  tempC: number;
+}
+
+export interface CurvePoint {
+  tempC: number;
+  percent: number;
+}
+
+export interface Sample {
+  t: number;
+  cpu: number;
+  mem: number;
+  tempC: number;
+  fan: number;
+}
+
 export interface Hardware {
   hostname: string;
   kernel: string;
@@ -42,8 +60,10 @@ export interface Hardware {
   memTotalKiB: number;
   memAvailableKiB: number;
   tempC: number;
+  zones: Zone[];
   fanAuto: boolean;
   fanPercent: number;
+  fanCurve?: CurvePoint[];
   usb: string;
   hdmi: HDMI;
 }
@@ -53,6 +73,7 @@ export interface Status {
   apps: App[];
   platform: Platform[];
   hardware: Hardware;
+  history: Sample[];
 }
 
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
