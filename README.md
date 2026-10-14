@@ -1,10 +1,10 @@
 # vim4-manager
 
-VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM 或 JetKVM），
+VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM 或 One-KVM），
 查看 HDMI、USB、温度等板子状态和底层服务。监听 **80** 端口，KVM 界面仍在 8080。
 
-两个界面共用 HDMI 采集、硬件编码器、HID 端点和 8080 端口，同一时间只运行一个。
-nanokvm.service 与 vim4-kvm.service 互相 Conflicts=；管理器会等待旧服务退出后
+三个界面共用 HDMI 采集、硬件编码器、HID 端点和 8080 端口，同一时间只运行一个。
+nanokvm.service、vim4-kvm.service 与 one-kvm.service 互相 Conflicts=；管理器会等待旧服务退出后
 再启动另一个，避免端口和编码器仍被旧进程占用。
 
 ## 结构
@@ -20,8 +20,8 @@ nanokvm.service 与 vim4-kvm.service 互相 Conflicts=；管理器会等待旧�
 服务以 khadas 运行，用 CAP_NET_BIND_SERVICE 绑定 80 端口；特权操作通过 sudoers
 只允许调用 /usr/libexec/vim4-manager-helper：
 
-- `select nanokvm|jetkvm`：先禁用另一个、启用并重启所选，最后 sync。
-- `restart nanokvm.service|vim4-kvm.service|vim4-kvm-hdmi.service`：重启 HDMI
+- `select nanokvm|jetkvm|onekvm`：先禁用并停止其余应用、启用并重启所选，最后 sync。
+- `restart nanokvm.service|vim4-kvm.service|one-kvm.service|vim4-kvm-hdmi.service`：重启 HDMI
   采集前先停止运行中的界面，完成后再启动。
 
 - `hdr-curve WHITE PEAK`：校验后原子写入 /etc/default/vim4-kvm-hdr（HDR 输入映射为

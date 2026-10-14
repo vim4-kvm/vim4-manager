@@ -26,8 +26,8 @@ class HelperTest(unittest.TestCase):
     def test_select_disables_other_before_enabling(self):
         with patch.object(helper, 'installed', return_value=True), patch.object(helper.os, 'sync') as sync:
             helper.main(['select', 'jetkvm'])
-        self.assertEqual(self.calls, [('disable', 'nanokvm.service'), ('enable', 'vim4-kvm.service'),
-                                      ('stop', 'nanokvm.service'),
+        self.assertEqual(self.calls, [('disable', 'nanokvm.service', 'one-kvm.service'), ('enable', 'vim4-kvm.service'),
+                                      ('stop', 'nanokvm.service', 'one-kvm.service'),
                                       ('restart', 'vim4-kvm.service')])
         sync.assert_called_once()
 
@@ -45,7 +45,17 @@ class HelperTest(unittest.TestCase):
     def test_restart_also_waits_for_other_application(self):
         with patch.object(helper, 'installed', return_value=True):
             helper.main(['restart', 'nanokvm.service'])
-        self.assertEqual(self.calls, [('stop', 'vim4-kvm.service'), ('restart', 'nanokvm.service')])
+        self.assertEqual(self.calls, [('stop', 'vim4-kvm.service', 'one-kvm.service'), ('restart', 'nanokvm.service')])
+
+    def test_all_three_apps_release_resources_before_replacement(self):
+        for app, unit in helper.APPS.items():
+            with self.subTest(app=app), patch.object(helper, 'installed', return_value=True), patch.object(helper.os, 'sync'):
+                self.calls.clear()
+                helper.main(['select', app])
+                stopped = next(call[1:] for call in self.calls if call[0] == 'stop')
+                self.assertEqual(set(stopped), set(helper.APPS.values()) - {unit})
+                self.assertLess(next(i for i, call in enumerate(self.calls) if call[0] == 'stop'),
+                                next(i for i, call in enumerate(self.calls) if call[0] == 'restart'))
 
     def test_select_requires_installed_unit(self):
         with patch.object(helper, 'installed', side_effect=lambda unit: unit == 'nanokvm.service'):

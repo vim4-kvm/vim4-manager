@@ -7,7 +7,7 @@ import sys
 
 # Keep in sync with internal/board/units.go. The units declare Conflicts= with
 # each other: starting one stops the other, so they never share the encoder.
-APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service'}
+APPS = {'nanokvm': 'nanokvm.service', 'jetkvm': 'vim4-kvm.service', 'onekvm': 'one-kvm.service'}
 # Gadget rebinds and PD renegotiation can drop the host USB link; those stay
 # with the board tools.
 PLATFORM = ('vim4-kvm-hdmi.service',)
@@ -109,7 +109,7 @@ def main(argv):
         case ['hdr-preview', white, peak]:
             apply_hdr_curve(white, peak)
         case _:
-            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT | '
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm | restart UNIT | '
                              'hdr-curve|hdr-preview WHITE PEAK')
 
 
