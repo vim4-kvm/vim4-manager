@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStatus, restartUnit, selectApp, type App as KvmApp, type Hardware, type Platform, type Status, type Unit } from "./api";
 
+import { WifiControl } from "./WifiControl";
+
 const POLL_MS = 3000;
 
 type Tone = "good" | "warning" | "critical" | "idle";
@@ -345,6 +347,8 @@ export function App() {
           )}
           {status && !active && <p className="hint">尚未启用任何界面，选择一个即可开机自动启动。</p>}
         </section>
+
+        <WifiControl busy={!!busy} />
 
         {status && (
           <>

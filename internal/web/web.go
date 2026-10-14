@@ -18,6 +18,29 @@ import (
 // Handler builds the HTTP routes. assets is the built frontend (index.html at its root).
 func Handler(service *board.Service, assets fs.FS) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/wifi", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+		defer cancel()
+		state, err := service.Wifi(ctx)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, state)
+	})
+	mux.HandleFunc("POST /api/wifi", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		if request.Enabled == nil {
+			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 布尔值"))
+			return
+		}
+		respond(w, service.SetWifi(r.Context(), *request.Enabled))
+	})
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()

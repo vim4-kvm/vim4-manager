@@ -55,8 +55,9 @@ export interface Status {
   hardware: Hardware;
 }
 
-async function request<T>(path: string, body?: unknown): Promise<T> {
+export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, {
+    signal,
     method: body === undefined ? "GET" : "POST",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),

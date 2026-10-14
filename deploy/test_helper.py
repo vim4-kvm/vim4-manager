@@ -11,6 +11,27 @@ loader.exec_module(helper)
 
 
 class HelperTest(unittest.TestCase):
+    def test_wifi_enable_restores_primary_link_only(self):
+        result = type('Result', (), {'stdout': 'eth0:ethernet\nwlan0:wifi\nwlan1:wifi\n'})()
+        with patch.object(helper.subprocess, 'run', return_value=result) as run:
+            helper.main(['wifi', 'on'])
+        self.assertEqual([call.args[0] for call in run.call_args_list][1:], [
+            ['nmcli', 'radio', 'wifi', 'on'], ['ip', 'link', 'set', 'dev', 'wlan0', 'up']])
+
+    def test_wifi_disable_does_not_restore_link(self):
+        result = type('Result', (), {'stdout': 'wlan0:wifi\n'})()
+        with patch.object(helper.subprocess, 'run', return_value=result) as run:
+            helper.main(['wifi', 'off'])
+        self.assertEqual(len(run.call_args_list), 2)
+        self.assertEqual(run.call_args.args[0], ['nmcli', 'radio', 'wifi', 'off'])
+
+    def test_wifi_missing_adapter_does_not_change_radio(self):
+        result = type('Result', (), {'stdout': 'eth0:ethernet\n'})()
+        with patch.object(helper.subprocess, 'run', return_value=result) as run:
+            with self.assertRaises(ValueError):
+                helper.main(['wifi', 'on'])
+        self.assertEqual(run.call_count, 1)
+
     def setUp(self):
         self.calls = []
         self.active = set()

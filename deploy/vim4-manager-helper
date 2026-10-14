@@ -63,14 +63,31 @@ def restart(unit):
             systemctl('start', *active)
 
 
+def wifi(enabled):
+    env = {'LC_ALL': 'C.UTF-8', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}
+    result = subprocess.run(['nmcli', '-t', '-f', 'DEVICE,TYPE', 'device'],
+                            check=True, capture_output=True, text=True, timeout=10, env=env)
+    devices = [line.rsplit(':', 1)[0] for line in result.stdout.splitlines() if line.endswith(':wifi')]
+    if not devices:
+        raise ValueError('No Wi-Fi adapter is available')
+    subprocess.run(['nmcli', 'radio', 'wifi', enabled], check=True, timeout=15, env=env)
+    if enabled == 'on':
+        # On VIM4 NetworkManager can report enabled while the primary link is
+        # still down. Bring it up so scans can run without a saved connection.
+        subprocess.run(['ip', 'link', 'set', 'dev', devices[0], 'up'],
+                       check=True, timeout=15, env=env)
+
+
 def main(argv):
     match argv:
         case ['select', app] if app in APPS:
             select(app)
         case ['restart', unit]:
             restart(unit)
+        case ['wifi', enabled] if enabled in ('on', 'off'):
+            wifi(enabled)
         case _:
-            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT')
+            raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm | restart UNIT | wifi on|off')
 
 
 if __name__ == '__main__':
