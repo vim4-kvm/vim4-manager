@@ -22,6 +22,7 @@ import {
 import { HDRPanel } from "./HDRPanel";
 import { TrendChart, tempDomain, type Point } from "./Charts";
 import { FanPanel } from "./FanPanel";
+import { UpdatesPanel } from "./UpdatesPanel";
 
 const POLL_MS = 3000;
 
@@ -561,7 +562,7 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-type PageId = "overview" | "apps" | "video" | "cooling" | "network" | "services";
+type PageId = "overview" | "apps" | "video" | "cooling" | "network" | "services" | "updates";
 
 const ICONS: Record<PageId, ReactNode> = {
   overview: <path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z" />,
@@ -591,6 +592,7 @@ const ICONS: Record<PageId, ReactNode> = {
       <path d="M7 7h.01M7 17h.01" />
     </>
   ),
+  updates: <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />,
 };
 
 const PAGES: { id: PageId; title: string; description?: string }[] = [
@@ -600,6 +602,7 @@ const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "cooling", title: "散热" },
   { id: "network", title: "网络" },
   { id: "services", title: "底层服务", description: "重启 HDMI 采集会先暂停当前界面，完成后自动恢复。" },
+  { id: "updates", title: "更新" },
 ];
 
 function pageFromHash(): PageId {
@@ -774,6 +777,7 @@ export function App() {
         )}
 
         {page === "network" && <WifiControl busy={!!busy} />}
+        {page === "updates" && <UpdatesPanel busy={!!busy} run={run} active={status?.active} />}
         {page === "video" && (
           <Section title="EDID" description="被控电脑看到的显示器型号与能力。">
             <EDIDPanel busy={!!busy} run={run} />
@@ -781,7 +785,7 @@ export function App() {
         )}
 
         {!status ? (
-          page !== "network" && page !== "video" && <div className="skeleton" />
+          page !== "network" && page !== "video" && page !== "updates" && <div className="skeleton" />
         ) : (
           <>
             {page === "overview" && hw && (

@@ -12,6 +12,9 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 # Restore the saved fan curve as root ("+"); a failure must not keep the
 # dashboard from starting ("-").
 ExecStartPre=-+/usr/libexec/vim4-manager-helper fan-restore
+# Release downloads; the root helper installs from updates/ without following links.
+StateDirectory=vim4-manager vim4-manager/updates
+StateDirectoryMode=0700
 ExecStart=/opt/vim4-manager/vim4-manager -listen :80
 Restart=on-failure
 RestartSec=3

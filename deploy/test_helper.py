@@ -1,3 +1,4 @@
+import hashlib
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -223,6 +224,69 @@ class HelperTest(unittest.TestCase):
             with self.subTest(argv=argv), self.assertRaises(ValueError):
                 helper.main(argv)
         self.assertEqual(self.calls, [])
+
+
+    def update(self, data=b'package', checksum=None, installed='2.5.1+vim4.20261015.1',
+               plan='Inst vim4-pikvm [2.5.1+vim4.20261015.1] (2.5.1+vim4.20261016.1)\n', active=False, mounted=False):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        downloads = root / 'downloads'
+        downloads.mkdir()
+        lun = root / 'lun'
+        lun.write_text('/var/lib/kvmd/msd/disk.img' if mounted else '')
+        (downloads / 'vim4-pikvm.deb').write_bytes(data)
+        version, commands = '2.5.1+vim4.20261016.1', []
+        fields = {'Package': 'vim4-pikvm', 'Architecture': 'arm64', 'Version': version}
+
+        def update_run(*args):
+            commands.append(args[0])
+            return fields[args[3]] if args[0] == 'dpkg-deb' else plan if args[0] == 'apt-get' else ''
+
+        def run(args, **kwargs):
+            commands.append(' '.join(args[:2]))
+            code = {'dpkg-query': 0, 'dpkg': 0 if installed < version else 1,
+                    'systemctl': 0 if active else 3, 'systemd-run': 0}[args[0]]
+            return type('Result', (), {'returncode': code, 'stdout': installed})()
+        with patch.object(helper, 'UPDATE_DOWNLOADS', downloads), patch.object(helper, 'UPDATE_STAGING', root / 'staging'), \
+                patch.object(helper, 'PIKVM_LUN_FILE', lun), patch.object(helper, 'PIKVM_USB_STATE', root / 'absent'), \
+                patch.object(helper, 'update_run', side_effect=update_run), \
+                patch.object(helper.subprocess, 'run', side_effect=run), patch.object(helper.os, 'sync'):
+            helper.main(['update', 'vim4-pikvm', checksum or hashlib.sha256(data).hexdigest(), version])
+        return commands
+
+    def test_update_installs_verified_newer_package_and_restarts_running_service(self):
+        commands = self.update(active=True)
+        self.assertIn('dpkg', commands)
+        self.assertLess(commands.index('apt-get'), commands.index('dpkg'))
+        self.assertEqual(commands[-1], 'systemd-run --on-active=3')
+
+    def test_update_does_not_start_stopped_service(self):
+        self.assertNotIn('systemd-run --on-active=3', self.update())
+
+    def test_update_rejects_unsafe_packages_before_dpkg(self):
+        for name, kwargs, message in (
+                ('checksum', dict(checksum='0' * 64), 'SHA256'),
+                ('downgrade', dict(installed='2.5.1+vim4.20261017.1'), 'not newer'),
+                ('missing', dict(installed=''), 'not installed'),
+                ('platform', dict(plan='Inst vim4-amlvenc [1] (2)\nInst vim4-pikvm [1] (2)\n'), 'platform'),
+                ('removal', dict(plan='Remv vim4-nanokvm [1]\n'), 'platform')):
+            with self.subTest(name), self.assertRaisesRegex(ValueError, message):
+                self.update(**kwargs)
+
+    def test_update_refuses_mounted_media(self):
+        with self.assertRaisesRegex(ValueError, '安全弹出虚拟磁盘'):
+            self.update(mounted=True)
+
+    def test_update_rejects_other_packages_and_linked_downloads(self):
+        for argv in (['update', 'vim4-nanokvm', '0' * 64, '2.5.1+vim4.20261016.1'],
+                     ['update', 'vim4-pikvm', 'bad', '2.5.1+vim4.20261016.1'],
+                     ['update', 'vim4-pikvm', '0' * 64, '2.5.1']):
+            with self.subTest(argv=argv), self.assertRaises(ValueError):
+                helper.main(argv)
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (root / 'secret').write_bytes(b'x')
+        (root / 'vim4-pikvm.deb').symlink_to(root / 'secret')
+        with patch.object(helper, 'UPDATE_DOWNLOADS', root), self.assertRaises(OSError):
+            helper.open_download('vim4-pikvm')
 
 
 if __name__ == '__main__':

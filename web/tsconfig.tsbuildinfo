@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/charts.tsx","./src/edidpanel.tsx","./src/fanpanel.tsx","./src/hdrpanel.tsx","./src/wificontrol.tsx","./src/api.ts","./src/main.tsx"],"version":"5.9.3"}
+{"root":["./src/app.tsx","./src/charts.tsx","./src/edidpanel.tsx","./src/fanpanel.tsx","./src/hdrpanel.tsx","./src/updatespanel.tsx","./src/wificontrol.tsx","./src/api.ts","./src/main.tsx"],"version":"5.9.3"}

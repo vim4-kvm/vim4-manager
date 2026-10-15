@@ -1772,3 +1772,17 @@ main {
     display: none;
   }
 }
+
+.updates-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.update-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+}

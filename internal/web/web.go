@@ -109,6 +109,20 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		}
 		respond(w, service.SetFanCurve(r.Context(), triggers))
 	})
+	mux.HandleFunc("GET /api/updates", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		defer cancel()
+		writeJSON(w, http.StatusOK, service.Updates(ctx))
+	})
+	mux.HandleFunc("POST /api/updates", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Package string `json:"package"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		respond(w, service.Update(r.Context(), request.Package))
+	})
 	files := http.FileServerFS(assets)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {

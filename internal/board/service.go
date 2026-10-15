@@ -25,6 +25,7 @@ type Service struct {
 	Root    string
 	History *History
 	Events  *Events
+	Updater *Updater
 	mu      sync.Mutex
 
 	pkgMu    sync.Mutex
@@ -177,7 +178,7 @@ func (s *Service) helper(ctx context.Context, args ...string) error {
 	}
 	defer s.mu.Unlock()
 	timeout := 90 * time.Second
-	if len(args) > 0 && args[0] == "edid-select" {
+	if len(args) > 0 && (args[0] == "edid-select" || args[0] == "update") {
 		// Finish configuration recovery even if the browser disconnects.
 		ctx = context.WithoutCancel(ctx)
 		timeout = 8 * time.Minute

@@ -74,6 +74,18 @@ VIM4_MANAGER 覆盖）。
 
 ## 已知限制
 
+更新页从各应用的公开 GitHub Release 查询版本。NanoKVM、JetKVM、One-KVM
+使用自己的设置页安装；PiKVM 和管理面板可以直接在管理器中更新。
+下载经过大小和 SHA256 校验，特权助手再验证包名、ARM64 架构和递增版本，
+拒绝会修改其他包的 APT 安装计划。PiKVM 挂载虚拟介质时必须先安全弹出。
+更新只重启正在运行的目标服务，不切换当前 KVM 应用；管理器更新后需刷新网页。
+发布清单固定为各仓库的 `<package>-latest.json`，下载目录由 systemd 创建在
+`/var/lib/vim4-manager/updates`。该功能沿用管理面板现有的局域网访问边界。
+
+`.github/workflows/vim4-release.yml` 在推送和 PR 时构建验证；手动勾选 publish
+或推送 `release-*` 标签才创建 Release。发布流程见主仓库的
+[Ubuntu 构建说明](https://github.com/vim4-kvm/vim4-kvm/blob/main/docs/ubuntu-build.md)。
+
 - 状态每 3 秒轮询一次；切换期间页面显示进行中，完成后刷新。
 - 风扇曲线只能调整三个触发温度（起转 35–80、中速、全速 ≤100 °C，相邻至少差 5 °C）；
   对应占空比 35/70/100% 及起转前 5%/25% 两段由驱动固定（drivers/misc/khadas-mcu.c 的

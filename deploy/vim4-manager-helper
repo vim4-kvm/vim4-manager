@@ -1,10 +1,13 @@
 #!/usr/bin/python3
 """Root operations for vim4-manager. Only fixed actions are accepted."""
 import fcntl
+import hashlib
 import json
 import os
 import pwd
 import re
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -32,6 +35,12 @@ JETKVM_CONFIG = Path('/var/lib/jetkvm/config.json')
 FAN_CONFIG = '/etc/default/vim4-kvm-fan'
 FAN_SYSFS = Path('/sys/class/fan')
 FAN_KEYS = ('FAN_TRIGGER_LOW', 'FAN_TRIGGER_MID', 'FAN_TRIGGER_HIGH')
+# Packages without their own web updater. The manager downloads as khadas;
+# only this helper, as root, installs them.
+UPDATES = {'vim4-pikvm': 'vim4-pikvm.service', 'vim4-manager': 'vim4-manager.service'}
+UPDATE_DOWNLOADS = Path('/var/lib/vim4-manager/updates')
+UPDATE_STAGING = Path('/var/lib/vim4-manager-update')
+UPDATE_LIMIT = 256 << 20
 
 
 def validate_edid(data):
@@ -341,8 +350,76 @@ def fan_restore():
     write_fan_triggers(*fan_triggers(*(values[key] for key in FAN_KEYS)))
 
 
+def update_run(*args):
+    return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT, timeout=600,
+                                   env={'LC_ALL': 'C', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}).strip()
+
+
+def open_download(package):
+    # Open below the download directory without following links, so the
+    # unprivileged downloader cannot point the helper at another file.
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for part in UPDATE_DOWNLOADS.parts[1:]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        fd = os.open(f'{package}.deb', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    finally:
+        os.close(directory)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 0 < info.st_size <= UPDATE_LIMIT:
+        os.close(fd)
+        raise ValueError('Invalid update package type or size')
+    return os.fdopen(fd, 'rb')
+
+
+def update(package, checksum, version):
+    if package not in UPDATES:
+        raise ValueError('Package is not updated by the manager')
+    if not re.fullmatch(r'[0-9a-f]{64}', checksum):
+        raise ValueError('Invalid SHA256')
+    if not re.fullmatch(r'\d+\.\d+\.\d+\+vim4\.\d{8}\.\d+', version):
+        raise ValueError('Expected a VIM4 Ubuntu package version')
+    UPDATE_STAGING.mkdir(mode=0o700, exist_ok=True)
+    # The caller cannot replace this snapshot after validation.
+    with tempfile.TemporaryDirectory(dir=UPDATE_STAGING) as directory:
+        deb = Path(directory) / 'update.deb'
+        with open_download(package) as incoming, deb.open('wb') as output:
+            shutil.copyfileobj(incoming, output)
+        with deb.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != checksum:
+                raise ValueError('Package SHA256 mismatch')
+        for field, expected in (('Package', package), ('Architecture', 'arm64'), ('Version', version)):
+            if update_run('dpkg-deb', '-f', str(deb), field) != expected:
+                raise ValueError('Package metadata does not match the requested update')
+        current = subprocess.run(['dpkg-query', '-W', '-f=${Version}', package], capture_output=True, text=True,
+                                 timeout=30, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'}).stdout.strip()
+        if not current:
+            raise ValueError(f'{package} is not installed; deploy it with the component packages')
+        if subprocess.run(['dpkg', '--compare-versions', version, 'gt', current], timeout=30).returncode:
+            raise ValueError('Update is not newer than the installed version')
+        # Never let a web update pull platform upgrades or remove packages.
+        for line in update_run('apt-get', '--simulate', '--no-remove', 'install', str(deb)).splitlines():
+            if line.startswith('Remv ') or (line.startswith('Inst ') and line.split()[1] != package):
+                raise ValueError('Deploy the platform components before this update')
+        if package == 'vim4-pikvm':
+            check_pikvm_media(entering=True)
+        update_run('dpkg', '--force-confdef', '--force-confold', '-i', str(deb))
+        if update_run('dpkg', '--verify', package):
+            raise ValueError('Installed package verification failed')
+        os.sync()
+    unit = UPDATES[package]
+    if subprocess.run(['systemctl', 'is-active', '--quiet', unit], timeout=10).returncode == 0:
+        # Restarting the manager ends this request; let the caller answer first.
+        subprocess.run(['systemd-run', '--on-active=3', '/usr/bin/systemctl', 'restart', unit],
+                       check=True, timeout=30, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+
+
 def main(argv):
     match argv:
+        case ['update', package, checksum, version]:
+            update(package, checksum, version)
         case ['edid-status']:
             print(json.dumps(edid_status()))
         case ['edid-select', preset]:
@@ -364,7 +441,7 @@ def main(argv):
         case _:
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
                              'hdr-curve|hdr-preview WHITE PEAK | fan-curve LOW MID HIGH | fan-restore | '
-                             'wifi on|off | edid-status | edid-select ID')
+                             'wifi on|off | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
 
 
 if __name__ == '__main__':

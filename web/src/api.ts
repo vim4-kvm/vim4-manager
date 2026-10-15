@@ -134,3 +134,17 @@ export const restartUnit = (unit: string) => request("/api/restart", { unit });
 export const setHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve", curve);
 export const previewHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve/preview", curve);
 export const setFanCurve = (triggers: FanTriggers) => request("/api/fan-curve", triggers);
+
+export interface Update {
+  package: string;
+  name: string;
+  repo: string;
+  installed: string;
+  latest?: string;
+  available: boolean;
+  selfService: boolean;
+  error?: string;
+}
+
+export const getUpdates = (signal?: AbortSignal) => request<Update[]>("/api/updates", undefined, signal);
+export const installUpdate = (pkg: string) => request("/api/updates", { package: pkg });
