@@ -2,7 +2,7 @@
   {
     "id": "RTK-CONTROL",
     "name": "RTK UHD HDR · 4K60",
-    "description": "兼容性选项；已在当前 Mac 上验证屏幕共享退出后恢复。",
+    "description": "兼容性选项；曾通过当前 Mac 的 Screen Sharing 恢复测试，但 UU 虚拟屏场景仍可能无法恢复。",
     "file": "/usr/share/vim4-manager/edid/rtk-uhd-hdr.bin"
   },
   {

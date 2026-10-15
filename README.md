@@ -38,6 +38,7 @@ API 没有认证，面向可信局域网。POST 只接受 application/json，跨
 
 面板可选择 RTK UHD HDR 4K60、厂商 VIM4 4K60 或 VIM4 1080p60。
 RTK 表在当前 Mac 的 Screen Sharing 虚拟屏进退测试中可恢复 HDMI；这不保证所有电脑兼容。
+实际 UU 客户端连接并创建虚拟屏后，用户仍复现无法恢复，RTK 不能作为该场景的修复保证。
 安装管理器不改变现有 EDID，点击「应用预设」才加载并保存；相同配置已加载时不触发重连。
 
 `GET /api/edid` 返回清单、板级保存值、当前 tvserver 会话的最近加载记录及 JetKVM 同步状态；
