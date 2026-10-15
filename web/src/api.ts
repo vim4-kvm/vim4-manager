@@ -57,24 +57,34 @@ export interface Sample {
   mem: number;
   tempC: number;
   fan: number;
+  rxBps: number;
+  txBps: number;
 }
 
-export interface Zone {
+export interface Link {
   name: string;
-  tempC: number;
+  wireless: boolean;
+  up: boolean;
+  speedMbps?: number;
+  addrs?: string[];
 }
 
-export interface CurvePoint {
-  tempC: number;
-  percent: number;
+export interface System {
+  links: Link[];
+  disk: { totalBytes: number; freeBytes: number };
+  packages: { name: string; version: string }[];
 }
 
-export interface Sample {
+export interface BoardEvent {
   t: number;
-  cpu: number;
-  mem: number;
-  tempC: number;
-  fan: number;
+  tone: "good" | "warning" | "critical" | "idle";
+  text: string;
+}
+
+export interface FanTriggers {
+  low: number;
+  mid: number;
+  high: number;
 }
 
 export interface Hardware {
@@ -90,6 +100,7 @@ export interface Hardware {
   fanAuto: boolean;
   fanPercent: number;
   fanCurve?: CurvePoint[];
+  fanTriggers?: FanTriggers;
   usb: string;
   hdmi: HDMI;
   hdrCurve: HDRCurve;
@@ -100,7 +111,9 @@ export interface Status {
   apps: App[];
   platform: Platform[];
   hardware: Hardware;
+  system: System;
   history: Sample[];
+  events: BoardEvent[];
 }
 
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -120,3 +133,4 @@ export const selectApp = (app: string) => request("/api/select", { app });
 export const restartUnit = (unit: string) => request("/api/restart", { unit });
 export const setHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve", curve);
 export const previewHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve/preview", curve);
+export const setFanCurve = (triggers: FanTriggers) => request("/api/fan-curve", triggers);

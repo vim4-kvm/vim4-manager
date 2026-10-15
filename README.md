@@ -1,7 +1,8 @@
 # vim4-manager
 
 VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM、One-KVM 或 PiKVM），
-查看 HDMI、USB、温度等板子状态和底层服务。监听 **80** 端口，KVM 界面仍在 8080。
+查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
+页面按侧边栏分为概览、KVM 界面、视频输入、散热、网络和底层服务（`#/cooling` 等哈希路由）。监听 **80** 端口，KVM 界面仍在 8080。
 
 四个界面共用 HDMI 采集、硬件编码器、HID 端点和 8080 端口，同一时间只运行一个。
 PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
@@ -27,6 +28,11 @@ PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 - `hdr-curve WHITE PEAK`：校验后原子写入 /etc/default/vim4-kvm-hdr（HDR 输入映射为
   SDR 的 SDR 白和高光上限，单位尼特），再按上条方式重启 HDMI 采集；重启失败时恢复
   原配置并重新启动采集。
+
+- `fan-curve LOW MID HIGH`：校验后按驱动接受的顺序写入 /sys/class/fan 的三个触发温度，
+  切换为自动调速，原子保存到 /etc/default/vim4-kvm-fan。
+- `fan-restore`：vim4-manager.service 启动前以 root 执行（ExecStartPre=-+），恢复保存的曲线；
+  没有保存文件时不改动驱动默认值，失败不阻止面板启动。
 
 USB gadget、PD 和 CPU 频率服务只显示状态，不提供重启：重新绑定和重新协商会断开
 被控机的 USB 连接，交给板级工具处理。
@@ -69,7 +75,14 @@ VIM4_MANAGER 覆盖）。
 ## 已知限制
 
 - 状态每 3 秒轮询一次；切换期间页面显示进行中，完成后刷新。
-- 风扇只显示，不提供调速。MCU 风扇没有转速计，显示的是占空比和驱动自动曲线
-  （与 drivers/misc/khadas-mcu.c 的 mcu_fan_auto_speed_percent 保持一致），不是 RPM。
-- CPU、内存、温度、风扇趋势每 5 秒采样，内存中保留 15 分钟，服务重启后清空。
+- 风扇曲线只能调整三个触发温度（起转 35–80、中速、全速 ≤100 °C，相邻至少差 5 °C）；
+  对应占空比 35/70/100% 及起转前 5%/25% 两段由驱动固定（drivers/misc/khadas-mcu.c 的
+  mcu_fan_auto_speed_percent）。驱动每 30 秒最多变化 5%，应用后需要几分钟才到新目标。
+  MCU 风扇没有转速计，显示的是占空比，不是 RPM；不提供固定转速的手动模式。
+- CPU、内存、温度、风扇与网络吞吐趋势每 5 秒采样，内存中保留 15 分钟，服务重启后清空。
+  网络吞吐汇总有设备的物理网卡（有线、Wi-Fi、USB 网卡），不含 lo、dummy 与 Tailscale 隧道。
+- 概览的「最近事件」同样只在内存中保留最近 60 条：每 5 秒对比 HDMI 信号与分辨率、USB 枚举、
+  应用与板级服务状态、SoC 温度（85 °C 告警、回落到 80 °C 以下恢复），并记录面板内操作的结果。
+  5 秒内来回变化的状态可能不被记录；在应用自身界面或命令行做的操作只表现为服务状态变化。
+- 组件版本读自 /var/lib/dpkg/status 中已安装的 vim4-* 包，文件变化后才重新解析。
 - HDMI 分辨率按接收器报告显示；YUV420 时接收器报告的水平像素数为一半，已换算。

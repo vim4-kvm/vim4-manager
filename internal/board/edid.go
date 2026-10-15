@@ -40,5 +40,5 @@ func (s *Service) SetEDID(ctx context.Context, id string) error {
 	if !edidID.MatchString(id) {
 		return fmt.Errorf("EDID 预设标识无效")
 	}
-	return s.helper(ctx, "edid-select", id)
+	return s.record(s.helper(ctx, "edid-select", id), "应用 EDID %s", id)
 }

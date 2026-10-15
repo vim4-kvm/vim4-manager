@@ -83,7 +83,10 @@ func TestReadHardware(t *testing.T) {
 	if !slices.Equal(h.FanCurve, want) {
 		t.Errorf("fan curve = %v, want %v", h.FanCurve, want)
 	}
-	if fanCurve("cpu_temp:50\n") != nil {
+	if h.FanTriggers == nil || *h.FanTriggers != DefaultFanTriggers {
+		t.Errorf("fan triggers = %v", h.FanTriggers)
+	}
+	if curve, triggers := fanCurve("cpu_temp:50\n"); curve != nil || triggers != nil {
 		t.Error("curve without thresholds")
 	}
 	if h.HDMI.Signal || h.HDMI.CaptureW != 1920 || h.HDMI.CaptureH != 1080 {

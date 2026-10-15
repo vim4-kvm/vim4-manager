@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import type { CurvePoint } from "./api";
 
 const HEIGHT = 112;
 const AXIS = 20;
@@ -8,7 +7,7 @@ const PAD_LEFT = 30;
 const PAD_RIGHT = 8;
 const PAD_TOP = 8;
 
-function useWidth<T extends HTMLElement>() {
+export function useWidth<T extends HTMLElement>() {
   const ref = useRef<T>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -37,21 +36,26 @@ export interface Point {
 export function TrendChart({
   label,
   points,
+  compare,
   end,
   windowMs,
   domain,
   ticks,
   format,
+  tickFormat,
   hover,
   onHover,
 }: {
   label: string;
   points: Point[];
+  /** A second series on the same axis, drawn muted; sampled at the same times. */
+  compare?: { label: string; points: Point[] };
   end: number;
   windowMs: number;
   domain: [number, number];
   ticks: number[];
   format: (v: number) => string;
+  tickFormat?: (v: number) => string;
   hover?: number;
   onHover: (t?: number) => void;
 }) {
@@ -64,6 +68,8 @@ export function TrendChart({
   const line = visible.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
   const area = visible.length > 1 ? `${line}L${x(visible[visible.length - 1].t).toFixed(1)},${PAD_TOP + HEIGHT}L${x(visible[0].t).toFixed(1)},${PAD_TOP + HEIGHT}Z` : "";
   const last = visible[visible.length - 1];
+  const other = compare?.points.filter((p) => p.t >= start) ?? [];
+  const otherLine = other.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
 
   const nearest = (t: number) =>
     visible.reduce<Point | undefined>((best, p) => (!best || Math.abs(p.t - t) < Math.abs(best.t - t) ? p : best), undefined);
@@ -108,7 +114,7 @@ export function TrendChart({
             <g key={v}>
               <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
               <text className="chart-tick" x={PAD_LEFT - 6} y={y(v)} textAnchor="end" dominantBaseline="middle">
-                {v}
+                {tickFormat ? tickFormat(v) : v}
               </text>
             </g>
           ))}
@@ -124,6 +130,7 @@ export function TrendChart({
             </text>
           ))}
           <path className="chart-area" d={area} />
+          {otherLine && <path className="chart-line chart-line-muted chart-line-thin" d={otherLine} />}
           <path className="chart-line" d={line} />
           {active && (
             <>
@@ -145,6 +152,11 @@ export function TrendChart({
           }}
         >
           <strong>{format(active.v)}</strong>
+          {compare && (
+            <span>
+              {compare.label} {format(other.find((p) => p.t === active.t)?.v ?? 0)}
+            </span>
+          )}
           <span>{clock(active.t)}</span>
         </div>
       )}
@@ -159,55 +171,4 @@ export function tempDomain(values: number[]): [number, number] {
   const lo = Math.floor((Math.min(...values) - 3) / 10) * 10;
   const hi = Math.ceil((Math.max(...values) + 3) / 10) * 10;
   return [lo, Math.max(hi, lo + 20)];
-}
-
-const CURVE_MIN = 30;
-const CURVE_MAX = 105;
-
-/** The auto-mode duty curve with the board's current operating point. */
-export function FanCurveChart({ curve, tempC, percent }: { curve: CurvePoint[]; tempC: number; percent: number }) {
-  const [ref, width] = useWidth<HTMLDivElement>();
-  const height = 84;
-  const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
-  const x = (t: number) => PAD_LEFT + ((Math.min(CURVE_MAX, Math.max(CURVE_MIN, t)) - CURVE_MIN) / (CURVE_MAX - CURVE_MIN)) * plotW;
-  const y = (p: number) => PAD_TOP + (1 - p / 100) * height;
-  const first = curve[0];
-  const lastPoint = curve[curve.length - 1];
-  // Off below the first vertex, then a step up to its minimum duty.
-  const path = [
-    `M${x(CURVE_MIN)},${y(0)}`,
-    `L${x(first.tempC)},${y(0)}`,
-    ...curve.map((p) => `L${x(p.tempC)},${y(p.percent)}`),
-    `L${x(CURVE_MAX)},${y(lastPoint.percent)}`,
-  ].join("");
-  return (
-    <div className="chart" ref={ref}>
-      {width > 0 && (
-        <svg
-          width={width}
-          height={PAD_TOP + height + AXIS}
-          role="img"
-          aria-label={`自动风扇曲线：${curve.map((p) => `${p.tempC}°C ${p.percent}%`).join("，")}；当前 ${tempC.toFixed(1)}°C，${percent}%`}
-        >
-          {[0, 50, 100].map((v) => (
-            <g key={v}>
-              <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-              <text className="chart-tick" x={PAD_LEFT - 6} y={y(v)} textAnchor="end" dominantBaseline="middle">
-                {v}
-              </text>
-            </g>
-          ))}
-          {[40, 60, 80, 100].map((t) => (
-            <text key={t} className="chart-tick" x={x(t)} y={PAD_TOP + height + 14} textAnchor="middle">
-              {t}°
-            </text>
-          ))}
-          <path className="chart-line chart-line-muted" d={path} />
-          <circle className="chart-dot" cx={x(tempC)} cy={y(percent)} r={5}>
-            <title>{`当前 ${tempC.toFixed(1)}°C · ${percent}%`}</title>
-          </circle>
-        </svg>
-      )}
-    </div>
-  );
 }

@@ -6,17 +6,22 @@ import {
   previewHDRCurve,
   restartUnit,
   selectApp,
+  setFanCurve,
   setHDRCurve,
   type App as KvmApp,
   type Hardware,
   type Platform,
+  type BoardEvent,
+  type Link,
   type Sample,
+  type System,
   type Zone,
   type Status,
   type Unit,
 } from "./api";
 import { HDRPanel } from "./HDRPanel";
-import { FanCurveChart, TrendChart, tempDomain, type Point } from "./Charts";
+import { TrendChart, tempDomain, type Point } from "./Charts";
+import { FanPanel } from "./FanPanel";
 
 const POLL_MS = 3000;
 
@@ -78,15 +83,13 @@ function kvmURL(port: number, app: string): string {
 function StatusDot({ tone, label }: { tone: Tone; label: string }) {
   return (
     <span className={`status status-${tone}`}>
-      <span className="status-icon" aria-hidden="true">
-        {tone === "good" ? "✓" : tone === "critical" ? "!" : tone === "warning" ? "…" : "–"}
-      </span>
+      <span className="lamp" aria-hidden="true" />
       {label}
     </span>
   );
 }
 
-function AppCard({
+function AppRow({
   app,
   selected,
   busy,
@@ -109,73 +112,63 @@ function AppCard({
 }) {
   const installed = app.unit.loaded;
   const running = app.unit.active === "active";
-  const uptime = since(app.unit, now);
   return (
-    <article className={`app-card${selected ? " is-selected" : ""}${installed ? "" : " is-missing"}`}>
-      <header className="app-card-head">
-        <div>
-          <h3>{app.name}</h3>
-          <p className="muted">{app.description}</p>
-        </div>
-        {selected && <span className="badge">当前启用</span>}
-      </header>
-      <dl className="app-meta">
-        <div>
-          <dt>状态</dt>
-          <dd>
-            <StatusDot tone={unitTone(app.unit)} label={unitLabel(app.unit)} />
-          </dd>
-        </div>
-        <div>
-          <dt>运行时间</dt>
-          <dd>{uptime ?? "—"}</dd>
-        </div>
-        <div>
-          <dt>服务</dt>
-          <dd className="mono">{app.unit.name}</dd>
-        </div>
-      </dl>
-      <footer className="app-actions">
+    <li className={`app-row${selected ? " is-selected" : ""}${installed ? "" : " is-missing"}`}>
+      <div className="app-name">
+        <h3>
+          {app.name}
+          {selected && <span className="tag">开机启用</span>}
+        </h3>
+        <p>{app.description}</p>
+      </div>
+      <div className="app-state">
+        <StatusDot tone={unitTone(app.unit)} label={unitLabel(app.unit)} />
+        <span className="num muted">{since(app.unit, now) ?? ""}</span>
+      </div>
+      <div className="app-actions">
         {!installed ? (
-          <span className="muted">组件包未安装，无法启用</span>
-        ) : confirming ? (
-          <div className="confirm" role="alertdialog" aria-label={`切换到 ${app.name}`}>
-            <span>当前远程会话会断开，确认切换？</span>
-            <button className="button primary" onClick={onConfirm} disabled={busy}>
-              切换
-            </button>
-            <button className="button" onClick={onCancel} disabled={busy}>
-              取消
-            </button>
-          </div>
+          <span className="muted">未安装</span>
         ) : selected ? (
           <>
-            <a className={`button primary${running ? "" : " is-disabled"}`} href={kvmURL(app.port, app.id)} aria-disabled={!running}>
-              打开界面
-            </a>
             <button className="button" onClick={onRestart} disabled={busy}>
               重启
             </button>
+            <a className={`button primary${running ? "" : " is-disabled"}`} href={kvmURL(app.port, app.id)} aria-disabled={!running}>
+              打开
+            </a>
           </>
         ) : (
-          <button className="button" onClick={onChoose} disabled={busy}>
-            启用此界面
+          <button className="button" onClick={onChoose} disabled={busy || confirming}>
+            切换到此
           </button>
         )}
-      </footer>
-    </article>
+      </div>
+      {confirming && (
+        <div className="confirm" role="alertdialog" aria-label={`切换到 ${app.name}`}>
+          <span>当前远程会话会断开。</span>
+          <button className="button" onClick={onCancel} disabled={busy}>
+            取消
+          </button>
+          <button className="button primary" onClick={onConfirm} disabled={busy}>
+            切换到 {app.name}
+          </button>
+        </div>
+      )}
+    </li>
   );
 }
 
-function Tile({ label, value, detail, tone }: { label: string; value: string; detail?: string; tone?: Tone }) {
+function Readout({ label, value, detail, tone }: { label: string; value: string; detail?: string; tone?: Tone }) {
   return (
-    <div className="tile">
-      <span className="tile-label">{label}</span>
-      <span className="tile-value">
-        {tone && <span className={`tile-mark status-${tone}`} aria-hidden="true" />}
-        {value}
-      </span>
-      {detail && <span className="tile-detail">{detail}</span>}
+    <div className="readout">
+      <dt>{label}</dt>
+      <dd>
+        <span className="readout-value">
+          {tone && <span className={`lamp status-${tone}`} aria-hidden="true" />}
+          {value}
+        </span>
+        {detail && <span className="readout-detail">{detail}</span>}
+      </dd>
     </div>
   );
 }
@@ -195,22 +188,44 @@ function LinkTiles({ hw }: { hw: Hardware }) {
   const capture = h.captureWidth ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
   const usbConfigured = hw.usb === "configured";
   return (
-    <div className="tiles">
-      <Tile label="HDMI 输入" value={hdmiValue} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
-      <Tile
+    <dl className="readouts">
+      <Readout label="HDMI 输入" value={hdmiValue} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
+      <Readout
         label="USB 键鼠"
         value={usbConfigured ? "已连接" : hw.usb ? hw.usb : "未知"}
-        detail={usbConfigured ? "被控机已枚举键盘与鼠标" : "等待被控机枚举"}
+        detail={usbConfigured ? "键盘与鼠标已枚举" : "等待被控机枚举"}
         tone={usbConfigured ? "good" : "warning"}
       />
-      <Tile label="运行时间" value={duration(hw.uptimeSeconds)} detail={`负载 ${hw.load1.toFixed(2)} · ${hw.cpus} 核`} />
-    </div>
+      <Readout label="开机时长" value={duration(hw.uptimeSeconds)} detail={`负载 ${hw.load1.toFixed(2)} · ${hw.cpus} 核`} />
+    </dl>
   );
 }
 
 const WINDOW_MS = 15 * 60 * 1000;
 
 const percent = (v: number) => `${Math.round(v)}%`;
+
+function bitrate(bps: number): string {
+  if (bps >= 1e9) return `${(bps / 1e9).toFixed(2)} Gbps`;
+  if (bps >= 1e6) return `${(bps / 1e6).toFixed(bps >= 1e8 ? 0 : 1)} Mbps`;
+  if (bps >= 1e3) return `${Math.round(bps / 1e3)} kbps`;
+  return `${Math.round(bps)} bps`;
+}
+
+function bitrateTick(bps: number): string {
+  if (bps === 0) return "0";
+  return bps >= 1e9 ? `${+(bps / 1e9).toFixed(1)}G` : `${+(bps / 1e6).toFixed(1)}M`;
+}
+
+/** Rounds up to 1, 2 or 5 times a power of ten so the axis ticks stay round. */
+function niceCeil(v: number): number {
+  const step = 10 ** Math.floor(Math.log10(v));
+  return [1, 2, 5, 10].map((m) => m * step).find((n) => n >= v)!;
+}
+
+function bytes(n: number): string {
+  return n >= 2 ** 40 ? `${(n / 2 ** 40).toFixed(1)} TiB` : `${(n / 2 ** 30).toFixed(1)} GiB`;
+}
 const celsius = (v: number) => `${v.toFixed(1)} °C`;
 
 function TrendCard({
@@ -218,23 +233,25 @@ function TrendCard({
   value,
   detail,
   tone,
+  wide,
   children,
 }: {
   title: string;
   value: string;
-  detail: string;
+  detail: ReactNode;
   tone?: Tone;
+  wide?: boolean;
   children: ReactNode;
 }) {
   return (
-    <figure className="card trend">
+    <figure className={`trend${wide ? " trend-wide" : ""}`}>
       <figcaption>
-        <span className="tile-label">{title}</span>
+        <span className="trend-title">{title}</span>
         <span className="trend-value">
-          {tone && <span className={`tile-mark status-${tone}`} aria-hidden="true" />}
+          {tone && <span className={`lamp status-${tone}`} aria-hidden="true" />}
           {value}
         </span>
-        <span className="tile-detail">{detail}</span>
+        <span className="trend-detail">{detail}</span>
       </figcaption>
       {children}
     </figure>
@@ -253,6 +270,11 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const mem = series((s) => s.mem);
   const temp = series((s) => s.tempC);
   const fan = series((s) => s.fan);
+  const tx = series((s) => s.txBps);
+  const rx = series((s) => s.rxBps);
+  const lastTx = tx.length ? tx[tx.length - 1].v : 0;
+  const lastRx = rx.length ? rx[rx.length - 1].v : 0;
+  const netMax = niceCeil(Math.max(1e6, ...tx.map((p) => p.v), ...rx.map((p) => p.v)));
   const end = Math.max(now, history.length ? history[history.length - 1].t : 0);
   const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover };
   const memUsed = hw.memTotalKiB ? 1 - hw.memAvailableKiB / hw.memTotalKiB : 0;
@@ -286,44 +308,187 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
       <TrendCard
         title="风扇"
         value={hw.fanPercent > 0 ? `${hw.fanPercent}%` : "停转"}
-        detail={`${hw.fanAuto ? "自动调速" : "手动"} · 占空比，无转速反馈`}
+        detail={hw.fanAuto ? "自动 · 占空比" : "手动 · 占空比"}
       >
         <TrendChart label="风扇占空比" points={fan} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
+      </TrendCard>
+      <TrendCard
+        title="网络吞吐"
+        value={bitrate(lastTx)}
+        detail={
+          <span className="legend">
+            <span className="legend-key" />
+            发送（主要是视频）
+            <span className="legend-key legend-key-muted" />
+            接收 {bitrate(lastRx)}
+          </span>
+        }
+        wide
+      >
+        <TrendChart
+          label="网络发送"
+          points={tx}
+          compare={{ label: "接收", points: rx }}
+          domain={[0, netMax]}
+          ticks={[0, netMax / 2, netMax]}
+          format={bitrate}
+          tickFormat={bitrateTick}
+          {...shared}
+        />
       </TrendCard>
     </div>
   );
 }
 
-function Thermal({ hw }: { hw: Hardware }) {
-  const max = 100;
+function NetworkList({ links }: { links: Link[] }) {
+  if (!links.length) return <p className="hint">没有检测到网卡。</p>;
   return (
-    <div className="thermal">
-      <section className="card" aria-labelledby="zones-title">
-        <h3 id="zones-title" className="tile-label">
-          各区温度
-        </h3>
+    <table className="table">
+      <tbody>
+        {links.map((l) => (
+          <tr key={l.name}>
+            <td className="cell-key">
+              <StatusDot tone={l.up ? "good" : "idle"} label={l.wireless ? `Wi-Fi ${l.name}` : l.name === "usb0" ? "USB 网卡" : `有线 ${l.name}`} />
+            </td>
+            <td className="num nowrap muted">{l.up ? (l.speedMbps ? (l.speedMbps >= 1000 ? `${l.speedMbps / 1000} Gbps` : `${l.speedMbps} Mbps`) : "已连接") : "未连接"}</td>
+            <td>
+              <div className="addr-cell">
+                <Addresses addrs={l.addrs ?? []} />
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function Addresses({ addrs }: { addrs: string[] }) {
+  const v4 = addrs.filter((a) => !a.includes(":"));
+  const v6 = addrs.filter((a) => a.includes(":"));
+  if (!addrs.length) return <span className="muted">—</span>;
+  return (
+    <>
+      {v4.map((a) => (
+        <span key={a} className="mono">
+          {a}
+        </span>
+      ))}
+      {v6.length > 0 && (
+        <span className="muted addr-v6" title={v6.join("\n")}>
+          {v4.length ? `+ ${v6.length} 个 IPv6` : v6[0]}
+        </span>
+      )}
+    </>
+  );
+}
+
+function StorageAndVersions({ system }: { system: System }) {
+  const { totalBytes, freeBytes } = system.disk;
+  const used = totalBytes ? 1 - freeBytes / totalBytes : 0;
+  const [open, setOpen] = useState(false);
+  const versions = new Set(system.packages.map((p) => p.version));
+  return (
+    <dl className="facts">
+      <div>
+        <dt>系统盘</dt>
+        <dd>
+          <span className="num">
+            已用 {bytes(totalBytes - freeBytes)} / {bytes(totalBytes)}
+          </span>
+          <Meter fraction={used} tone={used > 0.9 ? "critical" : used > 0.8 ? "warning" : "good"} />
+          <span className="muted">剩余 {bytes(freeBytes)}，虚拟介质镜像也存在这里。</span>
+        </dd>
+      </div>
+      <div>
+        <dt>组件版本</dt>
+        <dd>
+          <span className="num">
+            {system.packages.length ? (versions.size === 1 ? [...versions][0] : `${system.packages.length} 个组件，${versions.size} 个版本`) : "—"}
+          </span>
+          {system.packages.length > 0 && (
+            <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
+              {open ? "收起" : "查看各组件"}
+            </button>
+          )}
+          {open && (
+            <ul className="packages">
+              {system.packages.map((p) => (
+                <li key={p.name}>
+                  <span>{p.name}</span>
+                  <span className="mono">{p.version}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function clockTime(t: number, now: number): string {
+  const d = new Date(t);
+  const time = d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(now).toDateString() === d.toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+}
+
+function EventList({ events, now }: { events: BoardEvent[]; now: number }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? events : events.slice(0, 8);
+  return (
+    <>
+      <ol className="events">
+        {shown.map((e) => (
+          <li key={`${e.t}-${e.text}`} className={`event event-${e.tone}`}>
+            <time className="num" dateTime={new Date(e.t).toISOString()}>
+              {clockTime(e.t, now)}
+            </time>
+            <span className="lamp" aria-hidden="true" />
+            <span>{e.text}</span>
+          </li>
+        ))}
+      </ol>
+      {events.length > shown.length && (
+        <button type="button" className="link" onClick={() => setAll(true)}>
+          显示全部 {events.length} 条
+        </button>
+      )}
+    </>
+  );
+}
+
+function Thermal({ hw, busy, run }: { hw: Hardware; busy: boolean; run: Run }) {
+  return (
+    <>
+      {hw.fanTriggers ? (
+        <Section title="风扇曲线" description="拖动曲线上的三个温度点，或选一个预设。应用后立即生效，重启后保留。">
+          <FanPanel
+            saved={hw.fanTriggers}
+            auto={hw.fanAuto}
+            tempC={hw.tempC}
+            percent={hw.fanPercent}
+            busy={busy}
+            onApply={async (t) => {
+              await run("正在应用风扇曲线…", () => setFanCurve(t), `风扇曲线已应用：${t.low} / ${t.mid} / ${t.high} °C`);
+            }}
+          />
+        </Section>
+      ) : (
+        <p className="hint">未检测到 MCU 风扇控制接口。</p>
+      )}
+      <Section title="各区温度">
         <ul className="zones">
           {hw.zones.map((z) => (
             <li key={z.name}>
               <span className="zone-name">{z.name.toUpperCase()}</span>
-              <Meter fraction={z.tempC / max} tone={tempTone(z.tempC)} />
-              <span className="zone-value">{celsius(z.tempC)}</span>
+              <Meter fraction={z.tempC / 100} tone={tempTone(z.tempC)} />
+              <span className="zone-value num">{celsius(z.tempC)}</span>
             </li>
           ))}
         </ul>
-      </section>
-      {hw.fanCurve && (
-        <section className="card" aria-labelledby="curve-title">
-          <h3 id="curve-title" className="tile-label">
-            {hw.fanAuto ? "自动风扇曲线" : "自动风扇曲线（当前为手动）"}
-          </h3>
-          <p className="tile-detail">
-            按 SoC 温度设定占空比，每 30 秒最多变化 5%；圆点为当前 {hw.tempC.toFixed(1)} °C · {hw.fanPercent}%
-          </p>
-          <FanCurveChart curve={hw.fanCurve} tempC={hw.tempC} percent={hw.fanPercent} />
-        </section>
-      )}
-    </div>
+      </Section>
+    </>
   );
 }
 
@@ -348,29 +513,192 @@ function PlatformList({
   now: number;
 }) {
   return (
-    <ul className="services">
-      {services.map((p) => (
-        <li key={p.unit.name}>
-          <div className="service-name">
-            <span>{p.name}</span>
-            <span className="mono muted">{p.unit.name}</span>
-          </div>
-          <span className="muted service-since">{since(p.unit, now) ?? ""}</span>
-          <StatusDot tone={unitTone(p.unit)} label={unitLabel(p.unit)} />
-          <span className="service-action">
-            {p.restartable && (
-              <button className="button small" disabled={busy || !p.unit.loaded} onClick={() => onRestart(p.unit.name, p.name)}>
-                重启
-              </button>
-            )}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <table className="table">
+      <thead>
+        <tr>
+          <th>服务</th>
+          <th>状态</th>
+          <th className="hide-narrow">已运行</th>
+          <th aria-label="操作" />
+        </tr>
+      </thead>
+      <tbody>
+        {services.map((p) => (
+          <tr key={p.unit.name}>
+            <td>
+              <span className="cell-title">{p.name}</span>
+              <span className="mono muted">{p.unit.name}</span>
+            </td>
+            <td>
+              <StatusDot tone={unitTone(p.unit)} label={unitLabel(p.unit)} />
+            </td>
+            <td className="num muted hide-narrow">{since(p.unit, now) ?? "—"}</td>
+            <td className="cell-action">
+              {p.restartable && (
+                <button className="button small" disabled={busy || !p.unit.loaded} onClick={() => onRestart(p.unit.name, p.name)}>
+                  重启
+                </button>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+type Run = (label: string, action: () => Promise<unknown>, done: string) => Promise<boolean>;
+
+function Section({ title, description, children }: { title: string; description?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h3>{title}</h3>
+        {description && <p className="muted">{description}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+type PageId = "overview" | "apps" | "video" | "cooling" | "network" | "services";
+
+const ICONS: Record<PageId, ReactNode> = {
+  overview: <path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z" />,
+  apps: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M9 20h6M12 16v4" />
+    </>
+  ),
+  video: (
+    <>
+      <rect x="3" y="6" width="13" height="12" rx="2" />
+      <path d="m16 10 5-3v10l-5-3" />
+    </>
+  ),
+  cooling: (
+    <>
+      <circle cx="12" cy="12" r="2" />
+      <path d="M12 10c0-4 1-6 4-6 2 0 3 2 1 4l-3 3M14 12c4 0 6 1 6 4 0 2-2 3-4 1l-3-3M12 14c0 4-1 6-4 6-2 0-3-2-1-4l3-3M10 12c-4 0-6-1-6-4 0-2 2-3 4-1l3 3" />
+    </>
+  ),
+  network: <path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0M12 19.5h.01" />,
+  services: (
+    <>
+      <rect x="3" y="4" width="18" height="6" rx="1.5" />
+      <rect x="3" y="14" width="18" height="6" rx="1.5" />
+      <path d="M7 7h.01M7 17h.01" />
+    </>
+  ),
+};
+
+const PAGES: { id: PageId; title: string; description?: string }[] = [
+  { id: "overview", title: "概览" },
+  { id: "apps", title: "KVM 界面", description: "四个界面共用采集、编码器和键鼠，同一时间只运行一个。" },
+  { id: "video", title: "视频输入" },
+  { id: "cooling", title: "散热" },
+  { id: "network", title: "网络" },
+  { id: "services", title: "底层服务", description: "重启 HDMI 采集会先暂停当前界面，完成后自动恢复。" },
+];
+
+function pageFromHash(): PageId {
+  const id = location.hash.replace(/^#\/?/, "");
+  return PAGES.some((p) => p.id === id) ? (id as PageId) : "overview";
+}
+
+function usePage() {
+  const [page, setPage] = useState(pageFromHash);
+  useEffect(() => {
+    const change = () => setPage(pageFromHash());
+    window.addEventListener("hashchange", change);
+    return () => window.removeEventListener("hashchange", change);
+  }, []);
+  return page;
+}
+
+function navHint(id: PageId, status: Status): { text: string; tone?: Tone } | undefined {
+  const hw = status.hardware;
+  switch (id) {
+    case "apps": {
+      const app = status.apps.find((a) => a.id === status.active);
+      return app ? { text: app.name, tone: unitTone(app.unit) } : { text: "未启用", tone: "warning" };
+    }
+    case "video":
+      return hw.hdmi.signal ? { text: `${hw.hdmi.height}p`, tone: "good" } : { text: "无信号", tone: "warning" };
+    case "cooling":
+      return { text: `${Math.round(hw.tempC)}°`, tone: tempTone(hw.tempC) };
+    case "services": {
+      const failed = status.platform.filter((p) => p.unit.active === "failed").length;
+      return failed ? { text: `${failed} 失败`, tone: "critical" } : undefined;
+    }
+  }
+  return undefined;
+}
+
+function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale: boolean }) {
+  return (
+    <aside className="sidebar">
+      <div className="brand">
+        <span className="brand-mark">VIM4</span>
+        <span className="brand-name">KVM</span>
+      </div>
+      <nav aria-label="页面">
+        {PAGES.map((p) => {
+          const hint = status && navHint(p.id, status);
+          return (
+            <a key={p.id} href={`#/${p.id}`} className="nav-item" aria-current={page === p.id ? "page" : undefined}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                {ICONS[p.id]}
+              </svg>
+              <span className="nav-label">{p.title}</span>
+              {hint && (
+                <span className={`nav-hint${hint.tone && hint.tone !== "good" ? ` status-${hint.tone}` : ""}`}>{hint.text}</span>
+              )}
+            </a>
+          );
+        })}
+      </nav>
+      <div className="sidebar-foot">
+        <StatusDot tone={stale ? "critical" : status ? "good" : "warning"} label={stale ? "连接中断" : status ? status.hardware.hostname : "连接中"} />
+        {status && <span className="mono">{status.hardware.kernel}</span>}
+      </div>
+    </aside>
+  );
+}
+
+function ActiveApp({ status, now }: { status: Status; now: number }) {
+  const app = status.apps.find((a) => a.id === status.active);
+  if (!app) {
+    return (
+      <div className="lead">
+        <span className="muted">还没有启用 KVM 界面。</span>
+        <a className="button primary" href="#/apps">
+          选择界面
+        </a>
+      </div>
+    );
+  }
+  const running = app.unit.active === "active";
+  const uptime = since(app.unit, now);
+  return (
+    <div className="lead">
+      <div className="lead-title">
+        <h3>{app.name}</h3>
+        <StatusDot tone={unitTone(app.unit)} label={uptime ? `${unitLabel(app.unit)} ${uptime}` : unitLabel(app.unit)} />
+      </div>
+      <a className="button" href="#/apps">
+        更换
+      </a>
+      <a className={`button primary${running ? "" : " is-disabled"}`} href={kvmURL(app.port, app.id)} aria-disabled={!running}>
+        打开 {app.name}
+      </a>
+    </div>
   );
 }
 
 export function App() {
+  const page = usePage();
   const [status, setStatus] = useState<Status>();
   const [error, setError] = useState<string>();
   const [stale, setStale] = useState(false);
@@ -379,6 +707,7 @@ export function App() {
   const [notice, setNotice] = useState<{ tone: Tone; text: string }>();
   const [now, setNow] = useState(Date.now());
   const timer = useRef<number>(undefined);
+  const main = useRef<HTMLElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -396,15 +725,23 @@ export function App() {
     return () => window.clearInterval(timer.current);
   }, [refresh]);
 
-  const run = async (label: string, action: () => Promise<unknown>, done: string) => {
+  useEffect(() => {
+    setConfirming(undefined);
+    window.scrollTo(0, 0);
+    main.current?.focus({ preventScroll: true });
+  }, [page]);
+
+  const run: Run = async (label, action, done) => {
     setBusy(label);
     setError(undefined);
     setNotice(undefined);
     try {
       await action();
       setNotice({ tone: "good", text: done });
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return false;
     } finally {
       setBusy(undefined);
       setConfirming(undefined);
@@ -412,30 +749,21 @@ export function App() {
     }
   };
 
-  const active = status?.apps.find((a) => a.id === status.active);
+  const meta = PAGES.find((p) => p.id === page)!;
+  const hw = status?.hardware;
 
   return (
-    <div className="page">
-      <header className="topbar">
-        <div className="brand">
-          <svg viewBox="0 0 32 32" aria-hidden="true">
-            <rect x="3" y="6" width="26" height="17" rx="3" />
-            <rect x="11" y="25" width="10" height="2" rx="1" />
-          </svg>
-          <div>
-            <h1>VIM4 KVM</h1>
-            <span className="muted">{status ? `${status.hardware.hostname} · ${status.hardware.kernel}` : "正在连接…"}</span>
-          </div>
-        </div>
-        <StatusDot tone={stale ? "critical" : status ? "good" : "warning"} label={stale ? "连接中断" : status ? "已连接" : "连接中"} />
-      </header>
+    <div className="layout">
+      <Sidebar page={page} status={status} stale={stale} />
+      <main ref={main} tabIndex={-1} aria-labelledby="page-title">
+        <header className="page-head">
+          <h2 id="page-title">{meta.title}</h2>
+          {meta.description && <p>{meta.description}</p>}
+        </header>
 
-      <main>
         {(error || notice || busy) && (
           <div className={`banner banner-${error ? "critical" : busy ? "warning" : notice?.tone}`} role="status">
-            <span className="status-icon" aria-hidden="true">
-              {error ? "!" : busy ? "…" : "✓"}
-            </span>
+            {busy ? <span className="spinner" aria-hidden="true" /> : <span className="lamp" aria-hidden="true" />}
             <span>{error ?? busy ?? notice?.text}</span>
             {!busy && (
               <button className="banner-close" aria-label="关闭" onClick={() => (setError(undefined), setNotice(undefined))}>
@@ -445,84 +773,89 @@ export function App() {
           </div>
         )}
 
-        <section aria-labelledby="apps-title">
-          <div className="section-head">
-            <h2 id="apps-title">KVM 界面</h2>
-            <p className="muted">
-              所有界面共用 HDMI 采集、硬件编码器和键鼠，同一时间只运行一个。选择会在重启后保持。
-            </p>
-          </div>
-          {status ? (
-            <div className="apps">
-              {status.apps.map((app) => (
-                <AppCard
-                  key={app.id}
-                  app={app}
-                  now={now}
-                  selected={app.id === status.active}
-                  busy={!!busy}
-                  confirming={confirming === app.id}
-                  onChoose={() => setConfirming(app.id)}
-                  onCancel={() => setConfirming(undefined)}
-                  onConfirm={() => run(`正在切换到 ${app.name}…`, () => selectApp(app.id), `已切换到 ${app.name}`)}
-                  onRestart={() => run(`正在重启 ${app.name}…`, () => restartUnit(app.unit.name), `${app.name} 已重启`)}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="apps">
-              <div className="app-card skeleton" />
-              <div className="app-card skeleton" />
-            </div>
-          )}
-          {status && !active && <p className="hint">尚未启用任何界面，选择一个即可开机自动启动。</p>}
-        </section>
+        {page === "network" && <WifiControl busy={!!busy} />}
+        {page === "video" && (
+          <Section title="EDID" description="被控电脑看到的显示器型号与能力。">
+            <EDIDPanel busy={!!busy} run={run} />
+          </Section>
+        )}
 
-        <WifiControl busy={!!busy} />
-        <EDIDPanel busy={!!busy} run={run} />
-
-        {status && (
+        {!status ? (
+          page !== "network" && page !== "video" && <div className="skeleton" />
+        ) : (
           <>
-            <section aria-labelledby="board-title">
-              <div className="section-head">
-                <h2 id="board-title">板子状态</h2>
-                <p className="muted">趋势每 5 秒采样，保留最近 15 分钟，管理服务重启后重新开始。</p>
-              </div>
-              <div className="board">
-                <LinkTiles hw={status.hardware} />
-                <BoardCharts hw={status.hardware} history={status.history} now={now} />
-                <Thermal hw={status.hardware} />
-              </div>
-            </section>
+            {page === "overview" && hw && (
+              <>
+                <ActiveApp status={status} now={now} />
+                <LinkTiles hw={hw} />
+                <Section title="最近 15 分钟" description="每 5 秒采样，管理服务重启后重新开始。">
+                  <BoardCharts hw={hw} history={status.history} now={now} />
+                </Section>
+                <div className="overview-columns">
+                  <Section title="最近事件" description="信号、USB、服务与操作记录，管理服务重启后清空。">
+                    <EventList events={status.events} now={now} />
+                  </Section>
+                  <div className="overview-side">
+                    <Section title="网络">
+                      <NetworkList links={status.system.links} />
+                    </Section>
+                    <Section title="存储与版本">
+                      <StorageAndVersions system={status.system} />
+                    </Section>
+                  </div>
+                </div>
+              </>
+            )}
 
-            <section aria-labelledby="hdr-title">
-              <div className="section-head">
-                <h2 id="hdr-title">HDR 转 SDR</h2>
-                <p className="muted">被控机输出 HDR 时，采集端把它映射为 SDR 再编码。画面偏暗就提高桌面亮度，高光发白就扩大高光范围。</p>
-              </div>
-              <HDRPanel
-                curve={status.hardware.hdrCurve}
-                hdr={status.hardware.hdmi.hdr}
-                busy={!!busy}
-                onPreview={previewHDRCurve}
-                onSave={(curve) =>
-                  run("正在保存 HDR 映射…", () => setHDRCurve(curve), `HDR 映射已保存：SDR 白 ${curve.white} 尼特，高光保留到 ${curve.peak} 尼特`)
-                }
-              />
-            </section>
+            {page === "apps" && (
+              <>
+                <ul className="apps">
+                  {status.apps.map((app) => (
+                    <AppRow
+                      key={app.id}
+                      app={app}
+                      now={now}
+                      selected={app.id === status.active}
+                      busy={!!busy}
+                      confirming={confirming === app.id}
+                      onChoose={() => setConfirming(app.id)}
+                      onCancel={() => setConfirming(undefined)}
+                      onConfirm={() => run(`正在切换到 ${app.name}…`, () => selectApp(app.id), `已切换到 ${app.name}`)}
+                      onRestart={() => run(`正在重启 ${app.name}…`, () => restartUnit(app.unit.name), `${app.name} 已重启`)}
+                    />
+                  ))}
+                </ul>
+                {!status.apps.some((a) => a.id === status.active) && <p className="hint">尚未启用任何界面，选择一个即可开机自动启动。</p>}
+              </>
+            )}
 
-            <section aria-labelledby="platform-title">
-              <div className="section-head">
-                <h2 id="platform-title">底层服务</h2>
-                <p className="muted">所有界面共用。重启 HDMI 采集时会先暂停当前界面，完成后自动恢复。</p>
-              </div>
+            {page === "video" && hw && (
+              <Section
+                title="HDR 转 SDR"
+                description="被控机输出 HDR 时按此曲线映射为 SDR。画面偏暗就提高桌面亮度，高光发白就扩大高光范围。"
+              >
+                <HDRPanel
+                  curve={hw.hdrCurve}
+                  hdr={hw.hdmi.hdr}
+                  busy={!!busy}
+                  onPreview={previewHDRCurve}
+                  onSave={(curve) =>
+                    run("正在保存 HDR 映射…", () => setHDRCurve(curve), `HDR 映射已保存：SDR 白 ${curve.white} 尼特，高光保留到 ${curve.peak} 尼特`)
+                  }
+                />
+              </Section>
+            )}
+
+            {page === "cooling" && hw && <Thermal hw={hw} busy={!!busy} run={run} />}
+
+            {page === "services" && (
               <PlatformList
                 services={status.platform}
                 busy={!!busy}
                 now={now}
                 onRestart={(unit, name) => run(`正在重启${name}…`, () => restartUnit(unit), `${name}已重启`)}
               />
-            </section>
+            )}
           </>
         )}
       </main>

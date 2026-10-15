@@ -46,10 +46,11 @@ type Hardware struct {
 	FanAuto   bool    `json:"fanAuto"`
 	FanPct    int     `json:"fanPercent"`
 	// The MCU fan has no tachometer; FanCurve is the auto-mode target duty.
-	FanCurve []CurvePoint `json:"fanCurve,omitempty"`
-	USB      string       `json:"usb"`
-	HDMI     HDMI         `json:"hdmi"`
-	HDRCurve HDRCurve     `json:"hdrCurve"`
+	FanCurve    []CurvePoint `json:"fanCurve,omitempty"`
+	FanTriggers *FanTriggers `json:"fanTriggers,omitempty"`
+	USB         string       `json:"usb"`
+	HDMI        HDMI         `json:"hdmi"`
+	HDRCurve    HDRCurve     `json:"hdrCurve"`
 }
 
 // Zone is one readable thermal zone, named without the "_thermal" suffix.
@@ -88,7 +89,7 @@ func ReadHardware(root string) Hardware {
 	h.Zones = readZones(root)
 	h.FanAuto = afterColon(read("sys/class/fan/mode")) == "1"
 	h.FanPct, _ = strconv.Atoi(afterColon(read("sys/class/fan/speed")))
-	h.FanCurve = fanCurve(read("sys/class/fan/temp"))
+	h.FanCurve, h.FanTriggers = fanCurve(read("sys/class/fan/temp"))
 	if states, _ := filepath.Glob(filepath.Join(root, "sys/class/udc/*/state")); len(states) > 0 {
 		data, _ := os.ReadFile(states[0])
 		h.USB = strings.TrimSpace(string(data))
@@ -131,7 +132,7 @@ func readZones(root string) []Zone {
 // off below level0-15, then linear through 5%, 25%, 35%, 70% and 100% at
 // level0-15, level0-5, level0, level1 and level2. The input is the fan temp
 // attribute, whose second line is "Fan trigger temperature: level0:60 ...".
-func fanCurve(attr string) []CurvePoint {
+func fanCurve(attr string) ([]CurvePoint, *FanTriggers) {
 	var levels [3]int
 	for _, field := range strings.Fields(attr) {
 		key, value, _ := strings.Cut(field, ":")
@@ -142,11 +143,12 @@ func fanCurve(attr string) []CurvePoint {
 		}
 	}
 	if levels[0] <= 0 || levels[1] <= levels[0] || levels[2] <= levels[1] {
-		return nil
+		return nil, nil
 	}
 	start := max(levels[0]-15, 0)
 	daily := max(levels[0]-5, start+1)
-	return []CurvePoint{{start, 5}, {daily, 25}, {levels[0], 35}, {levels[1], 70}, {levels[2], 100}}
+	return []CurvePoint{{start, 5}, {daily, 25}, {levels[0], 35}, {levels[1], 70}, {levels[2], 100}},
+		&FanTriggers{Low: levels[0], Mid: levels[1], High: levels[2]}
 }
 
 func parseHDMI(info string) HDMI {

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { request } from "./api";
-import "./wifi.css";
 
 interface WifiState {
   supported: boolean;
@@ -74,16 +73,13 @@ export function WifiControl({ busy }: { busy: boolean }) {
             : "已关闭";
 
   return (
-    <section aria-labelledby="network-title">
-      <div className="section-head">
-        <h2 id="network-title">网络</h2>
-      </div>
-      <div className="app-card wifi-card">
+    <section aria-label="Wi-Fi">
+      <div className="wifi-card">
         <div className="wifi-row">
           <div>
             <h3>Wi-Fi</h3>
             <p className="muted">
-              无线接口总开关；网络名称和密码在 KVM 界面中配置。
+              关闭后无线网卡停止扫描和连接，有线网络不受影响。
             </p>
           </div>
           <div className="wifi-action">
@@ -110,15 +106,15 @@ export function WifiControl({ busy }: { busy: boolean }) {
             <span>
               关闭会断开 Wi-Fi 连接。如果当前通过 Wi-Fi 访问，请改用有线网络。
             </span>
+            <button className="button" onClick={() => setConfirming(false)}>
+              取消
+            </button>
             <button
-              className="button"
+              className="button danger"
               disabled={busy || saving || stale}
               onClick={() => void change(false)}
             >
               关闭 Wi-Fi
-            </button>
-            <button className="button" onClick={() => setConfirming(false)}>
-              取消
             </button>
           </div>
         )}

@@ -28,6 +28,10 @@ EDID_STATE = Path('/var/lib/vim4-kvm/edid')
 EDID_LOADED = Path('/run/vim4-edid.loaded')
 EDID_HELPER = '/usr/libexec/vim4-edid'
 JETKVM_CONFIG = Path('/var/lib/jetkvm/config.json')
+# khadas-mcu auto-mode trigger temperatures; restored at manager start.
+FAN_CONFIG = '/etc/default/vim4-kvm-fan'
+FAN_SYSFS = Path('/sys/class/fan')
+FAN_KEYS = ('FAN_TRIGGER_LOW', 'FAN_TRIGGER_MID', 'FAN_TRIGGER_HIGH')
 
 
 def validate_edid(data):
@@ -283,6 +287,60 @@ def hdr_curve(white, peak):
     write_config(HDR_CONFIG, f'HDR_SDR_WHITE={white}\nHDR_SDR_PEAK={peak}\n'.encode())
 
 
+def celsius(text, low, high):
+    if not (text.isascii() and text.isdigit()) or not low <= int(text) <= high:
+        raise ValueError(f'{text!r} must be {low}-{high} °C')
+    return int(text)
+
+
+def fan_triggers(low, mid, high):
+    # Limits match internal/board/fan.go. The driver starts the fan 15 °C
+    # below low; the SoC passive trip point is 95 °C.
+    low = celsius(low, 35, 80)
+    mid = celsius(mid, low + 5, 95)
+    high = celsius(high, mid + 5, 100)
+    return low, mid, high
+
+
+def write_fan_triggers(low, mid, high):
+    """Apply in an order the driver accepts from any valid starting curve."""
+    def current(name):
+        return int((FAN_SYSFS / name).read_text().rsplit(':', 1)[1])
+
+    # Every accepted write also advances the fan one ramp step; skip no-ops.
+    def store(name, value):
+        if current(name) != value:
+            (FAN_SYSFS / name).write_text(f'{value}\n')
+
+    # The driver requires low < mid < high after every write. Widen the
+    # bounds first so the new middle value always fits, then narrow them.
+    store('trigger_temp_high', max(high, current('trigger_temp_high')))
+    store('trigger_temp_low', min(low, current('trigger_temp_low')))
+    store('trigger_temp_mid', mid)
+    store('trigger_temp_low', low)
+    store('trigger_temp_high', high)
+    # The curve only drives the fan in automatic mode.
+    store('mode', 1)
+
+
+def fan_curve(low, mid, high):
+    triggers = fan_triggers(low, mid, high)
+    write_fan_triggers(*triggers)
+    write_config(FAN_CONFIG, ''.join(f'{k}={v}\n' for k, v in zip(FAN_KEYS, triggers)).encode())
+
+
+def fan_restore():
+    if not os.path.exists(FAN_CONFIG):
+        return
+    values = {}
+    for line in Path(FAN_CONFIG).read_text().splitlines():
+        key, _, value = line.partition('=')
+        values[key.strip()] = value.strip()
+    if any(key not in values for key in FAN_KEYS):
+        raise ValueError(f'{FAN_CONFIG} is incomplete')
+    write_fan_triggers(*fan_triggers(*(values[key] for key in FAN_KEYS)))
+
+
 def main(argv):
     match argv:
         case ['edid-status']:
@@ -299,9 +357,14 @@ def main(argv):
             hdr_curve(white, peak)
         case ['hdr-preview', white, peak]:
             apply_hdr_curve(white, peak)
+        case ['fan-curve', low, mid, high]:
+            fan_curve(low, mid, high)
+        case ['fan-restore']:
+            fan_restore()
         case _:
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
-                             'hdr-curve|hdr-preview WHITE PEAK | wifi on|off | edid-status | edid-select ID')
+                             'hdr-curve|hdr-preview WHITE PEAK | fan-curve LOW MID HIGH | fan-restore | '
+                             'wifi on|off | edid-status | edid-select ID')
 
 
 if __name__ == '__main__':

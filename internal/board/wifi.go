@@ -45,5 +45,6 @@ func (s *Service) SetWifi(ctx context.Context, enabled bool) error {
 	if enabled {
 		value = "on"
 	}
-	return s.helper(ctx, "wifi", value)
+	label := map[bool]string{true: "开启 Wi-Fi", false: "关闭 Wi-Fi"}[enabled]
+	return s.record(s.helper(ctx, "wifi", value), "%s", label)
 }

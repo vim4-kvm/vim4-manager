@@ -17,6 +17,9 @@ type Sample struct {
 	Mem    float64 `json:"mem"`
 	TempC  float64 `json:"tempC"`
 	FanPct int     `json:"fan"`
+	// Physical-link throughput since the previous sample, in bits per second.
+	RxBps float64 `json:"rxBps"`
+	TxBps float64 `json:"txBps"`
 }
 
 // History keeps recent samples in memory; it restarts empty with the service.
@@ -28,6 +31,8 @@ type History struct {
 	samples []Sample
 	busy    uint64
 	total   uint64
+	rx, tx  uint64
+	last    time.Time
 }
 
 // Run samples every interval until ctx is cancelled.
@@ -61,14 +66,20 @@ func (h *History) Sample(now time.Time) {
 		s.TempC = float64(milli) / 1000
 	}
 	s.FanPct, _ = strconv.Atoi(afterColon(read("sys/class/fan/speed")))
+	rx, tx := netBytes(h.Root)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	primed := h.total > 0 && total > h.total
 	if primed {
 		s.CPU = 100 * float64(busy-h.busy) / float64(total-h.total)
+		// Counters restart when an interface is re-created; skip that interval.
+		if seconds := now.Sub(h.last).Seconds(); seconds > 0 && rx >= h.rx && tx >= h.tx {
+			s.RxBps = 8 * float64(rx-h.rx) / seconds
+			s.TxBps = 8 * float64(tx-h.tx) / seconds
+		}
 	}
-	h.busy, h.total = busy, total
+	h.busy, h.total, h.rx, h.tx, h.last = busy, total, rx, tx, now
 	if !primed {
 		return
 	}

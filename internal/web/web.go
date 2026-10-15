@@ -102,6 +102,13 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		}
 		respond(w, service.PreviewHDRCurve(r.Context(), curve))
 	})
+	mux.HandleFunc("POST /api/fan-curve", func(w http.ResponseWriter, r *http.Request) {
+		var triggers board.FanTriggers
+		if !decode(w, r, &triggers) {
+			return
+		}
+		respond(w, service.SetFanCurve(r.Context(), triggers))
+	})
 	files := http.FileServerFS(assets)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/assets/") {

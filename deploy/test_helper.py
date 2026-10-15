@@ -158,9 +158,68 @@ class HelperTest(unittest.TestCase):
         self.assertFalse(path.exists())
         self.assertEqual(self.applied, [])
 
+    def fan_sysfs(self, low=60, mid=80, high=100):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        sysfs = root / 'fan'
+        sysfs.mkdir()
+        values = {'trigger_temp_low': low, 'trigger_temp_mid': mid, 'trigger_temp_high': high, 'mode': 0}
+        self.fan_writes = []
+        real_write = Path.write_text
+
+        # Model the driver: each trigger write must keep low < mid < high.
+        def write(path, text, *args, **kwargs):
+            if path.parent != sysfs:
+                return real_write(path, text, *args, **kwargs)
+            trial = {**values, path.name: int(text)}
+            if not trial['trigger_temp_low'] < trial['trigger_temp_mid'] < trial['trigger_temp_high']:
+                raise OSError(22, 'Invalid argument')
+            values.update(trial)
+            self.fan_writes.append((path.name, int(text)))
+            return real_write(path, f'{path.name}:{text}')
+
+        for name, value in values.items():
+            real_write(sysfs / name, f'{name}:{value}\n')
+        self.enterContext(patch.object(Path, 'write_text', write))
+        self.enterContext(patch.object(helper, 'FAN_SYSFS', sysfs))
+        self.enterContext(patch.object(helper, 'FAN_CONFIG', str(root / 'vim4-kvm-fan')))
+        self.enterContext(patch.object(helper.os, 'sync'))
+        return values, root / 'vim4-kvm-fan'
+
+    def test_fan_curve_reaches_any_valid_curve_through_valid_steps(self):
+        for start, target in (((60, 80, 100), (35, 40, 45)), ((35, 40, 45), (80, 95, 100)),
+                              ((60, 80, 100), (75, 85, 90)), ((70, 75, 80), (40, 90, 100))):
+            with self.subTest(start=start, target=target):
+                values, config = self.fan_sysfs(*start)
+                helper.main(['fan-curve', *map(str, target)])
+                self.assertEqual((values['trigger_temp_low'], values['trigger_temp_mid'],
+                                  values['trigger_temp_high'], values['mode']), (*target, 1))
+                self.assertEqual(config.read_text(),
+                                 'FAN_TRIGGER_LOW={}\nFAN_TRIGGER_MID={}\nFAN_TRIGGER_HIGH={}\n'.format(*target))
+
+    def test_fan_curve_rejects_invalid_curves_without_writing(self):
+        for args in (('34', '80', '100'), ('60', '64', '100'), ('60', '80', '84'), ('60', '80', '101'),
+                     ('60', '80', '1e2'), ('60', '80', '100\nX=1')):
+            with self.subTest(args=args):
+                values, config = self.fan_sysfs()
+                with self.assertRaises(ValueError):
+                    helper.main(['fan-curve', *args])
+                self.assertEqual(self.fan_writes, [])
+                self.assertFalse(config.exists())
+
+    def test_fan_restore_applies_saved_curve_only(self):
+        values, config = self.fan_sysfs()
+        helper.main(['fan-restore'])
+        self.assertEqual(self.fan_writes, [])
+        config.write_text('FAN_TRIGGER_LOW=50\nFAN_TRIGGER_MID=70\nFAN_TRIGGER_HIGH=90\n')
+        helper.main(['fan-restore'])
+        self.assertEqual([values[k] for k in ('trigger_temp_low', 'trigger_temp_mid', 'trigger_temp_high')], [50, 70, 90])
+        config.write_text('FAN_TRIGGER_LOW=50\n')
+        with self.assertRaises(ValueError):
+            helper.main(['fan-restore'])
+
     def test_unmanaged_requests_rejected(self):
         for argv in (['restart', 'vim4-kvm-gadget.service'], ['restart', 'ssh.service'], ['select', 'other'],
-                     ['select'], ['enable', 'nanokvm.service'], ['hdr-curve', '203'], []):
+                     ['select'], ['enable', 'nanokvm.service'], ['hdr-curve', '203'], ['fan-curve', '60', '80'], []):
             with self.subTest(argv=argv), self.assertRaises(ValueError):
                 helper.main(argv)
         self.assertEqual(self.calls, [])

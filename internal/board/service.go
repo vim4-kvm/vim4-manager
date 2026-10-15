@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,7 +24,12 @@ type Service struct {
 	Run     Runner
 	Root    string
 	History *History
+	Events  *Events
 	mu      sync.Mutex
+
+	pkgMu    sync.Mutex
+	pkgMtime time.Time
+	packages []Package
 }
 
 // Status is the complete dashboard state.
@@ -31,7 +38,16 @@ type Status struct {
 	Apps     []AppState `json:"apps"`
 	Platform []Platform `json:"platform"`
 	Hardware Hardware   `json:"hardware"`
+	System   System     `json:"system"`
 	History  []Sample   `json:"history"`
+	Events   []Event    `json:"events"`
+}
+
+// System is the network, storage and software summary on the overview.
+type System struct {
+	Links    []Link    `json:"links"`
+	Disk     Disk      `json:"disk"`
+	Packages []Package `json:"packages"`
 }
 
 // AppState combines an App with its systemd unit.
@@ -64,10 +80,13 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}}
+	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List()}
 	if s.History != nil {
 		status.History = s.History.Samples()
 	}
+	// Addresses are optional detail; a failing ip call must not hide the rest.
+	addrs, _ := s.Run(ctx, "ip", "-o", "addr", "show")
+	status.System = System{Links: readLinks(s.Root, parseAddrs(addrs)), Disk: readDisk(s.Root), Packages: s.installed()}
 	for _, app := range Apps {
 		unit := units[app.Unit]
 		status.Apps = append(status.Apps, AppState{App: app, Unit: unit})
@@ -83,6 +102,22 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	return status, nil
 }
 
+// installed caches the dpkg database parse until the file changes.
+func (s *Service) installed() []Package {
+	path := filepath.Join(s.Root, "var/lib/dpkg/status")
+	info, err := os.Stat(path)
+	if err != nil {
+		return []Package{}
+	}
+	s.pkgMu.Lock()
+	defer s.pkgMu.Unlock()
+	if !info.ModTime().Equal(s.pkgMtime) {
+		data, _ := os.ReadFile(path)
+		s.packages, s.pkgMtime = installedPackages(string(data)), info.ModTime()
+	}
+	return s.packages
+}
+
 // Restartable reports whether the dashboard may restart unit. Gadget rebinds
 // and PD renegotiation can drop the host USB link; those stay with the board tools.
 func Restartable(unit string) bool {
@@ -94,7 +129,16 @@ func (s *Service) Select(ctx context.Context, id string) error {
 	if !slices.ContainsFunc(Apps, func(app App) bool { return app.ID == id }) {
 		return fmt.Errorf("未知应用 %q", id)
 	}
-	return s.helper(ctx, "select", id)
+	return s.record(s.helper(ctx, "select", id), "切换到 %s", appName(id))
+}
+
+func appName(id string) string {
+	for _, app := range Apps {
+		if app.ID == id {
+			return app.Name
+		}
+	}
+	return id
 }
 
 // Restart restarts an application or shared platform unit.
@@ -102,13 +146,13 @@ func (s *Service) Restart(ctx context.Context, unit string) error {
 	if !Restartable(unit) {
 		return fmt.Errorf("不允许重启 %s", unit)
 	}
-	return s.helper(ctx, "restart", unit)
+	return s.record(s.helper(ctx, "restart", unit), "重启%s", unitName(unit))
 }
 
 // SetHDRCurve applies the HDR -> SDR mapping to the running capture and keeps
 // it for the next HDMI service start.
 func (s *Service) SetHDRCurve(ctx context.Context, curve HDRCurve) error {
-	return s.hdrCurve(ctx, "hdr-curve", curve)
+	return s.record(s.hdrCurve(ctx, "hdr-curve", curve), "保存 HDR 映射 %d / %d 尼特", curve.White, curve.Peak)
 }
 
 // PreviewHDRCurve applies the mapping without saving it, for slider drags.
