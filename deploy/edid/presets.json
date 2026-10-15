@@ -1,0 +1,20 @@
+[
+  {
+    "id": "RTK-CONTROL",
+    "name": "RTK UHD HDR · 4K60",
+    "description": "兼容性选项；已在当前 Mac 上验证屏幕共享退出后恢复。",
+    "file": "/usr/share/vim4-manager/edid/rtk-uhd-hdr.bin"
+  },
+  {
+    "id": "VIM4-4K60",
+    "name": "VIM4 · 4K60",
+    "description": "厂商原始预设，支持 HDR；部分 Mac 虚拟屏会话退出后可能需要重新连接。",
+    "file": "/etc/tvconfig/hdmi/port1_20.bin"
+  },
+  {
+    "id": "VIM4-1080P60",
+    "name": "VIM4 · 1080p60",
+    "description": "较低分辨率选项，可用于排查高分辨率输出兼容问题。",
+    "file": "/etc/tvconfig/hdmi/port1_14.bin"
+  }
+]

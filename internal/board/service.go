@@ -132,7 +132,13 @@ func (s *Service) helper(ctx context.Context, args ...string) error {
 		return ErrBusy
 	}
 	defer s.mu.Unlock()
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	timeout := 90 * time.Second
+	if len(args) > 0 && args[0] == "edid-select" {
+		// Finish configuration recovery even if the browser disconnects.
+		ctx = context.WithoutCancel(ctx)
+		timeout = 8 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	_, err := s.Run(ctx, "sudo", append([]string{"-n", Helper}, args...)...)
 	if err != nil {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { WifiControl } from "./WifiControl";
+import { EDIDPanel } from "./EDIDPanel";
 import {
   getStatus,
   previewHDRCurve,
@@ -478,6 +479,7 @@ export function App() {
         </section>
 
         <WifiControl busy={!!busy} />
+        <EDIDPanel busy={!!busy} run={run} />
 
         {status && (
           <>

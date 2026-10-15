@@ -34,7 +34,24 @@ PiKVM 有已挂载介质时，切换和重启会在改变服务状态前拒绝�
 
 API 没有认证，面向可信局域网。POST 只接受 application/json，跨站表单无法触发切换。
 
-## 构建
+## EDID 兼容性预设
+
+面板可选择 RTK UHD HDR 4K60、厂商 VIM4 4K60 或 VIM4 1080p60。
+RTK 表在当前 Mac 的 Screen Sharing 虚拟屏进退测试中可恢复 HDMI；这不保证所有电脑兼容。
+安装管理器不改变现有 EDID，点击「应用预设」才加载并保存；相同配置已加载时不触发重连。
+
+`GET /api/edid` 返回清单、板级保存值、当前 tvserver 会话的最近加载记录及 JetKVM 同步状态；
+加载记录不是 HDMI 信号或主机恢复成功的证明。`POST /api/edid` 接受 `{"id":"RTK-CONTROL"}`。
+应用时同步 `/var/lib/jetkvm/config.json` 的 EDID 字段，保留其他设置；运行中的 JetKVM
+先停止再修改、最后启动。失败时尝试恢复原保存配置并报告结果。其他 KVM 无需重启。
+在应用自身界面另改 EDID 后，可能与管理器保存值不同，需要重新应用预设。
+
+扩展预设：将经校验的 128/256 字节 EDID 文件加入 `deploy/edid/`，在
+`deploy/edid/presets.json` 增加唯一 `id`、显示 `name`、`description` 及安装后的绝对 `file` 路径，
+打包会安装到 `/usr/share/vim4-manager/edid/`。保留 `VIM4-4K60` 默认项。
+清单由 root 管理，网页只能选择清单 ID，不能指定文件路径或上传任意内容。
+
+## 构建与验证
 
 ```sh
 pnpm --dir web install --frozen-lockfile && pnpm --dir web build

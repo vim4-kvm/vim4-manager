@@ -1,9 +1,13 @@
 #!/usr/bin/python3
 """Root operations for vim4-manager. Only fixed actions are accepted."""
 import fcntl
+import json
 import os
+import pwd
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 # Keep in sync with internal/board/units.go. The units declare Conflicts= with
@@ -19,6 +23,159 @@ HDR_CONFIG = '/etc/default/vim4-kvm-hdr'
 HDR_CURVE = '/usr/sbin/vim4-hdr-curve'
 PIKVM_USB_STATE = Path('/run/vim4-pikvm-usb/state.json')
 PIKVM_LUN_FILE = Path('/sys/kernel/config/usb_gadget/kvm/functions/mass_storage.disk0/lun.0/file')
+EDID_CATALOG = Path('/usr/share/vim4-manager/edid/presets.json')
+EDID_STATE = Path('/var/lib/vim4-kvm/edid')
+EDID_LOADED = Path('/run/vim4-edid.loaded')
+EDID_HELPER = '/usr/libexec/vim4-edid'
+JETKVM_CONFIG = Path('/var/lib/jetkvm/config.json')
+
+
+def validate_edid(data):
+    # Runtime markers store the driver's padded 256-byte slot.
+    if len(data) == 256 and data[126] == 0 and data[128:] == bytes(128):
+        data = data[:128]
+    if (len(data) not in (128, 256) or data[:8] != bytes.fromhex('00ffffffffffff00') or
+            data[126] != len(data) // 128 - 1 or
+            any(sum(data[i:i + 128]) % 256 for i in range(0, len(data), 128))):
+        raise ValueError('EDID 长度、扩展块或校验和无效')
+    return data + bytes(256 - len(data))
+
+
+def edid_catalog():
+    presets = json.loads(EDID_CATALOG.read_text())
+    if not isinstance(presets, list) or not presets:
+        raise ValueError('EDID 预设清单无效')
+    ids = set()
+    for item in presets:
+        if not isinstance(item, dict) or any(not isinstance(item.get(k), str) for k in ('id', 'name', 'description', 'file')):
+            raise ValueError('EDID 预设字段无效')
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', item['id']) or item['id'] in ids:
+            raise ValueError('EDID 预设标识无效或重复')
+        ids.add(item['id'])
+        item['data'] = validate_edid(Path(item['file']).read_bytes())
+    if 'VIM4-4K60' not in ids:
+        raise ValueError('EDID 清单缺少 VIM4-4K60 默认预设')
+    return presets
+
+
+def saved_edid(presets):
+    if (EDID_STATE / 'active.bin').exists():
+        return (EDID_STATE / 'active.name').read_text().strip(), validate_edid((EDID_STATE / 'active.bin').read_bytes())
+    return 'VIM4-4K60', next(p['data'] for p in presets if p['id'] == 'VIM4-4K60')
+
+
+def loaded_edid():
+    if not EDID_LOADED.exists():
+        return None
+    run = subprocess.run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'tvserver.service'],
+                         check=True, capture_output=True, text=True, timeout=10).stdout.strip()
+    fields = EDID_LOADED.read_text().split()
+    if len(fields) != 2 or not run or fields[0] != run:
+        return None
+    return validate_edid(bytes.fromhex(fields[1]))
+
+
+def edid_status():
+    presets = edid_catalog()
+    name, saved = saved_edid(presets)
+    loaded = loaded_edid()
+    config = json.loads(JETKVM_CONFIG.read_text()) if JETKVM_CONFIG.exists() else {}
+    if not isinstance(config, dict):
+        raise ValueError('JetKVM 配置不是 JSON 对象')
+    jet_edid = config.get('hdmi_edid_string', '')
+    if jet_edid:
+        try:
+            jet_data = validate_edid(bytes.fromhex(jet_edid))
+        except (ValueError, TypeError):
+            jet_data = None
+    else:
+        jet_data = next(p['data'] for p in presets if p['id'] == 'VIM4-4K60')
+    return {'presets': [{k: p[k] for k in ('id', 'name', 'description')} for p in presets],
+            'selected': next((p['id'] for p in presets if p['data'] == saved), ''),
+            'savedName': name,
+            'active': next((p['id'] for p in presets if p['data'] == loaded), ''),
+            'activeKnown': loaded is not None,
+            'jetkvmSynced': jet_data == saved}
+
+
+def write_jetkvm_config(content):
+    # Keep private configuration private, including when JetKVM has not run yet.
+    if not JETKVM_CONFIG.parent.exists():
+        user = pwd.getpwnam('khadas')
+        JETKVM_CONFIG.parent.mkdir(mode=0o700)
+        os.chown(JETKVM_CONFIG.parent, user.pw_uid, user.pw_gid)
+    owner = JETKVM_CONFIG.stat() if JETKVM_CONFIG.exists() else JETKVM_CONFIG.parent.stat()
+    fd, pending = tempfile.mkstemp(prefix='.edid-', dir=JETKVM_CONFIG.parent)
+    try:
+        with os.fdopen(fd, 'wb') as file:
+            os.fchown(file.fileno(), owner.st_uid, owner.st_gid)
+            os.fchmod(file.fileno(), 0o600)
+            file.write(content)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(pending, JETKVM_CONFIG)
+    finally:
+        if os.path.exists(pending):
+            os.unlink(pending)
+
+
+def load_edid(name, data):
+    args = ['preset', name] if name in ('VIM4-4K60', 'VIM4-1080P60') else ['apply', name]
+    subprocess.run([EDID_HELPER, *args], input=data[:128 * (1 + data[126])], check=True, timeout=30)
+
+
+def select_edid(preset_id):
+    presets = edid_catalog()
+    preset = next((p for p in presets if p['id'] == preset_id), None)
+    if preset is None:
+        raise ValueError('未知 EDID 预设')
+    old_name, old_saved = saved_edid(presets)
+    old_loaded = loaded_edid()
+    running = subprocess.run(['systemctl', 'is-active', '--quiet', APPS['jetkvm']], timeout=10).returncode == 0
+    # Read once before stopping to reject malformed configuration without disruption.
+    config = json.loads(JETKVM_CONFIG.read_text()) if JETKVM_CONFIG.exists() else {}
+    if not isinstance(config, dict):
+        raise ValueError('JetKVM 配置不是 JSON 对象')
+    if (old_saved == preset['data'] and old_loaded == preset['data'] and
+            str(config.get('hdmi_edid_string', '')).upper() == preset['data'].hex().upper()):
+        return
+    if running:
+        check_pikvm_media()
+        systemctl('stop', APPS['jetkvm'])
+    # JetKVM may save settings on shutdown. Snapshot only after it has stopped.
+    old_config = None
+    config_written = False
+    load_attempted = False
+    try:
+        old_config = JETKVM_CONFIG.read_bytes() if JETKVM_CONFIG.exists() else None
+        config = json.loads(old_config) if old_config is not None else {}
+        config['hdmi_edid_string'] = preset['data'].hex().upper()
+        write_jetkvm_config((json.dumps(config, indent=2) + '\n').encode())
+        config_written = True
+        if old_saved != preset['data'] or old_loaded != preset['data']:
+            load_attempted = True
+            load_edid(preset_id, preset['data'])
+        if running:
+            systemctl('start', APPS['jetkvm'])
+        os.sync()
+    except Exception as error:
+        recovery = []
+        try:
+            if running:
+                systemctl('stop', APPS['jetkvm'])
+            if config_written:
+                if old_config is None:
+                    JETKVM_CONFIG.unlink(missing_ok=True)
+                else:
+                    write_jetkvm_config(old_config)
+            if load_attempted:
+                load_edid(old_name, old_saved)
+            if running:
+                systemctl('start', APPS['jetkvm'])
+            os.sync()
+        except Exception:
+            recovery.append('恢复原配置失败，请检查 HDMI 和 JetKVM 服务')
+        raise ValueError('EDID 切换失败；' + ('；'.join(recovery) if recovery else '已恢复原配置')) from error
 
 
 def check_pikvm_media(entering=False):
@@ -128,6 +285,10 @@ def hdr_curve(white, peak):
 
 def main(argv):
     match argv:
+        case ['edid-status']:
+            print(json.dumps(edid_status()))
+        case ['edid-select', preset]:
+            select_edid(preset)
         case ['select', app] if app in APPS:
             select(app)
         case ['restart', unit]:
@@ -140,7 +301,7 @@ def main(argv):
             apply_hdr_curve(white, peak)
         case _:
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
-                             'hdr-curve|hdr-preview WHITE PEAK | wifi on|off')
+                             'hdr-curve|hdr-preview WHITE PEAK | wifi on|off | edid-status | edid-select ID')
 
 
 if __name__ == '__main__':
@@ -151,6 +312,6 @@ if __name__ == '__main__':
     except BlockingIOError:
         print('Another switch is in progress', file=sys.stderr)
         sys.exit(75)
-    except (ValueError, subprocess.SubprocessError) as error:
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(error, file=sys.stderr)
         sys.exit(1)
