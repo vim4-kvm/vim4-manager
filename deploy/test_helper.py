@@ -227,7 +227,8 @@ class HelperTest(unittest.TestCase):
 
 
     def update(self, data=b'package', checksum=None, installed='2.5.1+vim4.20261015.1',
-               plan='Inst vim4-pikvm [2.5.1+vim4.20261015.1] (2.5.1+vim4.20261016.1)\n', active=False, mounted=False):
+               plan='Inst vim4-pikvm [2.5.1+vim4.20261015.1] (2.5.1+vim4.20261016.1)\n', active=False, mounted=False,
+               verification=''):
         root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
         downloads = root / 'downloads'
         downloads.mkdir()
@@ -239,6 +240,8 @@ class HelperTest(unittest.TestCase):
 
         def update_run(*args):
             commands.append(args[0])
+            if args[:2] == ('dpkg', '--verify'):
+                return verification
             return fields[args[3]] if args[0] == 'dpkg-deb' else plan if args[0] == 'apt-get' else ''
 
         def run(args, **kwargs):
@@ -275,6 +278,14 @@ class HelperTest(unittest.TestCase):
     def test_update_refuses_mounted_media(self):
         with self.assertRaisesRegex(ValueError, '安全弹出虚拟磁盘'):
             self.update(mounted=True)
+
+    def test_update_preserves_pikvm_settings_but_rejects_missing_or_damaged_programs(self):
+        self.update(verification='??5?????? c /etc/kvmd/nginx/vim4.conf')
+        for verification in ('missing   c /etc/kvmd/nginx/vim4.conf',
+                             '??5??????   /usr/libexec/vim4-pikvm-media',
+                             '??5?????? c /etc/sudoers.d/vim4-pikvm-media'):
+            with self.subTest(verification=verification), self.assertRaisesRegex(ValueError, 'verification failed'):
+                self.update(verification=verification)
 
     def test_update_rejects_other_packages_and_linked_downloads(self):
         for argv in (['update', 'vim4-nanokvm', '0' * 64, '2.5.1+vim4.20261016.1'],

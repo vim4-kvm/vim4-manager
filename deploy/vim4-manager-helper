@@ -406,7 +406,11 @@ def update(package, checksum, version):
         if package == 'vim4-pikvm':
             check_pikvm_media(entering=True)
         update_run('dpkg', '--force-confdef', '--force-confold', '-i', str(deb))
-        if update_run('dpkg', '--verify', package):
+        for line in update_run('dpkg', '--verify', package).splitlines():
+            # --force-confold preserves administrator-owned PiKVM settings.
+            # Missing files, executables and sudoers must still verify exactly.
+            if package == 'vim4-pikvm' and re.fullmatch(r'\?\?5\?{6} c /etc/kvmd/.+', line):
+                continue
             raise ValueError('Installed package verification failed')
         os.sync()
     unit = UPDATES[package]
