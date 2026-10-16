@@ -841,7 +841,7 @@ export function App() {
 
             {page === "apps" && (
               <>
-                <MediaPanel media={stale ? undefined : status.media} waiting={waiting?.app.name} onCancel={cancelWaiting} />
+                <MediaPanel media={stale ? undefined : status.media} active={status.active} busy={!!busy} run={run} waiting={waiting?.app.name} onCancel={cancelWaiting} />
                 <ul className="apps">
                   {status.apps.map((app) => (
                     <AppRow

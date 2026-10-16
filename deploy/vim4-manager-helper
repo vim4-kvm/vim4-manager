@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 """Root operations for vim4-manager. Only fixed actions are accepted."""
 import fcntl
+import errno
+from contextlib import ExitStack, contextmanager
 import hashlib
 import json
 import os
@@ -11,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Keep in sync with internal/board/units.go. The units declare Conflicts= with
@@ -42,6 +45,184 @@ UPDATES = {'vim4-pikvm': 'vim4-pikvm.service', 'vim4-manager': 'vim4-manager.ser
 UPDATE_DOWNLOADS = Path('/var/lib/vim4-manager/updates')
 UPDATE_STAGING = Path('/var/lib/vim4-manager-update')
 UPDATE_LIMIT = 256 << 20
+MEDIA_ROOTS = {
+    'shared': Path('/var/lib/vim4-kvm/images'),
+    'data': Path('/var/lib/vim4-kvm/usb'),
+    'jetkvm': Path('/var/lib/jetkvm/images'),
+    'onekvm': Path('/var/lib/one-kvm/msd'),
+    'pikvm': Path('/var/lib/kvmd/msd'),
+}
+MEDIA_LOCKS = ('/run/lock/vim4-media.lock', '/run/lock/vim4-jetkvm-media.lock')
+
+
+@contextmanager
+def media_directory(source, parts=()):
+    directory = os.open(MEDIA_ROOTS[source], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        yield directory
+    finally:
+        os.close(directory)
+
+
+def media_image(identifier, readonly):
+    parts = identifier.split('/')
+    if (len(parts) < 2 or parts[0] not in MEDIA_ROOTS or len(parts) > 10 or
+            any(p in ('', '.', '..') or '\0' in p for p in parts) or
+            Path(parts[-1]).suffix.lower() not in ('.iso', '.img') or
+            (parts[0] == 'data' and parts[1:] != ['disk.img'])):
+        raise ValueError('请选择镜像列表中的文件')
+    with media_directory(parts[0], parts[1:-1]) as directory:
+        fd = os.open(parts[-1], (os.O_RDONLY if readonly else os.O_RDWR) |
+                     os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size < 512:
+        os.close(fd)
+        raise ValueError('镜像必须是至少 512 字节、无硬链接的普通文件')
+    return fd
+
+
+def media_catalog():
+    images = []
+    # Bound traversal even when application-owned storage contains many files.
+    remaining = 10000
+
+    def scan(source, directory, parents=()):
+        nonlocal remaining
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                remaining -= 1
+                if remaining < 0:
+                    raise ValueError('镜像目录条目过多，请先整理目录')
+                parts = (*parents, entry.name)
+                if source == 'data' and parts != ('disk.img',):
+                    continue
+                info = entry.stat(follow_symlinks=False)
+                if stat.S_ISDIR(info.st_mode) and len(parts) < 8:
+                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                    try:
+                        scan(source, child, parts)
+                    finally:
+                        os.close(child)
+                elif (stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size >= 512
+                      and Path(entry.name).suffix.lower() in ('.iso', '.img')):
+                    images.append({'id': '/'.join((source, *parts)), 'name': '/'.join(parts),
+                                   'source': source, 'size': info.st_size,
+                                   'cdrom': Path(entry.name).suffix.lower() == '.iso'})
+
+    for source in MEDIA_ROOTS:
+        try:
+            with media_directory(source) as directory:
+                scan(source, directory)
+        except FileNotFoundError:
+            continue
+    return sorted(images, key=lambda image: image['id'])
+
+
+@contextmanager
+def media_locks():
+    # Share the existing application locks without invoking a child that would
+    # try to acquire them again. The outer manager lock also serializes switches.
+    with ExitStack() as stack:
+        for path in MEDIA_LOCKS:
+            fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            lock = stack.enter_context(os.fdopen(fd, 'r+'))
+            if os.fstat(fd).st_uid != 0:
+                raise ValueError('Invalid media lock owner')
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+
+
+def media_active(app):
+    if app not in APPS:
+        raise ValueError('请选择正在运行的 KVM')
+    result = subprocess.run(['systemctl', 'show', '--property=ActiveState', '--value', *APPS.values()],
+                            check=True, capture_output=True, text=True, timeout=10)
+    states = [line for line in result.stdout.splitlines() if line]
+    if len(states) != len(APPS) or [key for key, state in zip(APPS, states) if state == 'active'] != [app]:
+        raise ValueError('运行中的 KVM 已改变，请刷新后重试')
+    if PIKVM_USB_STATE.exists() != (app == 'pikvm'):
+        raise ValueError('USB 配置正在切换，请稍后重试')
+
+
+def media_mount(app, identifier, cdrom, readonly):
+    with media_locks():
+        media_active(app)
+        if PIKVM_LUN_FILE.read_text().strip():
+            raise ValueError('已有虚拟磁盘挂载，请先在被控电脑安全弹出；不会替换现有磁盘')
+        cdrom = cdrom or identifier.lower().endswith('.iso')
+        readonly = readonly or cdrom
+        if app == 'jetkvm' and not readonly:
+            raise ValueError('JetKVM 仅支持只读介质')
+        fd = media_image(identifier, readonly)
+        try:
+            attach_media(fd, app, cdrom, readonly)
+        finally:
+            os.close(fd)
+
+
+def attach_media(fd, app, cdrom, readonly):
+    lun = PIKVM_LUN_FILE.parent
+    gadget = lun.parents[2]
+    config = gadget / 'configs/c.1'
+    disk = config / 'mass_storage.disk0'
+    network = config / 'ncm.usb0'
+    linked = disk.is_symlink()
+    # Nano/Jet's stock profile replaces NCM with storage. One-KVM's explicit
+    # HID/network selection must be preserved, including its endpoint budget.
+    remove_network = not linked and app in ('nanokvm', 'jetkvm') and network.is_symlink()
+    links = [p.name for p in config.iterdir() if p.is_symlink() and p != disk
+             and not (remove_network and p == network)]
+    endpoints = 1 + sum(2 if name.startswith(('ncm.', 'ecm.', 'rndis.')) else 1 for name in links)
+    if endpoints > 5:
+        raise ValueError('USB 端点不足，请先在当前 KVM 关闭 USB 网卡、麦克风或一个 HID 功能')
+    old = {key: (lun / key).read_text() for key in ('ro', 'cdrom')}
+    udc = gadget / 'UDC'
+    controller = udc.read_text().strip()
+    rebound = not linked and bool(controller)
+    if rebound:
+        udc.write_text('\n')
+        time.sleep(0.5)
+    try:
+        if remove_network:
+            network.unlink()
+        (lun / 'cdrom').write_text('1' if cdrom else '0')
+        (lun / 'ro').write_text('1' if readonly else '0')
+        PIKVM_LUN_FILE.write_text(f'/proc/self/fd/{fd}')
+        if not linked:
+            disk.symlink_to(gadget / 'functions/mass_storage.disk0')
+    except Exception:
+        PIKVM_LUN_FILE.write_text('\n')
+        for key, value in old.items():
+            (lun / key).write_text(value)
+        if not linked:
+            disk.unlink(missing_ok=True)
+        if remove_network and not network.is_symlink():
+            network.symlink_to(gadget / 'functions/ncm.usb0')
+        raise
+    finally:
+        if rebound:
+            udc.write_text(controller)
+
+
+def media_eject(expected):
+    with media_locks():
+        current = media_status()
+        if not current['inserted']:
+            return
+        if not expected or current['token'] != expected:
+            raise ValueError('挂载的磁盘已改变，请刷新后重试')
+        try:
+            # file_store honors SCSI PREVENT REMOVAL. Never unbind UDC or write
+            # forced_eject: both would bypass the host's protection.
+            PIKVM_LUN_FILE.write_text('\n')
+        except OSError as error:
+            if error.errno == errno.EBUSY:
+                raise ValueError('被控电脑仍锁定磁盘，请先安全弹出后重试') from error
+            raise
 
 
 def validate_edid(data):
@@ -200,6 +381,7 @@ def media_status():
     linked = (gadget / 'configs/c.1/mass_storage.disk0').is_symlink()
     configured = controller and (UDC_CLASS / controller / 'state').read_text().strip() == 'configured'
     return {'known': True, 'inserted': bool(image), 'name': Path(image).name if image else '',
+            'token': hashlib.sha256(image.encode()).hexdigest() if image else '',
             'readOnly': (lun / 'ro').read_text().strip() == '1' if image else False,
             'cdrom': (lun / 'cdrom').read_text().strip() == '1' if image else False,
             'connected': bool(image and configured and linked),
@@ -437,6 +619,12 @@ def update(package, checksum, version):
 
 def main(argv):
     match argv:
+        case ['media-list']:
+            print(json.dumps(media_catalog()))
+        case ['media-mount', app, identifier, cdrom, readonly] if cdrom in ('true', 'false') and readonly in ('true', 'false'):
+            media_mount(app, identifier, cdrom == 'true', readonly == 'true')
+        case ['media-eject', expected]:
+            media_eject(expected)
         case ['media-status']:
             print(json.dumps(media_status()))
         case ['update', package, checksum, version]:
@@ -462,7 +650,8 @@ def main(argv):
         case _:
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
                              'hdr-curve|hdr-preview WHITE PEAK | fan-curve LOW MID HIGH | fan-restore | '
-                             'wifi on|off | media-status | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
+                             'wifi on|off | media-status | media-list | media-mount APP IMAGE CDROM READONLY | '
+                             'media-eject TOKEN | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
 
 
 if __name__ == '__main__':

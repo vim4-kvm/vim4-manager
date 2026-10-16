@@ -3,6 +3,8 @@ package board
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -11,10 +13,41 @@ type Media struct {
 	Known     bool   `json:"known"`
 	Inserted  bool   `json:"inserted"`
 	Name      string `json:"name"`
+	Token     string `json:"token"`
 	ReadOnly  bool   `json:"readOnly"`
 	CDROM     bool   `json:"cdrom"`
 	Connected bool   `json:"connected"`
 	PiKVM     bool   `json:"pikvm"`
+}
+
+type MediaImage struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Source string `json:"source"`
+	Size   int64  `json:"size"`
+	CDROM  bool   `json:"cdrom"`
+}
+
+func (s *Service) MediaImages(ctx context.Context) ([]MediaImage, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	data, err := s.Run(ctx, "sudo", "-n", Helper, "media-list")
+	if err != nil {
+		return nil, fmt.Errorf("读取镜像列表失败：%w", err)
+	}
+	images := []MediaImage{}
+	if err := json.Unmarshal([]byte(data), &images); err != nil {
+		return nil, fmt.Errorf("镜像列表无效：%w", err)
+	}
+	return images, nil
+}
+
+func (s *Service) MountMedia(ctx context.Context, app, image string, cdrom, readonly bool) error {
+	return s.helper(ctx, "media-mount", app, image, strconv.FormatBool(cdrom), strconv.FormatBool(readonly))
+}
+
+func (s *Service) EjectMedia(ctx context.Context, token string) error {
+	return s.helper(ctx, "media-eject", token)
 }
 
 func (s *Service) media(ctx context.Context) Media {

@@ -46,6 +46,21 @@ KVM 界面页显示板级共享虚拟介质的文件名、只读/可写和 USB �
 `GET /api/status` 的 `media.known=false` 表示读取失败，不等于已经弹出。
 浏览器回归：运行本地前端后执行 `node web/tests/media.mjs`（可设置 PLAYWRIGHT_MODULE）。
 
+同一区域提供已有镜像列表、只读/可写挂载和弹出。列表汇总 NanoKVM、JetKVM、
+One-KVM、PiKVM 的 ISO/IMG 目录及已有共享数据盘；不创建、上传、删除或格式化文件。
+默认只读，ISO 固定为只读光盘，JetKVM 固定只读。已有介质时拒绝替换；
+One-KVM 的 USB 网卡/HID 组合不被修改，端点不足时先在应用内调整功能。
+NanoKVM/JetKVM 首次连接存储可将 NCM 换成存储，会短暂重连 USB；已有存储接口时直接插入介质。
+弹出只写共享 LUN 的 file 属性，不解绑 UDC、不使用 forced_eject。必须先确认主机已
+停止使用并安全卸载；主机防弹出锁仍存在则失败。主机没有设置锁不代表已停止写入。
+弹出后保留空的存储接口，不自动恢复 USB 网卡。应用自身的镜像选项可能不同步，
+以管理器读取的实际共享 LUN 为准，避免同时在两处操作介质。
+
+`GET /api/media` 返回固定目录内的镜像标识、来源和大小；`POST /api/media/mount`
+接受 `app`、`image`、`cdrom`、`readOnly`，再次检查运行中的应用与空 LUN。
+`POST /api/media/eject` 接受当前 `media.token` 和 `confirmed: true`，拒绝过期的磁盘标识。
+助手逐级禁止符号链接，并拒绝硬链接、特殊文件、越界路径和小于 512 字节的镜像。
+
 API 没有认证，面向可信局域网。POST 只接受 application/json，跨站表单无法触发切换。
 
 ## EDID 兼容性预设

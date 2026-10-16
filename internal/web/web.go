@@ -18,6 +18,44 @@ import (
 // Handler builds the HTTP routes. assets is the built frontend (index.html at its root).
 func Handler(service *board.Service, assets fs.FS) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/media", func(w http.ResponseWriter, r *http.Request) {
+		images, err := service.MediaImages(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, images)
+	})
+	mux.HandleFunc("POST /api/media/mount", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			App      string `json:"app"`
+			Image    string `json:"image"`
+			CDROM    *bool  `json:"cdrom"`
+			ReadOnly *bool  `json:"readOnly"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		if request.CDROM == nil || request.ReadOnly == nil {
+			writeError(w, http.StatusBadRequest, errors.New("需要 cdrom 和 readOnly 布尔值"))
+			return
+		}
+		respond(w, service.MountMedia(r.Context(), request.App, request.Image, *request.CDROM, *request.ReadOnly))
+	})
+	mux.HandleFunc("POST /api/media/eject", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Token     string `json:"token"`
+			Confirmed bool   `json:"confirmed"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		if !request.Confirmed {
+			writeError(w, http.StatusBadRequest, errors.New("请确认被控电脑已停止使用磁盘并安全卸载"))
+			return
+		}
+		respond(w, service.EjectMedia(r.Context(), request.Token))
+	})
 	mux.HandleFunc("GET /api/edid", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()

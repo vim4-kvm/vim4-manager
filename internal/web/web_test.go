@@ -52,3 +52,25 @@ func TestFrontendIsServed(t *testing.T) {
 		}
 	}
 }
+
+func TestMediaChangesRequireExplicitModeAndEjectConfirmation(t *testing.T) {
+	called := false
+	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) {
+		called = true
+		return "", nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	for _, test := range []struct{ path, body string }{
+		{"/api/media/mount", `{"app":"onekvm","image":"shared/disk.img"}`},
+		{"/api/media/mount", `{"app":"onekvm","image":"shared/disk.img","cdrom":false,"readOnly":null}`},
+		{"/api/media/eject", `{"token":"old","confirmed":false}`},
+	} {
+		r := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest || called {
+			t.Fatalf("%s: status %d, helper called %v", test.path, w.Code, called)
+		}
+	}
+}

@@ -118,6 +118,7 @@ export interface Status {
 }
 
 export interface Media {
+  token?: string;
   known: boolean;
   inserted: boolean;
   name: string;
@@ -125,6 +126,10 @@ export interface Media {
   cdrom: boolean;
   connected: boolean;
   pikvm: boolean;
+}
+
+export interface MediaImage {
+  id: string; name: string; source: string; size: number; cdrom: boolean;
 }
 
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
