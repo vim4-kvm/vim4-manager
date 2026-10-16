@@ -25,6 +25,7 @@ import { FanPanel } from "./FanPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { MediaPanel, MediaSummary, MediaWait, needsMediaEject } from "./MediaPanel";
 import { DiskPanel } from "./DiskPanel";
+import { DevelopmentTag } from "./DevelopmentTag";
 
 const POLL_MS = 3000;
 
@@ -408,8 +409,9 @@ function StorageAndVersions({ system }: { system: System }) {
       <div>
         <dt>组件版本</dt>
         <dd>
-          <span className="num">
+          <span className="num package-version">
             {system.packages.length ? (versions.size === 1 ? [...versions][0] : `${system.packages.length} 个组件，${versions.size} 个版本`) : "—"}
+            {versions.size === 1 && <DevelopmentTag version={[...versions][0]} />}
           </span>
           {system.packages.length > 0 && (
             <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -421,7 +423,7 @@ function StorageAndVersions({ system }: { system: System }) {
               {system.packages.map((p) => (
                 <li key={p.name}>
                   <span>{p.name}</span>
-                  <span className="mono">{p.version}</span>
+                  <span className="package-version"><span className="mono">{p.version}</span><DevelopmentTag version={p.version} /></span>
                 </li>
               ))}
             </ul>

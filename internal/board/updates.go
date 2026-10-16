@@ -65,8 +65,10 @@ const maxUpdateSize = 256 << 20
 
 var (
 	versionPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)\+vim4\.(\d{8})\.(\d+)$`)
-	digestPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	releaseBase    = "https://github.com/vim4-kvm/%s/releases/latest/download/%s-latest.json"
+	// Development builds append .dev.N.g<commit>[.dirty] to the release they started from.
+	developmentPattern = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)\+vim4\.(\d{8})\.(\d+)\.dev\.\d+\.g[0-9a-f]{7,40}(?:\.dirty)?$`)
+	digestPattern      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	releaseBase        = "https://github.com/vim4-kvm/%s/releases/latest/download/%s-latest.json"
 )
 
 // Updater checks GitHub releases and downloads packages for the helper.
@@ -76,11 +78,15 @@ type Updater struct {
 	mu     sync.Mutex
 }
 
-// newerVersion orders x.y.z+vim4.YYYYMMDD.N package versions numerically.
+// newerVersion orders x.y.z+vim4.YYYYMMDD.N releases numerically. An installed
+// development build counts as newer than its base release and older than the next.
 func newerVersion(candidate, current string) (bool, error) {
 	a, b := versionPattern.FindStringSubmatch(candidate), versionPattern.FindStringSubmatch(current)
 	if a == nil {
 		return false, fmt.Errorf("版本格式无效：%s", candidate)
+	}
+	if b == nil {
+		b = developmentPattern.FindStringSubmatch(current)
 	}
 	if b == nil {
 		// Older development builds use other formats; any release replaces them.

@@ -1017,6 +1017,17 @@ main {
   font-size: 11.5px;
 }
 
+.package-version {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.development-tag {
+  margin-left: 6px;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
 /* KVM applications: a list with the boot selection marked. */
 .apps {
   list-style: none;
@@ -1923,6 +1934,14 @@ main {
   display: block;
   margin-top: 2px;
   font-size: 13px;
+}
+
+.updates td {
+  overflow-wrap: anywhere;
+}
+
+.updates .status {
+  white-space: normal;
 }
 /* Virtual media */
 .media-icon {

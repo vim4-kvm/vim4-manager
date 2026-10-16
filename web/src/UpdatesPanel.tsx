@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getUpdates, installUpdate, type Update } from "./api";
+import { DevelopmentTag, isDevelopmentVersion } from "./DevelopmentTag";
 
 type Run = (label: string, action: () => Promise<unknown>, done: string) => Promise<boolean>;
 
@@ -11,6 +12,7 @@ function state(update: Update): { tone: string; label: string } {
   if (!update.installed) return { tone: "idle", label: "未安装" };
   if (update.error) return { tone: "warning", label: update.error };
   if (update.available) return { tone: "warning", label: `可更新到 ${update.latest}` };
+  if (isDevelopmentVersion(update.installed)) return { tone: "idle", label: "暂无更新的正式版" };
   return { tone: "good", label: "已是最新" };
 }
 
@@ -74,12 +76,12 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
               return (
                 <tr key={update.package}>
                   <td>
-                    <span className="cell-title">{update.name}</span>
+                    <span className="cell-title">{update.name}<DevelopmentTag version={update.installed} /></span>
                     <a className="mono muted" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer">
                       {update.repo}
                     </a>
                   </td>
-                  <td className="mono muted hide-narrow">{update.installed || "—"}</td>
+                  <td className="mono muted hide-narrow package-version">{update.installed || "—"}</td>
                   <td>
                     <span className={`status status-${tone}`}>
                       <span className="lamp" aria-hidden="true" />

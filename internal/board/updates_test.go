@@ -24,6 +24,10 @@ func TestNewerVersionComparesNumerically(t *testing.T) {
 		{"2.5.1+vim4.20261015.62", "2.5.1+vim4.20261015.62", false},
 		{"2.5.0+vim4.20261020.1", "2.5.1+vim4.20261015.1", false},
 		{"2.5.1+vim4.20261016.1", "0.1.0~dev4", true},
+		{"2.5.1+vim4.20261016.1020", "2.5.1+vim4.20261016.1020.dev.3.g49c45f2.dirty", false},
+		{"2.5.1+vim4.20261016.1018", "2.5.1+vim4.20261016.1020.dev.3.g49c45f2", false},
+		{"2.5.1+vim4.20261016.1022", "2.5.1+vim4.20261016.1020.dev.3.g49c45f2.dirty", true},
+		{"2.5.1+vim4.20261017.1", "2.5.1+vim4.20261016.1020.dev.3.g49c45f2", true},
 	} {
 		if newer, err := newerVersion(c.candidate, c.current); err != nil || newer != c.newer {
 			t.Errorf("newerVersion(%q, %q) = %v, %v", c.candidate, c.current, newer, err)
