@@ -35,6 +35,7 @@ type Service struct {
 
 // Status is the complete dashboard state.
 type Status struct {
+	Media    Media      `json:"media"`
 	Active   string     `json:"active"`
 	Apps     []AppState `json:"apps"`
 	Platform []Platform `json:"platform"`
@@ -81,7 +82,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
-	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List()}
+	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List(), Media: s.media(ctx)}
 	if s.History != nil {
 		status.History = s.History.Samples()
 	}

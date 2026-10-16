@@ -26,6 +26,7 @@ HDR_CONFIG = '/etc/default/vim4-kvm-hdr'
 HDR_CURVE = '/usr/sbin/vim4-hdr-curve'
 PIKVM_USB_STATE = Path('/run/vim4-pikvm-usb/state.json')
 PIKVM_LUN_FILE = Path('/sys/kernel/config/usb_gadget/kvm/functions/mass_storage.disk0/lun.0/file')
+UDC_CLASS = Path('/sys/class/udc')
 EDID_CATALOG = Path('/usr/share/vim4-manager/edid/presets.json')
 EDID_STATE = Path('/var/lib/vim4-kvm/edid')
 EDID_LOADED = Path('/run/vim4-edid.loaded')
@@ -191,11 +192,25 @@ def select_edid(preset_id):
         raise ValueError('EDID 切换失败；' + ('；'.join(recovery) if recovery else '已恢复原配置')) from error
 
 
+def media_status():
+    lun = PIKVM_LUN_FILE.parent
+    image = PIKVM_LUN_FILE.read_text().strip() if lun.exists() else ''
+    gadget = lun.parents[2]
+    controller = (gadget / 'UDC').read_text().strip() if lun.exists() else ''
+    linked = (gadget / 'configs/c.1/mass_storage.disk0').is_symlink()
+    configured = controller and (UDC_CLASS / controller / 'state').read_text().strip() == 'configured'
+    return {'known': True, 'inserted': bool(image), 'name': Path(image).name if image else '',
+            'readOnly': (lun / 'ro').read_text().strip() == '1' if image else False,
+            'cdrom': (lun / 'cdrom').read_text().strip() == '1' if image else False,
+            'connected': bool(image and configured and linked),
+            'pikvm': PIKVM_USB_STATE.exists()}
+
+
 def check_pikvm_media(entering=False):
-    if PIKVM_USB_STATE.exists() and PIKVM_LUN_FILE.read_text().strip():
-        raise ValueError('Eject the PiKVM virtual disk on the USB host before switching or restarting')
-    if entering and PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
-        raise ValueError('请先在被控主机安全弹出虚拟磁盘，再切换到 PiKVM；原界面保持运行')
+    if (entering or PIKVM_USB_STATE.exists()) and PIKVM_LUN_FILE.exists():
+        image = PIKVM_LUN_FILE.read_text().strip()
+        if image:
+            raise ValueError(f'虚拟磁盘「{Path(image).name}」仍已挂载。请在被控电脑安全弹出后重试；原界面保持运行')
 
 
 def systemctl(*args):
@@ -422,6 +437,8 @@ def update(package, checksum, version):
 
 def main(argv):
     match argv:
+        case ['media-status']:
+            print(json.dumps(media_status()))
         case ['update', package, checksum, version]:
             update(package, checksum, version)
         case ['edid-status']:
@@ -445,7 +462,7 @@ def main(argv):
         case _:
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
                              'hdr-curve|hdr-preview WHITE PEAK | fan-curve LOW MID HIGH | fan-restore | '
-                             'wifi on|off | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
+                             'wifi on|off | media-status | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
 
 
 if __name__ == '__main__':

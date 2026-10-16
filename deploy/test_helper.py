@@ -20,7 +20,7 @@ class HelperTest(unittest.TestCase):
         lun.write_text('/var/lib/vim4-kvm/usb/disk.img\n')
         with patch.object(helper, 'PIKVM_USB_STATE', root / 'absent-state'), patch.object(helper, 'PIKVM_LUN_FILE', lun):
             for args in (['select', 'pikvm'], ['restart', 'vim4-pikvm.service']):
-                with self.subTest(args=args), self.assertRaisesRegex(ValueError, '安全弹出虚拟磁盘'):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'disk.img.*安全弹出'):
                     helper.main(args)
             self.assertEqual(self.calls, [])
             lun.write_text('\n')
@@ -36,7 +36,7 @@ class HelperTest(unittest.TestCase):
         with patch.object(helper, 'PIKVM_USB_STATE', state), patch.object(helper, 'PIKVM_LUN_FILE', lun):
             for args in (['select', 'nanokvm'], ['restart', 'vim4-pikvm.service'],
                          ['restart', 'vim4-kvm-hdmi.service']):
-                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'Eject'):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'disk.img.*安全弹出'):
                     helper.main(args)
         self.assertEqual(self.calls, [])
 
@@ -276,7 +276,7 @@ class HelperTest(unittest.TestCase):
                 self.update(**kwargs)
 
     def test_update_refuses_mounted_media(self):
-        with self.assertRaisesRegex(ValueError, '安全弹出虚拟磁盘'):
+        with self.assertRaisesRegex(ValueError, 'disk.img.*安全弹出'):
             self.update(mounted=True)
 
     def test_update_preserves_pikvm_settings_but_rejects_missing_or_damaged_programs(self):

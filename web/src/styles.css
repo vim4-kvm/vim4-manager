@@ -250,6 +250,15 @@ main {
   flex-direction: column;
 }
 
+.media-panel {
+  gap: 10px;
+  margin-bottom: 28px;
+  overflow-wrap: anywhere;
+}
+
+.media-panel .section-head { margin-bottom: 0; }
+.media-panel [role="status"] .button { margin-top: 10px; }
+
 .section-head {
   display: flex;
   align-items: baseline;

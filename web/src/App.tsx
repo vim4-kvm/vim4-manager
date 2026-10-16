@@ -23,6 +23,7 @@ import { HDRPanel } from "./HDRPanel";
 import { TrendChart, tempDomain, type Point } from "./Charts";
 import { FanPanel } from "./FanPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
+import { MediaPanel, needsMediaEject } from "./MediaPanel";
 
 const POLL_MS = 3000;
 
@@ -95,6 +96,7 @@ function AppRow({
   selected,
   busy,
   confirming,
+  mediaBlocked,
   onChoose,
   onConfirm,
   onCancel,
@@ -105,6 +107,7 @@ function AppRow({
   selected: boolean;
   busy: boolean;
   confirming: boolean;
+  mediaBlocked: boolean;
   onChoose: () => void;
   onConfirm: () => void;
   onCancel: () => void;
@@ -146,12 +149,12 @@ function AppRow({
       </div>
       {confirming && (
         <div className="confirm" role="alertdialog" aria-label={`切换到 ${app.name}`}>
-          <span>当前远程会话会断开。</span>
+          <span>{mediaBlocked ? "虚拟磁盘仍已挂载。先在被控电脑安全弹出，检测到弹出后再切换。" : "当前远程会话会断开。"}</span>
           <button className="button" onClick={onCancel} disabled={busy}>
             取消
           </button>
           <button className="button primary" onClick={onConfirm} disabled={busy}>
-            切换到 {app.name}
+            {mediaBlocked ? "弹出后继续切换" : `切换到 ${app.name}`}
           </button>
         </div>
       )}
@@ -707,6 +710,8 @@ export function App() {
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState<string>();
   const [confirming, setConfirming] = useState<string>();
+  const [waiting, setWaiting] = useState<{ app: KvmApp; source: string; started: number }>();
+  const waitingRef = useRef(false);
   const [notice, setNotice] = useState<{ tone: Tone; text: string }>();
   const [now, setNow] = useState(Date.now());
   const timer = useRef<number>(undefined);
@@ -751,6 +756,29 @@ export function App() {
       refresh();
     }
   };
+
+  const cancelWaiting = () => {
+    waitingRef.current = false;
+    setWaiting(undefined);
+  };
+  const switchApp = (app: KvmApp) => {
+    cancelWaiting();
+    return run(`正在切换到 ${app.name}…`, () => selectApp(app.id), `已切换到 ${app.name}`);
+  };
+  useEffect(() => {
+    if (!waiting || !waitingRef.current) return;
+    if (page !== "apps" || stale || !status?.media?.known || status.active !== waiting.source
+      || Date.now() - waiting.started >= 300_000) {
+      cancelWaiting();
+      setNotice({ tone: "warning", text: "已取消等待切换，请确认当前状态后重新选择。" });
+      return;
+    }
+    if (!status.media.inserted) {
+      // Clear the ref synchronously: repeated renders/StrictMode must not
+      // submit the same switch twice. The root helper rechecks the LUN.
+      void switchApp(waiting.app);
+    }
+  }, [waiting, status, stale, page]);
 
   const meta = PAGES.find((p) => p.id === page)!;
   const hw = status?.hardware;
@@ -813,6 +841,7 @@ export function App() {
 
             {page === "apps" && (
               <>
+                <MediaPanel media={stale ? undefined : status.media} waiting={waiting?.app.name} onCancel={cancelWaiting} />
                 <ul className="apps">
                   {status.apps.map((app) => (
                     <AppRow
@@ -820,11 +849,19 @@ export function App() {
                       app={app}
                       now={now}
                       selected={app.id === status.active}
-                      busy={!!busy}
+                      busy={!!busy || !!waiting || stale || !status.media?.known}
                       confirming={confirming === app.id}
+                      mediaBlocked={needsMediaEject(status.media, app.id)}
                       onChoose={() => setConfirming(app.id)}
                       onCancel={() => setConfirming(undefined)}
-                      onConfirm={() => run(`正在切换到 ${app.name}…`, () => selectApp(app.id), `已切换到 ${app.name}`)}
+                      onConfirm={() => {
+                        if (needsMediaEject(status.media, app.id)) {
+                          waitingRef.current = true;
+                          setWaiting({ app, source: status.active, started: Date.now() });
+                          setConfirming(undefined);
+                          setError(undefined);
+                        } else void switchApp(app);
+                      }}
                       onRestart={() => run(`正在重启 ${app.name}…`, () => restartUnit(app.unit.name), `${app.name} 已重启`)}
                     />
                   ))}

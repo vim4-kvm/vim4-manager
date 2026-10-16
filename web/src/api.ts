@@ -107,6 +107,7 @@ export interface Hardware {
 }
 
 export interface Status {
+  media?: Media;
   active: string;
   apps: App[];
   platform: Platform[];
@@ -114,6 +115,16 @@ export interface Status {
   system: System;
   history: Sample[];
   events: BoardEvent[];
+}
+
+export interface Media {
+  known: boolean;
+  inserted: boolean;
+  name: string;
+  readOnly: boolean;
+  cdrom: boolean;
+  connected: boolean;
+  pikvm: boolean;
 }
 
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
