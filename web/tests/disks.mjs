@@ -41,8 +41,10 @@ try {
     const url = new URL(request.url());
     requests.push({ path: "PUT", disk: url.searchParams.get("disk"), file: url.searchParams.get("path"),
       overwrite: url.searchParams.get("overwrite"), header: request.headers()["x-vim4-upload"], body: request.postData() });
+    if (holdUpload) return holdUpload.then(() => route.fulfill({ json: { ok: true } }));
     return route.fulfill({ json: { ok: true } });
   });
+  let holdUpload;
   await page.route(/\/api\/disks\/(mkdir|rm|mv|label|format|delete|check|snapshot|resize)/, (route) => {
     const path = new URL(route.request().url()).pathname;
     requests.push({ path, body: route.request().postDataJSON() });
@@ -53,7 +55,21 @@ try {
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/disks`);
   await page.getByRole("heading", { name: "数据盘", level: 2 }).waitFor();
   await page.getByRole("button", { name: /^readme\.txt/ }).waitFor();
+  assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).count(), 0, "row actions are not clickable while hidden");
+  await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).getAttribute("href"), "/api/disks/file?disk=disk.img&path=%2Freadme.txt");
+  await page.getByText("/readme.txt", { exact: true }).waitFor();
+  assert.equal(await page.locator(".disk-card.is-checked").getByText("空闲").count(), 1);
+
+  // A stray drop outside the file list must not navigate away.
+  const dropOutside = () => page.evaluate(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(["x"], "stray.txt"));
+    const event = new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true });
+    document.querySelector(".page-head").dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  assert.equal(await dropOutside(), true, "window drop guard prevents file navigation");
 
   await page.getByRole("button", { name: "新建数据盘" }).click();
   await page.getByPlaceholder("tools").fill("disk");
@@ -71,8 +87,20 @@ try {
 
   await page.locator("input[type=file]").setInputFiles({ name: "readme.txt", mimeType: "text/plain", buffer: Buffer.from("new") });
   await page.getByText(/当前文件夹已有.*是否覆盖/).waitFor();
+  let release;
+  holdUpload = new Promise((resolve) => { release = resolve; });
   await page.getByRole("button", { name: "覆盖", exact: true }).click();
+  await page.getByText(/正在(上传|写入) readme\.txt/).waitFor();
+  let dialog;
+  page.once("dialog", (d) => { dialog = d.message(); void d.dismiss(); });
+  await page.getByRole("link", { name: /虚拟介质/ }).click();
+  assert.match(dialog ?? "", /离开会中断上传/);
+  assert.match(page.url(), /#\/disks$/, "dismissing the prompt keeps the upload page");
+  release();
+  holdUpload = undefined;
+  await page.getByText("已上传 1 个文件", { exact: true }).waitFor();
   await page.getByText("已上传 1 个文件到 disk.img").waitFor();
+  await page.getByText("已上传 1 个文件", { exact: true }).waitFor({ state: "detached" });
   assert.deepEqual(requests.at(-1), { path: "PUT", disk: "disk.img", file: "/readme.txt", overwrite: "1", header: "1", body: "new" });
 
   await page.getByRole("button", { name: /^drivers/ }).click();
@@ -88,18 +116,30 @@ try {
 
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
   await page.getByRole("button", { name: "删除 readme.txt" }).click();
+  await page.getByRole("button", { name: "确认删除" }).waitFor();
+  await page.waitForTimeout(4200);
+  await page.getByRole("button", { name: "删除 readme.txt" }).waitFor();
+  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "an armed delete disarms on its own");
+  await page.getByRole("button", { name: "删除 readme.txt" }).click();
   await page.getByRole("button", { name: "确认删除" }).click();
   await page.getByText("已删除 readme.txt").waitFor();
   assert.deepEqual(requests.at(-1), { path: "/api/disks/rm", body: { disk: "disk.img", path: "/readme.txt" } });
 
+  const snapshotsBefore = requests.length;
+  await page.getByRole("button", { name: /删除 .* 的快照/ }).click();
+  assert.equal(requests.length, snapshotsBefore, "deleting a snapshot needs a second click");
+  await page.getByRole("button", { name: "确认删除快照" }).click();
+  await page.getByText("快照已删除").waitFor();
+  assert.equal(requests.at(-1).path, "/api/disks/snapshot/delete");
+
   await page.getByRole("button", { name: "扩容…" }).click();
-  await page.getByLabel("新容量（MiB）").fill("256");
-  await page.getByLabel(/输入 disk.img 确认/).fill("disk.img");
-  assert.equal(await page.getByRole("button", { name: "扩容数据盘", exact: true }).isDisabled(), true);
-  await page.getByLabel("新容量（MiB）").fill("1024");
-  await page.getByRole("button", { name: "扩容数据盘", exact: true }).click();
+  assert.equal(await page.getByRole("button", { name: "扩容…" }).getAttribute("aria-expanded"), "true");
+  assert.equal(await page.getByRole("radio", { name: "512.0 MiB", exact: true }).count(), 0, "only larger sizes are offered");
+  assert.equal(await page.getByRole("radio", { name: "1.0 GiB", exact: true }).isChecked(), true);
+  await page.getByText("4.0 GiB", { exact: true }).last().click();
+  await page.getByRole("button", { name: "扩容到 4.0 GiB" }).click();
   await page.getByText("disk.img 已扩容").waitFor();
-  assert.deepEqual(requests.at(-1), { path: "/api/disks/resize", body: { name: "disk.img", sizeMiB: 1024, confirm: "disk.img" } });
+  assert.deepEqual(requests.at(-1), { path: "/api/disks/resize", body: { name: "disk.img", sizeMiB: 4096, confirm: "disk.img" } });
 
   await page.getByRole("button", { name: "格式化…" }).click();
   const format = page.getByRole("button", { name: "格式化", exact: true });
@@ -112,6 +152,16 @@ try {
 
   await page.getByRole("radio", { name: /tools\.img/ }).check({ force: true });
   await page.getByText(/数据盘正挂载在被控电脑上/).waitFor();
+  assert.equal(await page.locator(".disk-card.is-checked").getByText("已挂载到被控电脑").count(), 1);
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(["x"], "x.txt"));
+    document.querySelector(".disk-files").dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
+  });
+  await page.locator(".disk-files.is-dragging.is-blocked").waitFor();
+  assert.equal(await page.locator(".disk-files").getAttribute("data-drop"), "数据盘挂载在被控电脑上，不能上传");
+  await page.evaluate(() => document.querySelector(".disk-files").dispatchEvent(new DragEvent("drop", { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true })));
+  await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("button", { name: "上传文件" }).isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: "格式化…" }).isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: "删除数据盘…" }).isDisabled(), true);
@@ -128,5 +178,5 @@ try {
   failDisks = false;
   await page.getByRole("button", { name: "重新读取数据盘" }).click();
   await page.getByRole("button", { name: "格式化…" }).waitFor();
-  console.log("PASS: create, upload, folders, delete, resize, format, attached lockout, read failure recovery and mobile layout");
+  console.log("PASS: create, upload with leave guard, drop guard, folders, armed delete, snapshot delete, resize presets, format, attached lockout, read failure recovery and mobile layout");
 } finally { await browser.close(); }

@@ -822,6 +822,7 @@ export function App() {
           </div>
         )}
 
+        <div className="page-body" key={page}>
         {page === "network" && <WifiControl busy={!!busy} />}
         {page === "updates" && <UpdatesPanel busy={!!busy} run={run} active={status?.active} />}
         {page === "video" && (
@@ -941,6 +942,7 @@ export function App() {
             )}
           </>
         )}
+        </div>
       </main>
     </div>
   );

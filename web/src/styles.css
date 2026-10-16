@@ -318,6 +318,11 @@ main {
   background: var(--warning);
 }
 
+.status-accent .lamp {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
 .status-critical .lamp,
 .lamp.status-critical,
 .banner-critical .lamp {
@@ -378,10 +383,112 @@ main {
   }
 }
 
+/* Motion: entering panels fade and lift; state changes ease. One reduced-motion switch below. */
+.reveal,
+.banner,
+.confirm,
+.media-wait,
+.media-eject,
+.media-strip,
+.packages,
+.edid-error,
+.wifi-error,
+.fan-problem,
+.chart-empty {
+  animation: reveal 0.16s ease-out;
+}
+
+.page-body {
+  display: contents;
+}
+
+.page-body > * {
+  animation: page-in 0.2s ease-out;
+}
+
+.chart-tooltip,
+.hdr-tooltip {
+  animation: fade-in 0.1s ease-out;
+}
+
+.events .event:first-child {
+  animation: event-in 0.3s ease-out;
+}
+
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes event-in {
+  from {
+    opacity: 0;
+    background: var(--accent-wash);
+  }
+}
+
+.nav-item,
+.banner-close,
+.edid-option,
+.media-option,
+.media-current,
+.disk-size,
+.segmented button,
+.segmented-custom,
+.segmented strong,
+.segmented span,
+.tag,
+.app-row::before {
+  transition: background 0.15s ease-out, border-color 0.15s ease-out, color 0.15s ease-out, box-shadow 0.15s ease-out;
+}
+
+.nav-item svg {
+  transition: opacity 0.15s ease-out;
+}
+
+.lamp {
+  transition: background 0.3s ease-out, box-shadow 0.3s ease-out;
+}
+
+.meter span {
+  transition: width 0.4s ease-out, background 0.3s;
+}
+
+.fan-handle-dot {
+  transition: r 0.1s;
+}
+
+.wifi-switch {
+  transition: background 0.15s;
+}
+
+.wifi-switch span {
+  transition: transform 0.15s;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .skeleton,
-  .spinner {
-    animation: none;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }
 
@@ -433,6 +540,29 @@ main {
   opacity: 0.4;
   cursor: default;
   pointer-events: none;
+}
+
+.button[aria-busy="true"] {
+  opacity: 0.75;
+}
+
+.button[aria-busy="true"] .spinner {
+  width: 11px;
+  height: 11px;
+}
+
+.button.danger .spinner {
+  border-top-color: var(--critical-ink);
+}
+
+.button.primary .spinner {
+  border-color: color-mix(in srgb, var(--on-ink) 35%, transparent);
+  border-top-color: var(--on-ink);
+}
+
+.button.is-open {
+  border-color: var(--ink-3);
+  background: var(--hover);
 }
 
 .button.small {
@@ -903,6 +1033,17 @@ main {
   gap: 12px 24px;
   padding: 18px 0;
   border-bottom: 1px solid var(--rule);
+}
+
+.app-row::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 18px;
+  bottom: 18px;
+  width: 3px;
+  border-radius: 2px;
+  background: transparent;
 }
 
 .app-row.is-selected::before {
@@ -1393,7 +1534,6 @@ main {
   fill: var(--page);
   stroke: var(--accent);
   stroke-width: 2;
-  transition: r 0.1s;
 }
 
 .fan-handle:hover .fan-handle-dot,
@@ -1632,7 +1772,6 @@ main {
   padding: 2px;
   background: var(--rule-strong);
   cursor: pointer;
-  transition: background 0.15s;
 }
 
 .wifi-switch span {
@@ -1642,7 +1781,6 @@ main {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform 0.15s;
 }
 
 .wifi-switch[aria-checked="true"] {
@@ -2123,6 +2261,7 @@ main {
   background: var(--field);
   font-size: 12.5px;
   cursor: pointer;
+  transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
 }
 
 .disk-card:hover {
@@ -2181,6 +2320,19 @@ main {
   display: block;
   height: 100%;
   background: var(--accent);
+  transition: width 0.4s ease-out, background 0.15s;
+}
+
+.disk-usage.is-low .disk-usage-bar {
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+}
+
+.disk-usage.is-low .disk-usage-bar > span {
+  background: var(--warning);
+}
+
+.disk-usage.is-low .num {
+  color: var(--warning-ink);
 }
 
 .disk-create {
@@ -2298,18 +2450,31 @@ main {
   margin-bottom: 6px;
 }
 
-.disk-files.is-dragging::after {
-  content: "松开以上传到当前文件夹";
+.disk-files::after {
+  content: attr(data-drop);
   position: absolute;
   inset: 40px 0 0;
   display: grid;
   place-items: center;
   border-radius: var(--radius);
   border: 2px dashed var(--accent);
-  background: color-mix(in srgb, var(--page) 80%, transparent);
+  background: color-mix(in srgb, var(--page) 85%, transparent);
   color: var(--accent-ink);
   font-weight: 600;
+  opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  transition: opacity 0.12s ease-out, visibility 0.12s;
+}
+
+.disk-files.is-dragging::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.disk-files.is-blocked::after {
+  border-color: var(--rule-strong);
+  color: var(--ink-2);
 }
 
 .disk-crumbs {
@@ -2373,26 +2538,31 @@ main {
   overflow-wrap: anywhere;
 }
 
-.disk-uploads progress {
-  width: 100%;
+.disk-progress {
+  display: block;
   height: 4px;
-  appearance: none;
-  border: 0;
   border-radius: 2px;
   background: var(--accent-track);
   overflow: hidden;
 }
 
-.disk-uploads progress::-webkit-progress-bar {
-  background: var(--accent-track);
+.disk-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear, background 0.2s;
 }
 
-.disk-uploads progress::-webkit-progress-value {
-  background: var(--accent);
+.disk-uploads.is-done .disk-progress > span {
+  background: var(--good);
 }
 
-.disk-uploads progress::-moz-progress-bar {
-  background: var(--accent);
+.disk-done {
+  width: 12px;
+  color: var(--good);
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
 }
 
 .disk-confirm > span {
@@ -2419,16 +2589,25 @@ main {
   display: flex;
   flex-direction: column;
   border-top: 1px solid var(--rule);
+  transition: opacity 0.15s ease-out;
+}
+
+.disk-table.is-loading {
+  opacity: 0.5;
+  pointer-events: none;
+  transition-delay: 0.1s;
 }
 
 .disk-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 0 8px;
   min-height: 44px;
   padding: 4px 12px;
   margin: 0 -12px;
   border-bottom: 1px solid var(--rule);
+  transition: background 0.12s;
 }
 
 .disk-row:hover,
@@ -2480,22 +2659,63 @@ main {
   text-align: right;
 }
 
+/* visibility, not just opacity, so hidden buttons cannot be clicked. */
 .disk-row-actions {
   display: flex;
   gap: 6px;
   opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease-out, visibility 0.12s;
 }
 
 .disk-row:hover .disk-row-actions,
 .disk-row.is-selected .disk-row-actions,
 .disk-row:focus-within .disk-row-actions {
   opacity: 1;
+  visibility: visible;
 }
 
 @media (hover: none) {
   .disk-row-actions {
     opacity: 1;
+    visibility: visible;
   }
+}
+
+/* Both labels share one grid cell so arming does not shift the row. */
+.disk-swap {
+  display: inline-grid;
+}
+
+.disk-swap > span {
+  grid-area: 1 / 1;
+  text-align: center;
+  transition: opacity 0.12s;
+}
+
+.disk-swap > [aria-hidden="true"] {
+  opacity: 0;
+}
+
+.disk-armed.is-armed {
+  border-color: var(--critical);
+  background: color-mix(in srgb, var(--critical) 6%, var(--field));
+}
+
+.disk-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  width: 100%;
+  margin: 0;
+  padding: 0 0 8px 28px;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.disk-detail-path {
+  font-family: var(--mono);
+  overflow-wrap: anywhere;
 }
 
 .disk-drop {
@@ -2531,8 +2751,10 @@ main {
   font-weight: 600;
 }
 
+/* Controls share a baseline across columns even when a description wraps. */
 .disk-cell .disk-inline {
-  margin-top: 4px;
+  margin-top: auto;
+  padding-top: 4px;
   flex: none;
 }
 
@@ -2592,10 +2814,45 @@ main {
 }
 
 .disk-dangers {
-  display: flex;
-  gap: 8px;
-  padding-top: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   border-top: 1px solid var(--rule);
+}
+
+.disk-dangers > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+
+.disk-danger-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.disk-danger-text h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.disk-grow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: var(--field);
 }
 
 .disk-danger {
@@ -2637,12 +2894,9 @@ main {
     display: none;
   }
 
-  .disk-row {
-    flex-wrap: wrap;
-  }
-
   .disk-row-actions {
     opacity: 1;
+    visibility: visible;
     width: 100%;
     justify-content: flex-end;
     padding-bottom: 6px;
