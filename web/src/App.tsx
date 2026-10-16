@@ -23,7 +23,7 @@ import { HDRPanel } from "./HDRPanel";
 import { TrendChart, tempDomain, type Point } from "./Charts";
 import { FanPanel } from "./FanPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
-import { MediaPanel, needsMediaEject } from "./MediaPanel";
+import { MediaPanel, MediaSummary, MediaWait, needsMediaEject } from "./MediaPanel";
 
 const POLL_MS = 3000;
 
@@ -565,7 +565,7 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-type PageId = "overview" | "apps" | "video" | "cooling" | "network" | "services" | "updates";
+type PageId = "overview" | "apps" | "media" | "video" | "cooling" | "network" | "services" | "updates";
 
 const ICONS: Record<PageId, ReactNode> = {
   overview: <path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z" />,
@@ -573,6 +573,12 @@ const ICONS: Record<PageId, ReactNode> = {
     <>
       <rect x="3" y="4" width="18" height="12" rx="2" />
       <path d="M9 20h6M12 16v4" />
+    </>
+  ),
+  media: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="2.2" />
     </>
   ),
   video: (
@@ -601,6 +607,7 @@ const ICONS: Record<PageId, ReactNode> = {
 const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "overview", title: "概览" },
   { id: "apps", title: "KVM 界面", description: "四个界面共用采集、编码器和键鼠，同一时间只运行一个。" },
+  { id: "media", title: "虚拟介质", description: "挂载到被控电脑的 U 盘或光盘。四个界面共用同一个 USB 存储设备，切换界面不会改变已挂载的介质。" },
   { id: "video", title: "视频输入" },
   { id: "cooling", title: "散热" },
   { id: "network", title: "网络" },
@@ -630,6 +637,9 @@ function navHint(id: PageId, status: Status): { text: string; tone?: Tone } | un
       const app = status.apps.find((a) => a.id === status.active);
       return app ? { text: app.name, tone: unitTone(app.unit) } : { text: "未启用", tone: "warning" };
     }
+    case "media":
+      if (!status.media?.known) return { text: "未知", tone: "warning" };
+      return status.media.inserted ? { text: status.media.cdrom ? "光盘" : "磁盘", tone: status.media.connected ? "good" : "warning" } : undefined;
     case "video":
       return hw.hdmi.signal ? { text: `${hw.hdmi.height}p`, tone: "good" } : { text: "无信号", tone: "warning" };
     case "cooling":
@@ -841,7 +851,11 @@ export function App() {
 
             {page === "apps" && (
               <>
-                <MediaPanel media={stale ? undefined : status.media} active={status.active} busy={!!busy} run={run} waiting={waiting?.app.name} onCancel={cancelWaiting} />
+                {waiting ? (
+                  <MediaWait media={status.media} target={waiting.app.name} onCancel={cancelWaiting} />
+                ) : (
+                  <MediaSummary media={stale ? undefined : status.media} />
+                )}
                 <ul className="apps">
                   {status.apps.map((app) => (
                     <AppRow
@@ -869,6 +883,16 @@ export function App() {
                 </ul>
                 {!status.apps.some((a) => a.id === status.active) && <p className="hint">尚未启用任何界面，选择一个即可开机自动启动。</p>}
               </>
+            )}
+
+            {page === "media" && (
+              <MediaPanel
+                media={stale ? undefined : status.media}
+                active={status.active}
+                activeName={status.apps.find((a) => a.id === status.active)?.name}
+                busy={!!busy}
+                run={run}
+              />
             )}
 
             {page === "video" && hw && (
