@@ -49,7 +49,7 @@ export function MediaPanel({ media, active, busy, run, waiting, onCancel }: {
       </> : <p>未挂载虚拟磁盘</p>}
     <div className="media-library">
       <p>已有镜像可在这里挂载到被控电脑。挂载时可能短暂重连 USB 键鼠。</p>
-      <label>镜像文件 <select aria-label="镜像文件" value={imageID} disabled={locked || loading || media?.inserted} onChange={event => { setImageID(event.target.value); setReadonly(true); }}>
+      <label>镜像文件 <select aria-label="镜像文件" value={imageID} disabled={locked || loading} onChange={event => { setImageID(event.target.value); setReadonly(true); }}>
         <option value="">{loading ? "正在读取…" : "选择已有镜像"}</option>
         {images.map(image => <option key={image.id} value={image.id}>{sources[image.source] ?? image.source} · {image.name} · {(image.size / 1048576).toFixed(1)} MiB</option>)}
       </select></label>

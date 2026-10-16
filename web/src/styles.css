@@ -1796,5 +1796,11 @@ main {
   font-size: 13px;
 }
 .media-library { margin-top: 1rem; }
-.media-library select { max-width: 100%; width: 100%; margin-top: .5rem; }
+.media-library select {
+  max-width: 100%; width: 100%; margin-top: .5rem; padding: 8px 10px;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  background: var(--field); color: var(--ink); font: inherit;
+}
+.media-library .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.media-panel input[type="checkbox"] { accent-color: var(--accent); margin-right: 6px; }
 .media-panel label { overflow-wrap: anywhere; }

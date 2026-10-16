@@ -35,6 +35,7 @@ try {
   };
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/apps`);
   await page.getByText("rescue.iso", { exact: true }).waitFor();
+  await page.getByLabel("镜像文件").selectOption("shared/test.img");
   assert.equal(await page.getByRole("button", { name: "挂载镜像", exact: true }).isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: "弹出虚拟磁盘", exact: true }).isDisabled(), true);
   await page.getByLabel("被控电脑已停止使用磁盘并安全卸载").check();
