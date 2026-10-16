@@ -9,12 +9,14 @@ import os
 import pwd
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+from datetime import datetime, timezone
 
 # Keep in sync with internal/board/units.go. The units declare Conflicts= with
 # each other: starting one stops the other, so they never share the encoder.
@@ -45,95 +47,454 @@ UPDATES = {'vim4-pikvm': 'vim4-pikvm.service', 'vim4-manager': 'vim4-manager.ser
 UPDATE_DOWNLOADS = Path('/var/lib/vim4-manager/updates')
 UPDATE_STAGING = Path('/var/lib/vim4-manager-update')
 UPDATE_LIMIT = 256 << 20
-MEDIA_ROOTS = {
-    'shared': Path('/var/lib/vim4-kvm/images'),
-    'data': Path('/var/lib/vim4-kvm/usb'),
-    'jetkvm': Path('/var/lib/jetkvm/images'),
-    'onekvm': Path('/var/lib/one-kvm/msd'),
-    'pikvm': Path('/var/lib/kvmd/msd'),
-}
-MEDIA_LOCKS = ('/run/lock/vim4-media.lock', '/run/lock/vim4-jetkvm-media.lock')
+sys.path.insert(0, '/usr/lib/vim4-kvm/python')
+import vim4media
+
+media_catalog = vim4media.catalog
+media_image = vim4media.open_image
+media_locks = vim4media.media_locks
+
+DISK_STAGING = Path('/var/lib/vim4-manager/disk-staging')
+ALLOCATION_LOCK = '/run/lock/vim4-disk-allocation.lock'
+RESERVE_BYTES = 2 << 30
+SNAPSHOT_ID = re.compile(r'[0-9]{8}T[0-9]{12}Z\.img')
+
+
+def disk_name(name):
+    if not vim4media.valid_disk_name(name):
+        raise ValueError('数据盘名称无效（需以 .img 结尾）')
+    return name
+
+
+def disk_label(label):
+    label = label.strip()
+    if not re.fullmatch(r'[A-Z0-9 _-]{1,11}', label):
+        raise ValueError('卷标需为 1–11 个大写字母、数字、空格、下划线或连字符')
+    return label
+
+
+def fat_path(path, root=True):
+    if path == '/' and root:
+        return path
+    parts = path[1:].split('/')
+    if (not path.startswith('/') or len(parts) > 16 or
+            any(p in ('', '.', '..') or len(p) > 255 or
+                any(ord(c) < 32 or 127 <= ord(c) < 160 or c in '\\:*?"<>|' for c in p)
+                for p in parts)):
+        raise ValueError('FAT 路径无效')
+    return path
+
+
+def fat_arg(path):
+    # mtools interprets bracket expressions even without a shell.
+    return '::' + path.replace('[', '\\[').replace(']', '\\]')
+
+
+def disk_tool(fd, command, *args, check=True, stdout=subprocess.PIPE):
+    result = subprocess.run([command, '-i', f'/proc/self/fd/{fd}', *args],
+                            pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=stdout,
+                            stderr=subprocess.PIPE,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8',
+                                 'TZ': 'UTC', 'MTOOLS_SKIP_CHECK': '1'})
+    if check and result.returncode:
+        raise ValueError(result.stderr.decode(errors='replace')[:16384].strip() or '磁盘操作失败')
+    return result
 
 
 @contextmanager
-def media_directory(source, parts=()):
-    directory = os.open(MEDIA_ROOTS[source], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+def allocation_lock():
+    fd = os.open(ALLOCATION_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        for part in parts:
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
-            os.close(directory)
-            directory = child
-        yield directory
+        if os.fstat(fd).st_uid != 0:
+            raise ValueError('Invalid allocation lock owner')
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
     finally:
-        os.close(directory)
-
-
-def media_image(identifier, readonly):
-    parts = identifier.split('/')
-    if (len(parts) < 2 or parts[0] not in MEDIA_ROOTS or len(parts) > 10 or
-            any(p in ('', '.', '..') or '\0' in p for p in parts) or
-            Path(parts[-1]).suffix.lower() not in ('.iso', '.img') or
-            (parts[0] == 'data' and parts[1:] != ['disk.img'])):
-        raise ValueError('请选择镜像列表中的文件')
-    with media_directory(parts[0], parts[1:-1]) as directory:
-        fd = os.open(parts[-1], (os.O_RDONLY if readonly else os.O_RDWR) |
-                     os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
-    info = os.fstat(fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size < 512:
         os.close(fd)
-        raise ValueError('镜像必须是至少 512 字节、无硬链接的普通文件')
-    return fd
 
 
-def media_catalog():
-    images = []
-    # Bound traversal even when application-owned storage contains many files.
-    remaining = 10000
+def reserve_space(path, size):
+    if shutil.disk_usage(path).free - size < RESERVE_BYTES:
+        raise ValueError('操作后系统需保留至少 2 GiB 可用空间')
 
-    def scan(source, directory, parents=()):
-        nonlocal remaining
-        with os.scandir(directory) as entries:
-            for entry in entries:
-                remaining -= 1
-                if remaining < 0:
-                    raise ValueError('镜像目录条目过多，请先整理目录')
-                parts = (*parents, entry.name)
-                if source == 'data' and parts != ('disk.img',):
-                    continue
-                info = entry.stat(follow_symlinks=False)
-                if stat.S_ISDIR(info.st_mode) and len(parts) < 8:
-                    child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
-                    try:
-                        scan(source, child, parts)
-                    finally:
-                        os.close(child)
-                elif (stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and info.st_size >= 512
-                      and Path(entry.name).suffix.lower() in ('.iso', '.img')):
-                    images.append({'id': '/'.join((source, *parts)), 'name': '/'.join(parts),
-                                   'source': source, 'size': info.st_size,
-                                   'cdrom': Path(entry.name).suffix.lower() == '.iso'})
 
-    for source in MEDIA_ROOTS:
-        try:
-            with media_directory(source) as directory:
-                scan(source, directory)
-        except FileNotFoundError:
-            continue
-    return sorted(images, key=lambda image: image['id'])
+def disk_info(fd):
+    result = disk_tool(fd, 'mdir', '::/', check=False)
+    if result.returncode:
+        return None, None
+    output = result.stdout.decode(errors='replace')
+    label = re.search(r'Volume in drive .*? is (.*)', output)
+    free = re.search(r'([\d ]+) bytes free', output)
+    return (label.group(1).strip() if label else '',
+            int(free.group(1).replace(' ', '')) if free else None)
 
 
 @contextmanager
-def media_locks():
-    # Share the existing application locks without invoking a child that would
-    # try to acquire them again. The outer manager lock also serializes switches.
+def snapshot_directory(name, create=False):
+    disk_name(name)
+    root = vim4media.SNAPSHOT_DIR
+    if create:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
     with ExitStack() as stack:
-        for path in MEDIA_LOCKS:
-            fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-            lock = stack.enter_context(os.fdopen(fd, 'r+'))
-            if os.fstat(fd).st_uid != 0:
-                raise ValueError('Invalid media lock owner')
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
+        parent = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        stack.callback(os.close, parent)
+        if create:
+            try:
+                os.mkdir(name, 0o700, dir_fd=parent)
+            except FileExistsError:
+                pass
+        fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        stack.callback(os.close, fd)
+        yield fd
+
+
+def snapshot_list(name):
+    result = []
+    try:
+        with snapshot_directory(name) as directory:
+            for identifier in os.listdir(directory):
+                if not SNAPSHOT_ID.fullmatch(identifier):
+                    continue
+                info = os.stat(identifier, dir_fd=directory, follow_symlinks=False)
+                if stat.S_ISREG(info.st_mode) and info.st_nlink == 1:
+                    result.append(dict(id=identifier, time=info.st_mtime, size=info.st_size))
+    except FileNotFoundError:
+        pass
+    return sorted(result, key=lambda item: item['id'], reverse=True)
+
+
+def disk_list():
+    disks = []
+    for image in vim4media.catalog(['data']):
+        name = image['name']
+        item = dict(name=name, size=image['size'], mtime=None, label=None, freeBytes=None,
+                    attached=False, readOnly=False, editing=False, snapshots=snapshot_list(name))
+        try:
+            with vim4media.read_disk(name) as (fd, attached):
+                item.update(mtime=os.fstat(fd).st_mtime, attached=attached)
+                if attached:
+                    item['readOnly'] = vim4media.LUN_FILE.with_name('ro').read_text().strip() == '1'
+                item['label'], item['freeBytes'] = disk_info(fd)
+        except ValueError:
+            item['editing'] = True
+            item['mtime'] = (vim4media.DATA_DIR / name).stat().st_mtime
+        disks.append(item)
+    return disks
+
+
+def format_disk(fd, label, *, preserve_label=False):
+    if preserve_label:
+        # Existing NanoKVM disks use "Vim4KVM". Preserve that spelling on resize;
+        # new labels still follow the manager's uppercase convention.
+        if not re.fullmatch(r'[A-Za-z0-9 _-]{1,11}', label):
+            raise ValueError('无法安全保留此卷标')
+    else:
+        label = disk_label(label)
+    subprocess.run(['mkfs.vfat', '-F', '32', '-n', label, f'/proc/self/fd/{fd}'],
+                   pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                   stderr=subprocess.PIPE, check=True,
+                   env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C'})
+    os.fsync(fd)
+
+
+def disk_create(name, size, label):
+    disk_name(name)
+    label = disk_label(label)
+    size = int(size)
+    if not 64 <= size <= 32768:
+        raise ValueError('数据盘容量需在 64–32768 MiB 之间')
+    vim4media.DATA_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with allocation_lock():
+        if len(vim4media.catalog(['data'])) >= 8:
+            raise ValueError('最多创建 8 个数据盘')
+        reserve_space(vim4media.DATA_DIR, size << 20)
+        with vim4media.edit_disk(name, create=True) as fd:
+            try:
+                os.posix_fallocate(fd, 0, size << 20)
+                format_disk(fd, label)
+            except BaseException:
+                (vim4media.DATA_DIR / name).unlink()
+                raise
+
+
+def disk_ls(fd, path):
+    output = disk_tool(fd, 'mdir', '-a', fat_arg(path.rstrip('/') + '/')).stdout.decode(errors='replace')
+    entries = []
+    for line in output.splitlines():
+        match = re.fullmatch(r'(.{8}) (.{3})\s+(<DIR>|\d+)\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})(?:\s+(.*))?', line)
+        if not match:
+            continue
+        base, ext, size, day, clock, long_name = match.groups()
+        name = long_name or base.strip() + ('.' + ext.strip() if ext.strip() else '')
+        if name in ('.', '..'):
+            continue
+        stamp = datetime.strptime(day + ' ' + clock, '%Y-%m-%d %H:%M').replace(tzinfo=timezone.utc)
+        entries.append(dict(name=name, dir=size == '<DIR>', size=0 if size == '<DIR>' else int(size),
+                            mtime=stamp.timestamp()))
+    return entries
+
+
+def disk_put(fd, path, size, overwrite, source):
+    size = int(size)
+    if not 0 <= size <= (1 << 32) - 1 or overwrite not in ('0', '1'):
+        raise ValueError('上传大小或覆盖选项无效（FAT32 单文件最大 4 GiB-1）')
+    _, free = disk_info(fd)
+    if free is None or size > free:
+        raise ValueError('数据盘可用空间不足')
+    parent, name = path.rsplit('/', 1)
+    existing = next((e for e in disk_ls(fd, parent or '/') if e['name'].casefold() == name.casefold()), None)
+    if existing and (overwrite == '0' or existing['dir']):
+        raise ValueError('目标已存在')
+    DISK_STAGING.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with allocation_lock(), ExitStack() as stack:
+        directory = os.open(DISK_STAGING, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        stack.callback(os.close, directory)
+        info = os.fstat(directory)
+        if info.st_uid != 0 or info.st_mode & 0o077:
+            raise ValueError('Invalid staging directory owner or mode')
+        reserve_space(f'/proc/self/fd/{directory}', size)
+        with tempfile.TemporaryFile(dir=f'/proc/self/fd/{directory}') as staged:
+            if size:
+                os.posix_fallocate(staged.fileno(), 0, size)
+            remaining = size
+            while remaining:
+                chunk = source.read(min(1 << 20, remaining))
+                if not chunk:
+                    raise ValueError('上传未完成')
+                staged.write(chunk)
+                remaining -= len(chunk)
+            if source.read(1):
+                raise ValueError('上传超过声明大小')
+            staged.flush()
+            # The staging file has no name and is inherited only by mcopy.
+            result = subprocess.run(['mcopy', '-i', f'/proc/self/fd/{fd}', '-o' if overwrite == '1' else '-n',
+                                     f'/proc/self/fd/{staged.fileno()}', '::' + path],
+                                    pass_fds=(fd, staged.fileno()), stdin=subprocess.DEVNULL,
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC',
+                                         'MTOOLS_SKIP_CHECK': '1'})
+            if result.returncode:
+                raise ValueError(result.stderr.decode(errors='replace')[:16384])
+    os.fsync(fd)
+
+
+def copy_image(source, destination):
+    os.lseek(source, 0, os.SEEK_SET)
+    os.lseek(destination, 0, os.SEEK_SET)
+    with os.fdopen(os.dup(source), 'rb') as reader, os.fdopen(os.dup(destination), 'wb') as writer:
+        shutil.copyfileobj(reader, writer, 1 << 20)
+        writer.flush()
+    os.fsync(destination)
+
+
+@contextmanager
+def staged_image(directory):
+    # Hidden, non-.img names are never catalogued or offered for restore, even
+    # after SIGKILL. The final name is published only after fsync succeeds.
+    target, path = tempfile.mkstemp(prefix='.pending-', dir=f'/proc/self/fd/{directory}')
+    temporary = Path(path).name
+    try:
+        yield target, temporary
+    finally:
+        os.close(target)
+        try:
+            os.unlink(temporary, dir_fd=directory)
+        except FileNotFoundError:
+            pass
+
+
+def publish_disk(name, original, directory, temporary, target):
+    os.fsync(target)
+    # Readers opening before rename must fail on the old inode lock or identity
+    # check; readers opening afterwards see a fully written image.
+    with media_locks():
+        current = os.stat(name, dir_fd=directory, follow_symlinks=False)
+        old = os.fstat(original)
+        if (current.st_dev, current.st_ino) != (old.st_dev, old.st_ino):
+            raise ValueError('数据盘已改变，请重试')
+        if vim4media.is_attached(original):
+            raise ValueError('数据盘已挂载到被控电脑，请先安全弹出')
+        fcntl.flock(target, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
+        os.fsync(directory)
+
+
+def snapshot_disk(name, fd, *, allocation_held=False):
+    with ExitStack() as stack:
+        if not allocation_held:
+            stack.enter_context(allocation_lock())
+        directory = stack.enter_context(snapshot_directory(name, create=True))
+        if len(snapshot_list(name)) >= 3:
+            raise ValueError('每个数据盘最多保留 3 个快照，请先删除旧快照')
+        size = os.fstat(fd).st_size
+        reserve_space(f'/proc/self/fd/{directory}', size)
+        identifier = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ.img')
+        with staged_image(directory) as (target, temporary):
+            os.posix_fallocate(target, 0, size)
+            copy_image(fd, target)
+            os.rename(temporary, identifier, src_dir_fd=directory, dst_dir_fd=directory)
+            os.fsync(directory)
+        return {'id': identifier}
+
+
+def snapshot_action(name, identifier, fd=None):
+    if not SNAPSHOT_ID.fullmatch(identifier):
+        raise ValueError('快照标识无效')
+    with snapshot_directory(name) as directory:
+        if fd is None:
+            os.unlink(identifier, dir_fd=directory)
+        else:
+            source = os.open(identifier, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+            try:
+                info = os.fstat(source)
+                # Expansion snapshots retain the previous capacity. Restoring
+                # one deliberately restores that capacity as well as its bytes.
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
+                        not 512 <= info.st_size <= 32768 << 20):
+                    raise ValueError('快照类型或容量不匹配')
+                with allocation_lock(), vim4media._directory('data') as data:
+                    reserve_space(f'/proc/self/fd/{data}', info.st_size)
+                    with staged_image(data) as (target, temporary):
+                        os.posix_fallocate(target, 0, info.st_size)
+                        copy_image(source, target)
+                        publish_disk(name, fd, data, temporary, target)
+            finally:
+                os.close(source)
+
+
+def check_fat(fd):
+    result = subprocess.run(['fsck.vfat', '-n', f'/proc/self/fd/{fd}'], pass_fds=(fd,),
+                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if result.returncode:
+        raise ValueError('FAT 检查失败: ' + result.stdout.decode(errors='replace')[:16384])
+
+
+def resize_disk(name, fd, size):
+    size = int(size)
+    old_size = os.fstat(fd).st_size
+    if not 64 <= size <= 32768 or size << 20 <= old_size:
+        raise ValueError('只能扩容到 64–32768 MiB，且必须大于当前容量')
+    boot = os.pread(fd, 512, 0)
+    # Support whole-image FAT32 only, not partition tables or FAT12/16.
+    if (boot[82:90] != b'FAT32   ' or boot[510:512] != b'\x55\xaa' or
+            int.from_bytes(boot[17:19], 'little') != 0 or
+            int.from_bytes(boot[22:24], 'little') != 0):
+        raise ValueError('仅支持无分区表的 FAT32 数据盘')
+    check_fat(fd)
+    label, free = disk_info(fd)
+    if label is None or free is None:
+        raise ValueError('无法读取 FAT32 卷标或可用空间')
+    # Refuse labels we cannot round-trip through mkfs's locale safely.
+    if label and not re.fullmatch(r'[A-Za-z0-9 _-]{1,11}', label):
+        raise ValueError('无法安全保留此卷标')
+    with allocation_lock(), vim4media._directory('data') as directory:
+        reserve_space(f'/proc/self/fd/{directory}', size << 20)
+        with staged_image(directory) as (target, temporary):
+            os.posix_fallocate(target, 0, size << 20)
+            format_disk(target, label or 'NO NAME', preserve_label=True)
+            if not label:
+                disk_tool(target, 'mlabel', '-c', '::')
+            # Two explicit mtools drives copy FAT-to-FAT, including hidden files,
+            # empty directories, attributes and timestamps, without a kernel mount.
+            with tempfile.NamedTemporaryFile(mode='w', prefix='vim4-mtools-') as config:
+                config.write(f'drive a: file="/proc/self/fd/{fd}"\n'
+                             f'drive b: file="/proc/self/fd/{target}"\n')
+                config.flush()
+                entries = disk_tool(fd, 'mdir', '-b', '-a', '::/').stdout
+                if entries.strip():
+                    result = subprocess.run(['mcopy', '-s', '-p', '-m', '-Q', 'a:/', 'b:/'],
+                                            pass_fds=(fd, target), stdin=subprocess.DEVNULL,
+                                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin',
+                                                 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC',
+                                                 'MTOOLSRC': config.name})
+                    if result.returncode:
+                        raise ValueError(result.stderr.decode(errors='replace')[:16384])
+            check_fat(target)
+            new_label, new_free = disk_info(target)
+            if new_label != label or new_free is None or new_free <= free:
+                raise ValueError('扩容后的卷标或可用空间校验失败')
+            snapshot = snapshot_disk(name, fd, allocation_held=True)
+            publish_disk(name, fd, directory, temporary, target)
+            return dict(ok=True, snapshot=snapshot['id'])
+
+
+def disk_command(argv):
+    match argv:
+        case ['disk-list']:
+            return disk_list()
+        case ['disk-create', name, size, label]:
+            disk_create(name, size, label)
+        case ['disk-check', name]:
+            with vim4media.read_disk(disk_name(name)) as (fd, _):
+                with tempfile.TemporaryFile() as output:
+                    result = subprocess.run(['fsck.vfat', '-n', f'/proc/self/fd/{fd}'], pass_fds=(fd,),
+                                            stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
+                    output.seek(0)
+                    return dict(ok=result.returncode == 0, output=output.read(16384).decode(errors='replace'))
+        case ['disk-ls', name, path] | ['disk-get', name, path]:
+            fat_path(path, root=argv[0] == 'disk-ls')
+            with vim4media.read_disk(disk_name(name)) as (fd, stale):
+                if argv[0] == 'disk-ls':
+                    return dict(path=path, stale=stale, entries=disk_ls(fd, path))
+                disk_tool(fd, 'mtype', fat_arg(path), stdout=sys.stdout.buffer)
+        case ['disk-image', name]:
+            with ExitStack() as stack:
+                with media_locks():
+                    fd, attached = stack.enter_context(vim4media.read_disk(disk_name(name)))
+                    if attached and vim4media.LUN_FILE.with_name('ro').read_text().strip() != '1':
+                        raise ValueError('数据盘已可写挂载，请先安全弹出')
+                    # Prevent a new writable attachment without holding global locks during export.
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with os.fdopen(os.dup(fd), 'rb') as source:
+                    shutil.copyfileobj(source, sys.stdout.buffer, 1 << 20)
+        case ['disk-snapshot-delete', name, identifier]:
+            with allocation_lock():
+                snapshot_action(name, identifier)
+        case [command, name, *args] if command in ('disk-delete', 'disk-format', 'disk-label',
+                                                   'disk-put', 'disk-mkdir', 'disk-rm', 'disk-mv',
+                                                   'disk-snapshot', 'disk-restore', 'disk-resize'):
+            with vim4media.edit_disk(disk_name(name)) as fd:
+                match [command, *args]:
+                    case ['disk-resize', size]:
+                        return resize_disk(name, fd, size)
+                    case ['disk-delete'] | ['disk-delete', '0'] | ['disk-delete', '1']:
+                        if args != ['1']:
+                            for snapshot in snapshot_list(name):
+                                snapshot_action(name, snapshot['id'])
+                        (vim4media.DATA_DIR / name).unlink()
+                    case ['disk-format', label]:
+                        format_disk(fd, label)
+                    case ['disk-format', label, '1']:
+                        label = disk_label(label)
+                        snapshot_disk(name, fd)
+                        format_disk(fd, label)
+                    case ['disk-label', label]:
+                        disk_tool(fd, 'mlabel', '::' + disk_label(label))
+                    case ['disk-put', path, size, overwrite]:
+                        disk_put(fd, fat_path(path, False), size, overwrite, sys.stdin.buffer)
+                    case ['disk-mkdir', path]:
+                        disk_tool(fd, 'mmd', '::' + fat_path(path, False))
+                    case ['disk-rm', path]:
+                        disk_tool(fd, 'mdeltree', fat_arg(fat_path(path, False)))
+                    case ['disk-mv', source, target]:
+                        # mmove 4.0.43 drops the lower-case flag across directories and
+                        # crashes on missing targets; only same-directory renames are offered.
+                        source, target = fat_path(source, False), fat_path(target, False)
+                        if source.rsplit('/', 1)[0] != target.rsplit('/', 1)[0]:
+                            raise ValueError('只能在同一文件夹内重命名')
+                        disk_tool(fd, 'mren', fat_arg(source), '::' + target)
+                    case ['disk-snapshot']:
+                        return snapshot_disk(name, fd)
+                    case ['disk-restore', identifier]:
+                        snapshot_action(name, identifier, fd)
+                    case _:
+                        raise ValueError('数据盘命令参数无效')
+                os.fsync(fd)
+        case _:
+            raise ValueError('数据盘命令参数无效')
+    return {'ok': True}
+
 
 
 def media_active(app):
@@ -618,6 +979,11 @@ def update(package, checksum, version):
 
 
 def main(argv):
+    if argv and argv[0].startswith('disk-'):
+        result = disk_command(argv)
+        if argv[0] not in ('disk-get', 'disk-image'):
+            print(json.dumps(result))
+        return
     match argv:
         case ['media-list']:
             print(json.dumps(media_catalog()))
@@ -654,13 +1020,22 @@ def main(argv):
                              'media-eject TOKEN | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
 
 
+def interrupted(signum, frame):
+    # Unwind allocation/staging cleanup when the HTTP streaming runner cancels.
+    raise InterruptedError('操作已取消')
+
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGTERM, interrupted)
     try:
-        lock = os.open('/run/lock/vim4-manager.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if len(sys.argv) < 2 or not (sys.argv[1].startswith('disk-') or
+                                     sys.argv[1] in ('media-list', 'media-status')):
+            lock = os.open('/run/lock/vim4-manager.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         main(sys.argv[1:])
     except BlockingIOError:
-        print('Another switch is in progress', file=sys.stderr)
+        busy = '另一个数据盘操作正在进行，请稍后重试' if sys.argv[1:2] and sys.argv[1].startswith('disk-') else 'Another switch is in progress'
+        print(busy, file=sys.stderr)
         sys.exit(75)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(error, file=sys.stderr)

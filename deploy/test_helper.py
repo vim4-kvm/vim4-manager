@@ -5,8 +5,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import sys
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'board'))
+import vim4media  # Preload workspace code before the production helper adds its install path.
 loader = importlib.machinery.SourceFileLoader('helper', str(Path(__file__).with_name('vim4-manager-helper')))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 helper = importlib.util.module_from_spec(spec)

@@ -48,7 +48,12 @@ KVM 界面页在有介质或状态未知时显示摘要和入口。
 浏览器回归：运行本地前端后执行 `node web/tests/media.mjs`（可设置 PLAYWRIGHT_MODULE）。
 
 虚拟介质页提供按来源分组的已有镜像库、只读/可写挂载和两步确认弹出；等待弹出切换的提示留在 KVM 界面页。列表汇总 NanoKVM、JetKVM、
-One-KVM、PiKVM 的 ISO/IMG 目录及已有共享数据盘；不创建、上传、删除或格式化文件。
+One-KVM、PiKVM 的 ISO/IMG 目录及所有共享数据盘。
+
+数据盘页（`#/disks`）新建 FAT32 数据盘，在未挂载时上传、下载、新建文件夹、重命名和删除文件，
+修改卷标、只读检查文件系统、下载完整镜像，以及扩容、创建/恢复快照、格式化和删除（需输入盘名确认）。
+挂载到被控电脑时只能浏览和下载，列表可能落后于主机未写回的内容。
+浏览器回归：`node web/tests/disks.mjs`。
 默认只读，ISO 固定为只读光盘，JetKVM 固定只读。已有介质时拒绝替换；
 One-KVM 的 USB 网卡/HID 组合不被修改，端点不足时先在应用内调整功能。
 NanoKVM/JetKVM 首次连接存储可将 NCM 换成存储，会短暂重连 USB；已有存储接口时直接插入介质。
@@ -63,6 +68,52 @@ NanoKVM/JetKVM 首次连接存储可将 NCM 换成存储，会短暂重连 USB�
 助手逐级禁止符号链接，并拒绝硬链接、特殊文件、越界路径和小于 512 字节的镜像。
 
 API 没有认证，面向可信局域网。POST 只接受 application/json，跨站表单无法触发切换。
+
+## 共享数据盘 API
+
+依赖板级包提供的 `/usr/lib/vim4-kvm/python/vim4media.py`、mtools 和 dosfstools。
+应用包通过 `vim4-media-api-1` 声明共享模块依赖；升级前先安装新板级包，网页更新不会代装依赖。
+数据盘位于 `/var/lib/vim4-kvm/usb/NAME.img`，名称为 1–64 个字母、数字、点、下划线或连字符
+（首字符必须为字母或数字），再加 `.img`。已有 `disk.img` 保留原样。
+新盘为 FAT32，64–32768 MiB，最多 8 个；预分配实际空间并保留至少 2 GiB 系统空间。
+卷标为 1–11 个大写字母、数字、空格、下划线或连字符，两端空格会去除。
+
+| HTTP | 参数与结果 |
+|---|---|
+| `GET /api/disks` | 返回 `name,size,mtime,label,freeBytes,attached,readOnly,editing,snapshots`；无法读取的卷标/空闲空间为 null |
+| `POST /api/disks` | `{name,sizeMiB,label}` |
+| `POST /api/disks/delete` | `{name,confirm,keepSnapshots}` |
+| `POST /api/disks/format` | `{name,label,confirm,snapshot}`；可先快照，失败则不格式化，两步持同一数据盘锁 |
+| `POST /api/disks/resize` | `{name,sizeMiB,confirm}`；仅扩容，先保留快照，复制和检查成功后替换镜像 |
+| `POST /api/disks/label`、`/api/disks/check` | `{name,label}` / `{name}`；检查返回 `{ok,output}`（最多 16 KiB） |
+| `GET /api/disks/files?disk=&path=` | 返回 `{path,stale,entries:[{name,dir,size,mtime}]}` |
+| `GET /api/disks/file?disk=&path=` | 流式下载，RFC 5987 `filename*` |
+| `PUT /api/disks/file?disk=&path=&overwrite=0或1` | 二进制请求体；必须有 `Content-Length`、`Content-Type: application/octet-stream` 和 `X-Vim4-Upload: 1` |
+| `POST /api/disks/mkdir`、`/api/disks/rm` | `{disk,path}`；rm 递归删除 |
+| `POST /api/disks/mv` | `{disk,from,to}`；仅同一文件夹内重命名 |
+| `GET /api/disks/image?disk=` | 下载完整镜像，可写挂载时拒绝 |
+| `POST /api/disks/snapshot` | `{disk}`，返回 `{id}` |
+| `POST /api/disks/restore` | `{disk,id,confirm}` |
+| `POST /api/disks/snapshot/delete` | `{disk,id}`，也可删除已保留的孤立快照 |
+
+删除、格式化和恢复必须以完整盘名填写 `confirm`。文件路径为绝对 FAT 路径，深度不超过 16，
+每段最多 255 字符，拒绝相对路径、空段、控制字符和 FAT 不支持的字符。
+单文件最大 4 GiB-1；上传先写 root 私有临时文件，长度完整且空间充足才导入数据盘。
+快照存于 `/var/lib/vim4-kvm/usb-snapshots/NAME/`，每盘最多 3 个，不自动淘汰；
+删除数据盘默认同时删快照，`keepSnapshots:true` 可保留。重建同名盘后可恢复；恢复同时还原快照的容量。
+扩容只支持无分区表的 FAT32 数据盘，先复制到新镜像并检查，再备份原盘、原子替换；
+文件、卷标和旧盘快照保留。需要额外容纳新盘和旧盘快照的空间，最大 32 GiB。
+所有时间字段为 Unix 秒；FAT 文件时间按 UTC 写入和解读，精度受 FAT 限制。
+mtools 4.0.43 跨目录移动会丢失小写标记、目标不存在时崩溃，因此只提供重命名；
+已有长文件名的条目改为全小写 8.3 名称时以大写保存（FAT 名称不区分大小写，内容不变）。
+
+编辑前必须在被控电脑安全弹出（只读挂载也不允许编辑）。挂载中的盘允许浏览和文件下载，
+`stale:true` 表示结果可能随主机写入改变。长操作只持该数据盘锁，不阻塞状态轮询、KVM 切换
+或其他镜像挂载；编辑中的盘挂载立即失败。客户端断开会取消上传/下载助手。
+上传取消发生在导入前不会修改镜像；导入、格式化中断不保证事务回滚，重要数据先快照。
+快照完成后才发布，恢复和扩容准备完成后原子替换，准备阶段中断保留原盘。
+强制结束进程可能遗留占空间的隐藏临时文件，但不会把未完成快照列为可恢复项目。
+`GET /api/media` 继续返回所有数据盘（`source:"data",disk:true`）及各应用镜像。
 
 ## EDID 兼容性预设
 
@@ -89,6 +140,9 @@ pnpm --dir web install --frozen-lockfile && pnpm --dir web build
 go test ./... && go build -trimpath -o vim4-manager ./cmd/vim4-manager
 python3 -m unittest discover -s deploy -p 'test_*.py'
 ```
+
+真实 FAT 回归需在 Linux 安装 mtools、dosfstools 后运行同一 helper 测试命令；Mac 上这些测试会跳过。
+工作区 VM 可用 `orb -m vim4-build bash -lc 'cd <工作区>/vim4-manager && python3 -m unittest discover -s deploy'`。
 
 正式构建和打包由工作区完成：`python3 tools/workspace.py build manager`，组件包
 vim4-manager 由 tools/ubuntu-build.py 生成，tools/board.py deploy 部署。

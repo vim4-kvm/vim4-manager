@@ -1948,6 +1948,8 @@ main {
 }
 
 .media-group h4 {
+  display: flex;
+  justify-content: space-between;
   margin: 0 0 4px;
   font-size: 12px;
   font-weight: 500;
@@ -2094,5 +2096,555 @@ main {
 
   .media-strip-go {
     display: none;
+  }
+}
+
+.media-group-link {
+  color: var(--accent-ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+/* Data disks */
+.disk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.disk-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: var(--field);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.disk-card:hover {
+  border-color: var(--rule-strong);
+}
+
+.disk-card.is-checked {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.disk-card.is-checked .media-icon {
+  color: var(--accent);
+}
+
+.disk-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.disk-card:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.disk-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+.disk-card-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.disk-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--ink-2);
+}
+
+.disk-usage-bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent-track);
+  overflow: hidden;
+}
+
+.disk-usage-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.disk-create {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 16px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: var(--field);
+}
+
+.disk-create > .hint,
+.disk-create > .media-actions,
+.disk-create > .disk-sizes {
+  grid-column: 1 / -1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.field legend {
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.field input,
+.disk-inline input {
+  height: 32px;
+  min-width: 0;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.field input:focus,
+.disk-inline input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.disk-name-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.disk-name-input input {
+  flex: 1;
+}
+
+.disk-sizes {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.disk-sizes legend {
+  width: 100%;
+}
+
+.disk-size {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.disk-size.is-checked {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.disk-size input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.disk-size:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.disk-files {
+  position: relative;
+  gap: 12px;
+}
+
+.disk-files > .section-head {
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.disk-files.is-dragging::after {
+  content: "松开以上传到当前文件夹";
+  position: absolute;
+  inset: 40px 0 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius);
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--page) 80%, transparent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.disk-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.disk-crumb {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.disk-crumb:disabled {
+  color: var(--ink);
+  font-weight: 600;
+  cursor: default;
+}
+
+.disk-toolbar {
+  display: flex;
+  gap: 6px;
+}
+
+.disk-note {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
+  font-size: 13px;
+}
+
+.disk-uploads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--rule);
+  background: var(--field);
+  font-size: 13px;
+}
+
+.disk-uploads-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.disk-uploads-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.disk-uploads progress {
+  width: 100%;
+  height: 4px;
+  appearance: none;
+  border: 0;
+  border-radius: 2px;
+  background: var(--accent-track);
+  overflow: hidden;
+}
+
+.disk-uploads progress::-webkit-progress-bar {
+  background: var(--accent-track);
+}
+
+.disk-uploads progress::-webkit-progress-value {
+  background: var(--accent);
+}
+
+.disk-uploads progress::-moz-progress-bar {
+  background: var(--accent);
+}
+
+.disk-confirm > span {
+  flex: 1;
+}
+
+.disk-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.disk-inline input {
+  flex: 1;
+}
+
+.disk-files > .disk-inline {
+  padding: 6px 0;
+}
+
+.disk-table {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--rule);
+}
+
+.disk-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 12px;
+  margin: 0 -12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.disk-row:hover,
+.disk-row.is-selected {
+  background: var(--hover);
+}
+
+.disk-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.disk-entry:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.disk-file-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.disk-entry-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.disk-entry-meta {
+  color: var(--ink-3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.disk-entry-time {
+  width: 128px;
+  text-align: right;
+}
+
+.disk-row-actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+}
+
+.disk-row:hover .disk-row-actions,
+.disk-row.is-selected .disk-row-actions,
+.disk-row:focus-within .disk-row-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .disk-row-actions {
+    opacity: 1;
+  }
+}
+
+.disk-drop {
+  justify-content: center;
+  padding: 28px 0;
+}
+
+.disk-maintenance {
+  gap: 18px;
+}
+
+.disk-maintenance > .section-head {
+  margin-bottom: 0;
+}
+
+.disk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px 24px;
+}
+
+.disk-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.disk-cell h4,
+.disk-snapshots h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.disk-cell .disk-inline {
+  margin-top: 4px;
+  flex: none;
+}
+
+.disk-check {
+  max-height: 160px;
+  overflow: auto;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--hover);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+}
+
+.disk-check.is-bad {
+  color: var(--critical-ink);
+}
+
+.disk-snapshots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.disk-snapshots-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12.5px;
+}
+
+.disk-snapshots-head .muted {
+  flex: 1;
+}
+
+.disk-snapshot-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule);
+}
+
+.disk-snapshot-list li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+}
+
+.disk-snapshot-list li > .muted {
+  flex: 1;
+}
+
+.disk-dangers {
+  display: flex;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+
+.disk-danger {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--critical) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--critical) 30%, transparent);
+  font-size: 13px;
+}
+
+.disk-danger .field {
+  max-width: 320px;
+}
+
+.disk-danger code {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+@media (max-width: 760px) {
+  .disk-create {
+    grid-template-columns: 1fr;
+  }
+
+  .disk-files > .section-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .disk-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .disk-entry-time {
+    display: none;
+  }
+
+  .disk-row {
+    flex-wrap: wrap;
+  }
+
+  .disk-row-actions {
+    opacity: 1;
+    width: 100%;
+    justify-content: flex-end;
+    padding-bottom: 6px;
   }
 }

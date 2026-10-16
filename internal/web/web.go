@@ -18,6 +18,7 @@ import (
 // Handler builds the HTTP routes. assets is the built frontend (index.html at its root).
 func Handler(service *board.Service, assets fs.FS) http.Handler {
 	mux := http.NewServeMux()
+	diskRoutes(mux, service)
 	mux.HandleFunc("GET /api/media", func(w http.ResponseWriter, r *http.Request) {
 		images, err := service.MediaImages(r.Context())
 		if err != nil {

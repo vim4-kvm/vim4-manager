@@ -25,7 +25,8 @@ class MediaManagementTest(unittest.TestCase):
         (self.gadget / 'UDC').write_text('controller')
         for name in ('hid.keyboard', 'hid.mouse_abs', 'hid.mouse_rel', 'ncm.usb0'):
             self.link(name)
-        self.enterContext(patch.object(helper, 'MEDIA_ROOTS', {'shared': self.images}))
+        self.enterContext(patch.object(helper.vim4media, 'IMAGE_ROOTS', {'shared': self.images}))
+        self.enterContext(patch.object(helper.vim4media, 'DATA_DIR', self.root / 'absent'))
         self.enterContext(patch.object(helper, 'PIKVM_LUN_FILE', self.lun / 'file'))
         self.enterContext(patch.object(helper, 'media_locks', side_effect=nullcontext))
         self.enterContext(patch.object(helper, 'media_active'))

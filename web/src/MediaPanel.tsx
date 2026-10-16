@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { request, type Media, type MediaImage } from "./api";
 
-const sources: Record<string, string> = { shared: "NanoKVM 镜像", data: "共享数据盘", jetkvm: "JetKVM", onekvm: "One-KVM", pikvm: "PiKVM" };
+const sources: Record<string, string> = { data: "数据盘", shared: "NanoKVM 镜像", jetkvm: "JetKVM", onekvm: "One-KVM", pikvm: "PiKVM" };
 type Run = (label: string, action: () => Promise<unknown>, done: string) => Promise<boolean>;
 
 export function needsMediaEject(media: Media | undefined, target: string): boolean {
@@ -207,7 +207,7 @@ export function MediaPanel({ media, active, activeName, busy, run }: {
       <section className="section media-library" aria-label="镜像库">
         <div className="section-head">
           <h3>镜像库</h3>
-          <p className="muted">各 KVM 的 ISO/IMG 目录与共享数据盘。新文件请在对应 KVM 中上传。</p>
+          <p className="muted">数据盘与各 KVM 的 ISO/IMG 目录。数据盘在「数据盘」页新建和管理文件，ISO 请在对应 KVM 中上传。</p>
           <button className="button small media-refresh" disabled={busy || loading} onClick={() => setReload(value => value + 1)}>
             刷新
           </button>
@@ -217,13 +217,16 @@ export function MediaPanel({ media, active, activeName, busy, run }: {
           : images.length === 0 ? (
             <div className="media-empty">
               <MediaIcon empty />
-              <p>尚无镜像。先通过对应 KVM 上传 ISO 或 IMG 文件，再刷新列表。</p>
+              <p>尚无镜像。在「数据盘」页新建数据盘，或通过对应 KVM 上传 ISO/IMG 文件后刷新列表。</p>
             </div>
           ) : (
             <div className="media-list" role="radiogroup" aria-label="镜像文件">
               {groups.map(source => (
                 <div key={source} className="media-group">
-                  <h4>{sources[source] ?? source}</h4>
+                  <h4>
+                    {sources[source] ?? source}
+                    {source === "data" && <a className="media-group-link" href="#/disks">管理文件 →</a>}
+                  </h4>
                   {images.filter(image => image.source === source).map(image => (
                     <label key={image.id} className={`media-option${image.id === imageID ? " is-checked" : ""}`}>
                       <input

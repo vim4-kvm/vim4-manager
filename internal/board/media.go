@@ -21,6 +21,7 @@ type Media struct {
 }
 
 type MediaImage struct {
+	Disk   bool   `json:"disk,omitempty"`
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Source string `json:"source"`

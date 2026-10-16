@@ -22,6 +22,7 @@ var ErrBusy = errors.New("另一项操作正在进行")
 // Service answers dashboard queries and serializes privileged operations.
 type Service struct {
 	Run     Runner
+	Stream  StreamRunner
 	Root    string
 	History *History
 	Events  *Events

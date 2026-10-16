@@ -24,6 +24,7 @@ import { TrendChart, tempDomain, type Point } from "./Charts";
 import { FanPanel } from "./FanPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { MediaPanel, MediaSummary, MediaWait, needsMediaEject } from "./MediaPanel";
+import { DiskPanel } from "./DiskPanel";
 
 const POLL_MS = 3000;
 
@@ -565,7 +566,7 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-type PageId = "overview" | "apps" | "media" | "video" | "cooling" | "network" | "services" | "updates";
+type PageId = "overview" | "apps" | "media" | "disks" | "video" | "cooling" | "network" | "services" | "updates";
 
 const ICONS: Record<PageId, ReactNode> = {
   overview: <path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z" />,
@@ -579,6 +580,12 @@ const ICONS: Record<PageId, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="8.5" />
       <circle cx="12" cy="12" r="2.2" />
+    </>
+  ),
+  disks: (
+    <>
+      <path d="M7 3h7l3 3v15H7z" />
+      <path d="M10 3v4h4M10 12h4M10 16h4" />
     </>
   ),
   video: (
@@ -608,6 +615,7 @@ const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "overview", title: "概览" },
   { id: "apps", title: "KVM 界面", description: "四个界面共用采集、编码器和键鼠，同一时间只运行一个。" },
   { id: "media", title: "虚拟介质", description: "挂载到被控电脑的 U 盘或光盘。四个界面共用同一个 USB 存储设备，切换界面不会改变已挂载的介质。" },
+  { id: "disks", title: "数据盘", description: "在板子上创建 U 盘镜像，上传或取回文件，挂载后被控电脑当作普通 U 盘使用。" },
   { id: "video", title: "视频输入" },
   { id: "cooling", title: "散热" },
   { id: "network", title: "网络" },
@@ -892,6 +900,15 @@ export function App() {
                 activeName={status.apps.find((a) => a.id === status.active)?.name}
                 busy={!!busy}
                 run={run}
+              />
+            )}
+
+            {page === "disks" && (
+              <DiskPanel
+                busy={!!busy}
+                run={run}
+                report={(tone, text) => (tone === "critical" ? (setNotice(undefined), setError(text)) : (setError(undefined), setNotice({ tone, text })))}
+                mediaToken={stale ? undefined : `${status.media?.token ?? ""}:${status.media?.readOnly}`}
               />
             )}
 

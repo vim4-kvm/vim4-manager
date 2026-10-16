@@ -164,3 +164,67 @@ export interface Update {
 
 export const getUpdates = (signal?: AbortSignal) => request<Update[]>("/api/updates", undefined, signal);
 export const installUpdate = (pkg: string) => request("/api/updates", { package: pkg });
+
+export interface DiskSnapshot {
+  id: string;
+  time: number;
+  size: number;
+}
+
+export interface Disk {
+  name: string;
+  size: number;
+  mtime: number;
+  label: string | null;
+  freeBytes: number | null;
+  attached: boolean;
+  readOnly: boolean;
+  editing: boolean;
+  snapshots: DiskSnapshot[];
+}
+
+export interface DiskEntry {
+  name: string;
+  dir: boolean;
+  size: number;
+  mtime: number;
+}
+
+export interface DiskListing {
+  path: string;
+  stale: boolean;
+  entries: DiskEntry[];
+}
+
+const query = (params: Record<string, string>) => new URLSearchParams(params).toString();
+export const getDisks = (signal?: AbortSignal) => request<Disk[]>("/api/disks", undefined, signal);
+export const listDiskFiles = (disk: string, path: string, signal?: AbortSignal) =>
+  request<DiskListing>(`/api/disks/files?${query({ disk, path })}`, undefined, signal);
+export const diskFileURL = (disk: string, path: string) => `/api/disks/file?${query({ disk, path })}`;
+export const diskImageURL = (disk: string) => `/api/disks/image?${query({ disk })}`;
+
+// XHR rather than fetch: upload progress is not observable through fetch.
+export function uploadDiskFile(disk: string, path: string, file: File, overwrite: boolean,
+  onProgress: (sent: number) => void, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("已取消上传", "AbortError"));
+      return;
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", `/api/disks/file?${query({ disk, path, overwrite: overwrite ? "1" : "0" })}`);
+    xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.setRequestHeader("X-Vim4-Upload", "1");
+    xhr.upload.onprogress = (event) => onProgress(event.loaded);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) return resolve();
+      let message = `上传失败（${xhr.status}）`;
+      try { message = JSON.parse(xhr.responseText).error ?? message; } catch { /* non-JSON proxy error */ }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => reject(new Error("上传中断，请检查网络连接"));
+    xhr.onabort = () => reject(new DOMException("已取消上传", "AbortError"));
+    signal.addEventListener("abort", () => xhr.abort(), { once: true });
+    xhr.send(file);
+  });
+}
