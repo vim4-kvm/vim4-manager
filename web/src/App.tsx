@@ -860,6 +860,7 @@ export function App() {
                           setWaiting({ app, source: status.active, started: Date.now() });
                           setConfirming(undefined);
                           setError(undefined);
+                          setNotice(undefined);
                         } else void switchApp(app);
                       }}
                       onRestart={() => run(`正在重启 ${app.name}…`, () => restartUnit(app.unit.name), `${app.name} 已重启`)}
