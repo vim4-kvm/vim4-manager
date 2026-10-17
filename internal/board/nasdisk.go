@@ -20,7 +20,7 @@ type NASDiskRequest struct {
 
 func (s *Service) NASDiskCommand(ctx context.Context, action string, request *NASDiskRequest) (json.RawMessage, error) {
 	switch action {
-	case "status", "start", "cancel", "commit", "reattach", "discard":
+	case "status", "start", "cancel", "commit", "reattach", "discard", "trash-empty":
 	default:
 		return nil, fmt.Errorf("不支持的 NAS U 盘操作")
 	}

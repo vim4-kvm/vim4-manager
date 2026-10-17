@@ -102,6 +102,15 @@ class MediaManagementTest(unittest.TestCase):
         self.assertTrue((self.config / 'ncm.usb0').is_symlink())
         self.assertFalse((self.config / 'mass_storage.disk0').is_symlink())
 
+    def test_interrupted_attach_restores_controller_during_rebind(self):
+        with patch.object(helper.time, 'sleep', side_effect=InterruptedError('操作已取消')):
+            with self.assertRaises(InterruptedError):
+                helper.media_mount('nanokvm', 'shared/disk.img', False, False)
+        self.assertEqual((self.gadget / 'UDC').read_text(), 'controller')
+        self.assertEqual((self.lun / 'file').read_text().strip(), '')
+        self.assertTrue((self.config / 'ncm.usb0').is_symlink())
+        self.assertFalse((self.config / 'mass_storage.disk0').is_symlink())
+
     def test_eject_rejects_changed_medium_and_host_lock_without_rebinding(self):
         (self.lun / 'file').write_text('/existing.img')
         with patch.object(helper, 'media_status', return_value={'inserted': True, 'token': 'new'}):

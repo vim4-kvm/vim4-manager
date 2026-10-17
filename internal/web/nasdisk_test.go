@@ -21,6 +21,7 @@ func TestNASDiskRoutes(t *testing.T) {
 		{"POST", "/api/nasdisk/commit", `{"id":"session","force":true}`, "nasdisk-commit session force"},
 		{"POST", "/api/nasdisk/reattach", `{"id":"session"}`, "nasdisk-reattach session"},
 		{"POST", "/api/nasdisk/discard", `{"id":"session","confirm":"session"}`, "nasdisk-discard session"},
+		{"POST", "/api/nasdisk/trash-empty", `{"id":"session","confirm":"session"}`, "nasdisk-trash-empty"},
 	} {
 		t.Run(test.command, func(t *testing.T) {
 			s := &board.Service{Stream: func(_ context.Context, in io.Reader, out io.Writer, _ string, args ...string) error {
@@ -66,6 +67,7 @@ func TestNASDiskAccessAndFailure(t *testing.T) {
 	}{
 		{"GET", "/api/nasdisk", "", "", "192.168.1.2:100", 200, true},
 		{"POST", "/api/nasdisk/cancel", "application/json", "", "192.168.1.2:100", 409, true},
+		{"POST", "/api/nasdisk/trash-empty", "application/json", "", "192.168.1.2:100", 409, true},
 		{"POST", "/api/nasdisk/start", "text/plain", "", "192.168.1.2:100", 415, false},
 		{"POST", "/api/nasdisk/start", "application/json", "http://evil.invalid", "192.168.1.2:100", 403, false},
 		{"POST", "/api/nasdisk/start", "application/json", "", "100.64.0.1:100", 403, false},

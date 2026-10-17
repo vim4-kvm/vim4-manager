@@ -19,6 +19,7 @@ func TestStorageRoutes(t *testing.T) {
 		{"GET", "/api/storage/dirs?id=nas&path=%2Ffolder", "", "storage-dirs nas /folder"},
 		{"POST", "/api/storage", `{"name":"NAS","password":"secret"}`, "storage-save"},
 		{"POST", "/api/storage/test", `{"id":"nas","password":"secret"}`, "storage-test"},
+		{"POST", "/api/storage/mkdir", `{"id":"nas","path":"/parent","name":"新目录"}`, "storage-mkdir"},
 		{"POST", "/api/storage/mount", `{"id":"nas"}`, "storage-mount nas"},
 		{"POST", "/api/storage/unmount", `{"id":"nas"}`, "storage-unmount nas"},
 		{"POST", "/api/storage/delete", `{"id":"nas","confirm":"NAS"}`, "storage-delete nas"},
@@ -69,6 +70,7 @@ func TestStorageFailureAndAccessBoundary(t *testing.T) {
 	}{
 		{"GET", "/api/storage", "", "", "192.168.1.2:100", 200, true},
 		{"POST", "/api/storage/mount", "application/json", "", "192.168.1.2:100", 400, true},
+		{"POST", "/api/storage/mkdir", "application/json", "", "192.168.1.2:100", 400, true},
 		{"POST", "/api/storage", "text/plain", "", "192.168.1.2:100", 415, false},
 		{"POST", "/api/storage", "application/json", "http://evil.invalid", "192.168.1.2:100", 403, false},
 		{"POST", "/api/storage", "application/json", "", "100.64.0.1:100", 403, false},

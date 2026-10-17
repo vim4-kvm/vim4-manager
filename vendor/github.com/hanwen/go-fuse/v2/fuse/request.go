@@ -198,6 +198,10 @@ func parseRequest(in []byte, kernelSettings *InitIn) (h *operationHandler, inSiz
 	}
 	inData := unsafe.Pointer(&in[0])
 	hdr := (*InHeader)(inData)
+	if int(hdr.Length) != len(in) {
+		errno = EIO
+		return
+	}
 	h = getHandler(hdr.Opcode)
 	if h == nil {
 		log.Printf("Unknown opcode %d", hdr.Opcode)

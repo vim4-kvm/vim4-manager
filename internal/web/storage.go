@@ -23,7 +23,7 @@ func storageRoutes(mux *http.ServeMux, service *board.Service) {
 		}
 		writeJSON(w, http.StatusOK, result)
 	})
-	for _, action := range []string{"save", "test", "mount", "unmount", "delete"} {
+	for _, action := range []string{"save", "test", "mkdir", "mount", "unmount", "delete"} {
 		endpoint := "/api/storage/" + action
 		if action == "save" {
 			endpoint = "/api/storage"

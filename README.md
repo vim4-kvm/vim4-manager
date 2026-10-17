@@ -186,6 +186,7 @@ One-KVM 等包声明依赖。文件夹虚拟 U 盘见下方「NAS 文件夹 U �
 | `POST /api/storage/mount`、`/api/storage/unmount` | `{id}` → 操作后的存储对象 |
 | `POST /api/storage/delete` | `{id,confirm}`，confirm 必须等于完整存储名称 → `{ok:true}` |
 | `GET /api/storage/dirs?id=&path=` | 挂载内绝对路径（根为 `/`）→ `{path,entries:[{name}],truncated}` |
+| `POST /api/storage/mkdir` | `{id,path,name}` → `{path:新目录完整相对路径}`（以 `/` 开头） |
 
 存储对象含全部非敏感配置及 `mounted,state,error,path,totalBytes,freeBytes,stale,writable,busy,insecure`。
 `state` 为 mounted/unmounted/mounting/error；`error` 使用 systemd 最近失败的 Result 原因。
@@ -195,6 +196,9 @@ One-KVM 等包声明依赖。文件夹虚拟 U 盘见下方「NAS 文件夹 U �
 检测失败为 null；卸载时无法确认空闲也拒绝操作，最终仍由普通 systemd stop/umount 检查占用，不提供强制或 lazy 卸载。
 目录读取用 openat/O_NOFOLLOW 逐级打开，拒绝符号链接、`.`、`..`、空段、控制字符和反斜杠；
 深度最多 32，最多返回 500 个子目录，返回项按名称排序，3 秒超时。
+新建目录同样逐级 openat/O_NOFOLLOW、3 秒子进程预算；name 使用共享名的单段规则，
+UTF-8 最多 255 字节，禁止 `.vim4-nasdisk`，mkdirat 模式 0770（SMB 权限由挂载参数决定）。
+同名目录或文件返回「已有同名文件夹」。
 
 SMB share 为共享名，可附子路径 `share/sub/dir`；NFS share 必须为 `/export/path`。
 server 只接受主机名、IPv4、IPv6（裸 IPv6 输入，源地址自动加方括号，不支持 zone ID）。
@@ -220,6 +224,9 @@ NAS 文件夹 U 盘在 NAS 卡住期间，被控电脑的读写也会卡住。
 保留挂载目录供管理员检查，删除临时凭据，不递归删除目录。强制结束助手也可能留下临时挂载或隐藏探测文件。
 保存会停止旧单元、原子更新配置/凭据/单元、daemon-reload、enable/disable；原先已挂载或 autoMount 为真则启动。
 启动失败仍保留新配置，之后可重试挂载；多文件更新不保证断电事务回滚。
+manager 的 ExecStartPre 调用 `storage-migrate`，按当前模板更新内容有变化的单元并 daemon-reload，
+让升级前的存储也获得 `iocharset=utf8`。已挂载且空闲时重启单元；忙或无法确认空闲时保留当前挂载，
+输出原因，新参数下次启动生效。每存储最多约 5 秒、总预算约 20 秒，不等待失联 NAS。
 状态与目录读取不占写锁，其余操作共用独立 storage 锁。接口沿用局域网 Host、JSON、同源与禁止 Tailscale 写入边界，无独立认证。
 manager 仍以 khadas 运行，root helper 执行挂载；service 无需增加 ReadWritePaths，也不能加入隔离挂载命名空间。
 
@@ -265,15 +272,20 @@ khadas 写权限、USB LUN 占用拒绝、断网超时/恢复及临时挂载清�
 |---|---|
 | `GET /api/nasdisk` | `{known,session,last,pending}`；session 为当前状态，last 为最后结果 |
 | `POST /api/nasdisk/start` | `{storage,path,mode:"ro"或"rw",label?}` → `{ok,id}`，扫描异步进行 |
-| `POST /api/nasdisk/cancel` | `{}`；挂载中拒绝，需先安全弹出 |
+| `POST /api/nasdisk/cancel` | `{}`；scanning/attaching 可取消，attached 需先安全弹出 |
 | `POST /api/nasdisk/commit` | `{id,force?:true}`；强制恢复必须显式指定 force |
 | `POST /api/nasdisk/reattach` | `{id}`；仅当前尚未开始回写的会话 |
 | `POST /api/nasdisk/discard` | `{id,confirm:id}` |
+| `POST /api/nasdisk/trash-empty` | `{id:last.id,confirm:last.id}` → `{ok:true,trash:{bytes:0,files:0}}`；有运行中的会话时拒绝 |
 
 session 包含存储、路径、模式、卷标、扫描计数、文件/目录数、容量、已用/写入字节数、
 跳过项、USB configured 状态、计划计数、步骤/字节进度、决策原因和错误。
 状态为 `scanning/attaching/attached/parsing/committing/needs-decision/failed`。
-last 包含结果、计数、冲突副本位置和结束时间；pending 包含存储、路径、写入量、开始时间和 journal 标记。
+last 包含 storage ID、path、结果、计数、冲突副本位置、结束时间和 `trash:null或{bytes,files}`。
+trash 为该文件夹 `.vim4-nasdisk/trash` 中全部历史会话的普通文件逻辑字节数与文件数；
+未挂载、旧记录缺 storage/path、读取失败或超过 3 秒预算时为 null。
+清空仅作用于 last 指向的文件夹，逐级 O_NOFOLLOW、不跟随符号链接、不进入其他挂载，3 秒预算；
+超时可已删除部分内容，重新读取状态后重试。pending 包含存储、路径、写入量、开始时间和 journal 标记。
 接口沿用现有 Host、JSON、同源和禁止 Tailscale 写入边界。
 `media.nasdisk` 提供 `{storage,storageName,path,mode}`，介质名称为 `nas:存储名称/路径`；弹出 API 不变。
 
@@ -281,8 +293,14 @@ last 包含结果、计数、冲突副本位置和结束时间；pending 包含�
 运行目录 `/run/vim4-nasdisk/` 为 0755，包含 helper 写入的 `session.json`、每秒更新的
 `status.json`、`last.json`、0600 的 `control.sock` 和 FUSE 挂载点 `fs/`。
 镜像名为 `disk-SESSION.img`；socket 接受 JSON `status/commit/discard/reattach/cancel` 请求。
+FUSE 请求解析失败一律回复错误；Android GKI 的 `FUSE_CANONICAL_PATH=2016` 回复 ENOSYS，
+不返回空成功或路径，避免内核越界及递归 LOOKUP 自锁。补丁基于 go-fuse v2.8.0，
+通过 `go.mod replace` 指向 [本地模块与补丁说明](third_party/go-fuse/LOCAL-PATCHES.md)，vendor 由 `go mod vendor` 生成。
+创建镜像（含 INIT/WaitMount）的总预算为 15 秒，超时进入 failed，显示「无法创建 U 盘镜像（FUSE 无响应）」。
+取消/停止可中止等待；卸载无响应时按 mountinfo 的设备 minor 写 fusectl `abort` 后 lazy unmount，
+释放内核等待者再退出。守护进程启动及 helper 启动会话前同样清理遗留 fs/ 挂载，不 stat 失效挂载点。
 LUN 连接必须由 helper 的 `nasdisk-lun-attach SESSION` 持共享介质锁调用 `attach_media()`；
-它保留现有端点预算与 UDC 重绑规则。其他固定操作为 `nasdisk-status/start/cancel/commit/reattach/discard`。
+它保留现有端点预算与 UDC 重绑规则。其他固定操作为 `nasdisk-status/start/cancel/commit/reattach/discard/trash-empty`。
 
 限制：FAT32 单文件最大 4 GiB−1；文件时间为 UTC 且 FAT 精度为两秒。
 NAS 侧挂载期间修改 size/mtime 后，源读取返回 EIO，不拼接新旧内容；未进入写入层的旧字节无法凭空恢复，

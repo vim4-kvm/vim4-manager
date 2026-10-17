@@ -5,6 +5,7 @@
 package fuse
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"math"
@@ -567,7 +568,18 @@ func (ms *Server) handleRequest(req *requestAlloc) Status {
 	h, inSize, outSize, outPayloadSize, code := parseRequest(req.inputBuf, &ms.kernelSettings)
 	if !code.Ok() {
 		ms.opts.Logger.Printf("parseRequest: %v", code)
-		return code
+		// Do not dispatch malformed requests or use opcode-specific serializers:
+		// their input structures may be truncated. The unique field alone is
+		// sufficient to release the kernel waiter, including vendor opcodes.
+		if len(req.inputBuf) < 16 {
+			return code // No complete unique field exists to address a reply.
+		}
+		req.outputBuf = req.outBuf[:sizeOfOutHeader]
+		copy(req.outputBuf, zeroOutBuf[:])
+		binary.NativeEndian.PutUint32(req.outputBuf, uint32(sizeOfOutHeader))
+		binary.NativeEndian.PutUint32(req.outputBuf[4:], uint32(-int32(code)))
+		copy(req.outputBuf[8:16], req.inputBuf[8:16])
+		return ms.write(&req.request)
 	}
 
 	req.inPayload = req.inputBuf[inSize:]

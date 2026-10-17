@@ -907,10 +907,10 @@ def attach_media(fd, app, cdrom, readonly):
     udc = gadget / 'UDC'
     controller = udc.read_text().strip()
     rebound = not linked and bool(controller)
-    if rebound:
-        udc.write_text('\n')
-        time.sleep(0.5)
     try:
+        if rebound:
+            udc.write_text('\n')
+            time.sleep(0.5)
         if remove_network:
             network.unlink()
         (lun / 'cdrom').write_text('1' if cdrom else '0')
@@ -2098,7 +2098,7 @@ def storage_bounded(function, timeout):
                 try:
                     payload = {'result': function()}
                 except Exception as error:
-                    payload = {'error': storage_error(error)}
+                    payload = {'error': str(error) if isinstance(error, ValueError) else storage_error(error)}
                 result.write(json.dumps(payload).encode())
                 result.flush()
                 os.write(write_fd, b'1')
@@ -2317,22 +2317,88 @@ def storage_test(request):
     return answer
 
 
-def storage_dirs(config, path):
+def storage_migrate():
+    """Regenerate local units without letting a silent NAS delay startup."""
+    deadline = time.monotonic() + 20
+    messages = []
+    for file in sorted(NAS_CONFIG.glob('*.json')):
+        if time.monotonic() >= deadline:
+            messages.append('storage-migrate: 总预算已用尽，剩余存储下次启动处理')
+            break
+        item_deadline = min(deadline, time.monotonic() + 5)
+        def budget(limit):
+            remaining = item_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('网络存储操作超时')
+            return min(limit, remaining)
+        try:
+            config = storage_load(file.stem)
+            unit = storage_run(['systemd-escape', '--path', '--suffix=mount', str(NAS_ROOT / config['id'])], budget(2))
+            target, content = NAS_UNITS / unit, storage_unit(config)
+            if target.exists() and target.read_text() == content:
+                continue
+            storage_atomic(target, content, 0o644)
+            storage_run(['systemctl', 'daemon-reload'], budget(2))
+            mount = NAS_ROOT / config['id']
+            if storage_mounted(mount):
+                if storage_bounded(lambda: storage_busy(mount), budget(1)):
+                    messages.append(config['id'] + ': 存储忙，保留当前挂载，新参数下次启动生效')
+                else:
+                    storage_run(['systemctl', 'restart', unit], budget(3))
+        except (ValueError, OSError) as error:
+            messages.append(file.stem + ': ' + (str(error) if isinstance(error, ValueError) else storage_error(error)) + '，下次启动重试')
+    return messages
+
+
+def storage_path_parts(path, private=False):
     if not isinstance(path, str) or not path.startswith('/') or len(path) > 4096 or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
         raise ValueError('目录路径无效')
     parts = path[1:].split('/') if path != '/' else []
-    if len(parts) > 32 or any(p in ('', '.', '..') or len(p) > 255 for p in parts):
+    if len(parts) > 32 or any(p in ('', '.', '..') or len(p.encode('utf-8')) > 255 or
+                              private and p == '.vim4-nasdisk' for p in parts):
         raise ValueError('目录路径不能包含空段、. 或 ..')
+    return parts
+
+
+@contextmanager
+def storage_open_directory(config, path, private=False):
+    parts = storage_path_parts(path, private)
     root = NAS_ROOT / config['id']
     if not storage_mounted(root):
         raise ValueError('网络存储尚未挂载')
+    fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts:
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd)
+            fd = next_fd
+        yield fd
+    finally:
+        os.close(fd)
+
+
+def storage_mkdir(request):
+    config = storage_load(request.get('id'))
+    path, name = request.get('path'), request.get('name')
+    storage_path_parts(path, private=True)
+    if (not isinstance(name, str) or not name or name in ('.', '..', '.vim4-nasdisk') or
+            name != name.strip() or len(name.encode('utf-8')) > 255 or
+            re.search(r'[\x00-\x1f\x7f\\/"*?<>|:%]', name)):
+        raise ValueError('文件夹名称包含不支持的字符或路径段')
+    def create():
+        with storage_open_directory(config, path, private=True) as fd:
+            try:
+                os.mkdir(name, mode=0o770, dir_fd=fd)
+            except FileExistsError:
+                raise ValueError('已有同名文件夹') from None
+        return {'path': (path.rstrip('/') + '/' + name)}
+    return storage_bounded(create, 3)
+
+
+def storage_dirs(config, path):
+    storage_path_parts(path)
     def listing():
-        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            for part in parts:
-                next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                os.close(fd)
-                fd = next_fd
+        with storage_open_directory(config, path) as fd:
             entries = []
             with os.scandir(fd) as directory:
                 for entry in directory:
@@ -2342,13 +2408,15 @@ def storage_dirs(config, path):
                             break
             return {'path': path, 'entries': [{'name': name} for name in sorted(entries[:500])],
                     'truncated': len(entries) > 500}
-        finally:
-            os.close(fd)
     return storage_bounded(listing, 3)
 
 
 def storage_command(argv):
     match argv:
+        case ['storage-migrate']:
+            return storage_migrate()
+        case ['storage-mkdir']:
+            return storage_mkdir(storage_read_request())
         case ['storage-list']:
             return {'known': True, 'tools': {'smb': bool(shutil.which('mount.cifs')),
                                             'nfs': bool(shutil.which('mount.nfs'))},
@@ -2406,24 +2474,10 @@ def nasdisk_session_id(value):
 
 
 def nasdisk_folder(config, path):
-    if not isinstance(path, str) or not path.startswith('/') or len(path) > 4096 or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
-        raise ValueError('目录路径无效')
-    parts = path[1:].split('/') if path != '/' else []
-    if len(parts) > 32 or any(p in ('', '.', '..', '.vim4-nasdisk') or len(p) > 255 for p in parts):
-        raise ValueError('目录路径无效')
-    root = NAS_ROOT / config['id']
-    if not storage_mounted(root):
-        raise ValueError('网络存储尚未挂载')
+    parts = storage_path_parts(path, private=True)
     def validate():
-        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            for part in parts:
-                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
-                os.close(fd)
-                fd = child
-        finally:
-            os.close(fd)
-        return str(root.joinpath(*parts))
+        with storage_open_directory(config, path, private=True):
+            return str((NAS_ROOT / config['id']).joinpath(*parts))
     return storage_bounded(validate, 3)
 
 
@@ -2467,10 +2521,78 @@ def nasdisk_active():
 
 def nasdisk_cleanup_mount():
     mount = NASDISK_RUNTIME / 'fs'
-    if os.path.ismount(mount):
-        # A crashed FUSE daemon can leave its mount behind. Normal unmount only;
-        # a still-open LUN must be ejected first, never detached forcibly.
-        storage_run(['fusermount3', '-u', str(mount)], 5)
+    # Do not stat a stale FUSE mount: even the mountpoint lookup can block.
+    for line in Path('/proc/self/mountinfo').read_text().splitlines():
+        fields = line.split()
+        if len(fields) < 10 or re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[4]) != str(mount):
+            continue
+        if ' - fuse.nasdisk ' not in line:
+            raise ValueError('U 盘镜像目录被其他文件系统占用')
+        minor = int(fields[2].split(':')[1])
+        try:
+            Path(f'/sys/fs/fuse/connections/{minor}/abort').write_text('1\n')
+        except FileNotFoundError:
+            pass  # The old daemon has already released the connection.
+        storage_run(['umount', '-l', str(mount)], 3)
+
+
+def nasdisk_trash(last, empty=False):
+    config = storage_load(last.get('storage'))
+    def visit():
+        with ExitStack() as stack:
+            fd = stack.enter_context(storage_open_directory(config, last.get('path'), private=True))
+            try:
+                for part in ('.vim4-nasdisk', 'trash'):
+                    fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                    stack.callback(os.close, fd)
+            except FileNotFoundError:
+                return dict(bytes=0, files=0)
+            device = os.fstat(fd).st_dev
+            result = dict(bytes=0, files=0)
+            remaining = 100000
+            def walk(parent, depth):
+                nonlocal remaining
+                if depth > 64:
+                    raise ValueError('回收目录层级过深')
+                with os.scandir(parent) as entries:
+                    for entry in entries:
+                        remaining -= 1
+                        if remaining < 0:
+                            raise ValueError('回收目录条目过多')
+                        info = os.stat(entry.name, dir_fd=parent, follow_symlinks=False)
+                        if stat.S_ISDIR(info.st_mode):
+                            child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                            try:
+                                if os.fstat(child).st_dev != device:
+                                    raise ValueError('回收目录包含其他挂载')
+                                walk(child, depth + 1)
+                            finally:
+                                os.close(child)
+                            if empty:
+                                os.rmdir(entry.name, dir_fd=parent)
+                        else:
+                            if stat.S_ISREG(info.st_mode):
+                                result['bytes'] += info.st_size
+                                result['files'] += 1
+                            if empty:
+                                os.unlink(entry.name, dir_fd=parent)
+            walk(fd, 0)
+            return dict(bytes=0, files=0) if empty else result
+    return storage_bounded(visit, 3)
+
+
+def nasdisk_trash_empty(request):
+    identifier = nasdisk_session_id(request.get('id'))
+    last = nasdisk_read('last.json')
+    if not last or last.get('id') != identifier:
+        raise ValueError('最后会话已改变')
+    if request.get('confirm') != identifier:
+        raise ValueError('请确认完整会话 ID')
+    if nasdisk_active():
+        raise ValueError('已有运行中的 NAS U 盘会话')
+    last['trash'] = nasdisk_trash(last, empty=True)
+    storage_atomic(NASDISK_RUNTIME / 'last.json', json.dumps(last), 0o600)
+    return dict(ok=True, trash=last['trash'])
 
 
 def nasdisk_control(action, identifier='', force=False, confirm=''):
@@ -2497,7 +2619,15 @@ def nasdisk_command(argv):
             session = nasdisk_read('status.json') if nasdisk_active() else None
             if session:
                 pending = [item for item in pending if item['id'] != session['id']]
-            return dict(known=known, session=session, last=nasdisk_read('last.json'), pending=pending)
+            last = nasdisk_read('last.json')
+            if last:
+                try:
+                    last['trash'] = nasdisk_trash(last)
+                except (ValueError, OSError):
+                    last['trash'] = None
+            return dict(known=known, session=session, last=last, pending=pending)
+        case ['nasdisk-trash-empty']:
+            return nasdisk_trash_empty(storage_read_request())
         case ['nasdisk-start']:
             request = storage_read_request()
             config = storage_load(request.get('storage'))
@@ -2589,6 +2719,10 @@ def nasdisk_command(argv):
 
 
 def main(argv):
+    if argv == ['storage-migrate']:
+        for message in storage_migrate():
+            print(message)
+        return
     if argv and argv[0].startswith('nasdisk-'):
         print(json.dumps(nasdisk_command(argv)))
         return

@@ -14,6 +14,7 @@ import (
 type StorageRequest struct {
 	ID        string  `json:"id,omitempty"`
 	Name      string  `json:"name"`
+	Path      string  `json:"path,omitempty"`
 	Type      string  `json:"type"`
 	Server    string  `json:"server"`
 	Share     string  `json:"share"`
@@ -29,7 +30,7 @@ type StorageRequest struct {
 // mutations separately and validates every field at the privilege boundary.
 func (s *Service) StorageCommand(ctx context.Context, action string, request *StorageRequest, args ...string) (json.RawMessage, error) {
 	switch action {
-	case "storage-list", "storage-dirs", "storage-test", "storage-save", "storage-mount", "storage-unmount", "storage-delete":
+	case "storage-list", "storage-dirs", "storage-mkdir", "storage-test", "storage-save", "storage-mount", "storage-unmount", "storage-delete":
 	default:
 		return nil, fmt.Errorf("不支持的网络存储操作")
 	}

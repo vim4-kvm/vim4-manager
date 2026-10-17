@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
@@ -68,6 +69,7 @@ type Status struct {
 }
 type Last struct {
 	ID          string     `json:"id"`
+	Storage     string     `json:"storage"`
 	StorageName string     `json:"storageName"`
 	Path        string     `json:"path"`
 	Mode        string     `json:"mode"`
@@ -76,6 +78,11 @@ type Last struct {
 	Conflicts   []Conflict `json:"conflicts"`
 	Error       string     `json:"error"`
 	FinishedAt  int64      `json:"finishedAt"`
+	Trash       *Trash     `json:"trash"`
+}
+type Trash struct {
+	Bytes int64 `json:"bytes"`
+	Files int64 `json:"files"`
 }
 type snapshot struct {
 	Config  Config
@@ -113,6 +120,9 @@ func Run(ctx context.Context, config Config) error {
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if err := CleanupMount(filepath.Join(Runtime, "fs")); err != nil {
+		return err
+	}
 	s := &session{status: Status{Config: config, State: "scanning", Skipped: []Skipped{}}, directory: filepath.Join(config.Root, PrivateName, config.ID), image: filepath.Join(Runtime, "fs", "disk-"+config.ID+".img"), commands: make(chan control, 1), cancel: cancel}
 	if err := os.MkdirAll(filepath.Join(Runtime, "fs"), 0755); err != nil {
 		return err
@@ -160,7 +170,10 @@ func Run(ctx context.Context, config Config) error {
 			return s.finish("committed", nil)
 		}
 	} else {
-		err = s.attach()
+		err = s.attach(ctx)
+	}
+	if errors.Is(err, context.Canceled) {
+		return s.finish("cancelled", nil)
 	}
 	if err != nil {
 		s.fail(err)
@@ -170,6 +183,11 @@ func Run(ctx context.Context, config Config) error {
 	for {
 		select {
 		case <-ctx.Done():
+			// Release FUSE kernel waiters before taking the disk's I/O lock.
+			if s.unmount != nil {
+				s.unmount()
+				s.unmount = nil
+			}
 			if s.disk != nil {
 				s.disk.Freeze()
 			}
@@ -187,7 +205,10 @@ func Run(ctx context.Context, config Config) error {
 				}
 				s.fail(err)
 			case "reattach":
-				if err = s.attach(); err != nil {
+				if err = s.attach(ctx); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return s.finish("cancelled", nil)
+					}
 					s.fail(err)
 				}
 			case "commit":
@@ -356,23 +377,38 @@ func (s *session) initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *session) attach() error {
+func (s *session) attach(ctx context.Context) error {
 	if s.disk == nil || s.journal != nil {
 		return fmt.Errorf("回写已开始，不能重新挂载")
 	}
 	s.setState("attaching")
+	ctx, cancel := context.WithTimeout(ctx, mountTimeout)
+	defer cancel()
 	if s.unmount == nil {
-		unmount, e := MountDisk(filepath.Dir(s.image), filepath.Base(s.image), s.disk)
+		unmount, e := MountDisk(ctx, filepath.Dir(s.image), filepath.Base(s.image), s.disk)
 		if e != nil {
 			return e
 		}
 		s.unmount = unmount
 	}
 	s.disk.EnableWrites()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	output, e := exec.CommandContext(ctx, "/usr/libexec/vim4-manager-helper", "nasdisk-lun-attach", s.status.ID).CombinedOutput()
+	// A helper blocked in a FUSE syscall cannot reap SIGKILL until the
+	// connection is aborted. Abort concurrently with cancellation, before Wait.
+	stopAbort := context.AfterFunc(ctx, func() { CleanupMount(filepath.Dir(s.image)) })
+	defer stopAbort()
+	command := exec.CommandContext(ctx, "/usr/libexec/vim4-manager-helper", "nasdisk-lun-attach", s.status.ID)
+	// Let the helper restore gadget settings if cancellation interrupts attach.
+	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
+	command.WaitDelay = time.Second
+	output, e := command.CombinedOutput()
 	if e != nil {
+		if ctx.Err() != nil {
+			CleanupMount(filepath.Dir(s.image))
+			if ctx.Err() == context.Canceled {
+				return ctx.Err()
+			}
+			return fmt.Errorf("无法创建 U 盘镜像（FUSE 无响应）")
+		}
 		s.disk.Freeze()
 		return fmt.Errorf("挂载失败：%s", strings.TrimSpace(string(output)))
 	}
@@ -483,7 +519,7 @@ func (s *session) finish(result string, cause error) error {
 			return err
 		}
 	}
-	last := Last{ID: s.status.ID, StorageName: s.status.StorageName, Path: s.status.Path, Mode: s.status.Mode, Result: result, Conflicts: []Conflict{}, FinishedAt: time.Now().Unix()}
+	last := Last{ID: s.status.ID, Storage: s.status.Storage, StorageName: s.status.StorageName, Path: s.status.Path, Mode: s.status.Mode, Result: result, Conflicts: []Conflict{}, FinishedAt: time.Now().Unix()}
 	if cause != nil {
 		last.Error = cause.Error()
 	}
@@ -621,9 +657,9 @@ func (s *session) serve(ctx context.Context, l net.Listener) {
 			} else {
 				switch c.Action {
 				case "cancel":
-					if s.status.State == "attached" || s.status.State == "attaching" || s.status.State == "committing" {
+					if s.status.State == "attached" || s.status.State == "committing" {
 						err = fmt.Errorf("请先在被控电脑安全弹出")
-					} else if s.status.State == "scanning" {
+					} else if s.status.State == "scanning" || s.status.State == "attaching" {
 						s.cancel()
 					} else {
 						select {

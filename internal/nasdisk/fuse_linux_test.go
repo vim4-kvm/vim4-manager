@@ -3,14 +3,102 @@
 package nasdisk
 
 import (
+	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 )
+
+type stalledReader struct{ entered chan struct{} }
+
+func (r stalledReader) ReadAt(p []byte, off int64) (int, error) {
+	close(r.entered)
+	select {} // Simulate a serving callback that never completes.
+}
+
+// Run in a child so a deliberately blocked server callback cannot leak into
+// other tests. The kernel reader must be released before the daemon exits.
+func TestFUSEStopAbortsBlockedIO(t *testing.T) {
+	if mount := os.Getenv("NASDISK_STOP_TEST_MOUNT"); mount != "" {
+		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+		defer cancel()
+		entered := make(chan struct{})
+		disk := &Disk{Reader: stalledReader{entered}, Size: 4096, Released: make(chan struct{}, 1)}
+		unmount, err := MountDisk(ctx, mount, "disk.img", disk)
+		if err != nil {
+			t.Fatal(err)
+		}
+		readDone := make(chan error, 1)
+		go func() { _, err := os.ReadFile(filepath.Join(mount, "disk.img")); readDone <- err }()
+		<-entered
+		fmt.Println("READY")
+		<-ctx.Done()
+		if err := unmount(); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case err := <-readDone:
+			if err == nil {
+				t.Fatal("blocked read unexpectedly succeeded")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("kernel reader still blocked after abort")
+		}
+		return
+	}
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("/dev/fuse unavailable")
+	}
+	if os.Geteuid() != 0 {
+		t.Skip("connection abort requires root")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mount := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	child := exec.CommandContext(ctx, executable, "-test.run=^TestFUSEStopAbortsBlockedIO$", "-test.v")
+	child.Env = append(os.Environ(), "NASDISK_STOP_TEST_MOUNT="+mount)
+	output, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child.Stderr = os.Stderr
+	if err = child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer child.Process.Kill()
+	scanner := bufio.NewScanner(output)
+	ready := false
+	for scanner.Scan() {
+		if scanner.Text() == "READY" {
+			ready = true
+			break
+		}
+	}
+	if !ready {
+		t.Fatalf("child never blocked in FUSE: %v", child.Wait())
+	}
+	if err = child.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	// Drain stdout so the test harness can finish without a full pipe.
+	for scanner.Scan() {
+	}
+	if err = child.Wait(); err != nil {
+		t.Fatalf("SIGTERM cleanup: %v (deadline %v)", err, ctx.Err())
+	}
+}
 
 func TestFUSEWriteback(t *testing.T) {
 	if _, err := os.Stat("/dev/fuse"); err != nil {
@@ -50,7 +138,7 @@ func TestFUSEWriteback(t *testing.T) {
 	defer overlay.Close()
 	disk := &Disk{Reader: overlay, Overlay: overlay, Size: layout.Geometry.Size, Released: make(chan struct{}, 1)}
 	disk.EnableWrites()
-	unmount, err := MountDisk(mount, "disk.img", disk)
+	unmount, err := MountDisk(context.Background(), mount, "disk.img", disk)
 	if err != nil {
 		t.Fatal(err)
 	}

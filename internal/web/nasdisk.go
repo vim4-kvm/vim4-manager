@@ -14,7 +14,7 @@ func nasdiskRoutes(mux *http.ServeMux, service *board.Service) {
 		}
 		writeJSON(w, http.StatusOK, result)
 	})
-	for _, action := range []string{"start", "cancel", "commit", "reattach", "discard"} {
+	for _, action := range []string{"start", "cancel", "commit", "reattach", "discard", "trash-empty"} {
 		mux.HandleFunc("POST /api/nasdisk/"+action, func(w http.ResponseWriter, r *http.Request) {
 			var request board.NASDiskRequest
 			if !decode(w, r, &request) {

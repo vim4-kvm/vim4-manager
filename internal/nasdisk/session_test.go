@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +12,49 @@ import (
 
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 )
+
+func TestControlCancelWhileAttaching(t *testing.T) {
+	for _, state := range []string{"scanning", "attaching", "attached", "committing"} {
+		t.Run(state, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			// macOS sockaddr_un has a short path limit; t.TempDir includes the
+			// full test name and can exceed it under /var/folders.
+			directory, err := os.MkdirTemp("", "nd-")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.RemoveAll(directory) })
+			listener, err := net.Listen("unix", filepath.Join(directory, "control.sock"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer listener.Close()
+			s := &session{status: Status{State: state}, cancel: cancel}
+			go s.serve(ctx, listener)
+			connection, err := net.Dial("unix", listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer connection.Close()
+			connection.SetDeadline(time.Now().Add(time.Second))
+			if err = json.NewEncoder(connection).Encode(control{Action: "cancel"}); err != nil {
+				t.Fatal(err)
+			}
+			var response map[string]any
+			if err = json.NewDecoder(connection).Decode(&response); err != nil {
+				t.Fatal(err)
+			}
+			if state == "scanning" || state == "attaching" {
+				if response["ok"] != true || ctx.Err() != context.Canceled {
+					t.Fatalf("cancel: %v context %v", response, ctx.Err())
+				}
+			} else if response["error"] != "请先在被控电脑安全弹出" || ctx.Err() != nil {
+				t.Fatalf("active disk cancelled: %v", response)
+			}
+		})
+	}
+}
 
 func testSession(t *testing.T) *session {
 	t.Helper()
@@ -42,7 +86,7 @@ func testSession(t *testing.T) *session {
 	}
 	disk := &Disk{Reader: overlay, Overlay: overlay, Size: layout.Geometry.Size, Released: make(chan struct{}, 1)}
 	disk.EnableWrites()
-	return &session{status: Status{Config: Config{ID: "session", Root: root, Mode: "rw"}, State: "attached"}, directory: directory, image: "/not-a-lun", source: source, tree: tree, layout: layout, disk: disk}
+	return &session{status: Status{Config: Config{ID: "session", Storage: "nas", Path: "/folder", Root: root, Mode: "rw"}, State: "attached"}, directory: directory, image: "/not-a-lun", source: source, tree: tree, layout: layout, disk: disk}
 }
 
 func TestEjectedDiskFreezesAndSafeVolumeCommits(t *testing.T) {
@@ -192,6 +236,9 @@ func TestReadOnlyEjectAndDiscardFinish(t *testing.T) {
 			}
 			if last.Result != result {
 				t.Fatalf("last %+v", last)
+			}
+			if last.Storage != "nas" || last.Path != "/folder" {
+				t.Fatalf("last cannot locate its trash: %+v", last)
 			}
 			data, err = os.ReadFile(filepath.Join(s.status.Root, "file"))
 			if err != nil || string(data) != "original" {

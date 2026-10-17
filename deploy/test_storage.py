@@ -240,6 +240,78 @@ class StorageTest(unittest.TestCase):
             helper.storage_bounded(lambda: time.sleep(30), .05)
         self.assertLess(time.monotonic() - started, 1)
 
+    def test_migrate_only_rewrites_changed_units_and_restarts_idle_mount(self):
+        saved = helper.storage_save(request())
+        self.commands.clear()
+        with patch.object(helper, 'storage_atomic', wraps=helper.storage_atomic) as write:
+            self.assertEqual(helper.storage_migrate(), [])
+            write.assert_not_called()
+        self.assertNotIn(['systemctl', 'daemon-reload'], self.commands)
+        unit = next(helper.NAS_UNITS.glob('*.mount'))
+        unit.write_text('old unit without iocharset')
+        self.mounted.return_value = True
+        self.commands.clear()
+        helper.storage_migrate()
+        self.assertEqual(unit.read_text(), helper.storage_unit(saved))
+        self.assertIn(['systemctl', 'daemon-reload'], self.commands)
+        self.assertIn(['systemctl', 'restart', unit.name], self.commands)
+
+    def test_migrate_busy_or_timeout_does_not_restart(self):
+        helper.storage_save(request())
+        unit = next(helper.NAS_UNITS.glob('*.mount'))
+        self.mounted.return_value = True
+        for outcome in (True, TimeoutError('timeout')):
+            unit.write_text('old')
+            self.commands.clear()
+            with patch.object(helper, 'storage_bounded', side_effect=(outcome if isinstance(outcome, Exception) else lambda fn, timeout: outcome)):
+                messages = helper.storage_migrate()
+            self.assertTrue(messages)
+            self.assertIn(['systemctl', 'daemon-reload'], self.commands)
+            self.assertFalse(any(cmd[:2] == ['systemctl', 'restart'] for cmd in self.commands))
+
+    def test_migrate_total_budget_and_restart_timeout(self):
+        helper.storage_save(request())
+        unit = next(helper.NAS_UNITS.glob('*.mount'))
+        unit.write_text('old')
+        self.mounted.return_value = True
+        run = self.run.side_effect
+        def timeout_restart(args, timeout=35):
+            self.assertLessEqual(timeout, 3)
+            if args[:2] == ['systemctl', 'restart']:
+                raise ValueError('网络存储操作超时')
+            return run(args, timeout)
+        self.run.side_effect = timeout_restart
+        self.assertIn('超时', helper.storage_migrate()[0])
+        self.commands.clear()
+        with patch.object(helper.time, 'monotonic', side_effect=[0, 21]):
+            self.assertIn('总预算', helper.storage_migrate()[0])
+        self.assertEqual(self.commands, [])
+
+    def test_mkdir_validation_collision_and_no_symlink_traversal(self):
+        config = helper.storage_save(request())
+        root = helper.NAS_ROOT / config['id']
+        self.mounted.return_value = True
+        (root / 'parent').mkdir()
+        (root / 'link').symlink_to(self.root, target_is_directory=True)
+        data = dict(id=config['id'], path='/parent', name='新 文件夹')
+        self.assertEqual(helper.storage_mkdir(data), {'path': '/parent/新 文件夹'})
+        self.assertTrue((root / 'parent/新 文件夹').is_dir())
+        with self.assertRaisesRegex(ValueError, '已有同名文件夹'):
+            helper.storage_mkdir(data)
+        for name in ('', '.', '..', ' a', 'a ', '.vim4-nasdisk', '中' * 86, 'a/b', 'a\\b', 'a\x7f', 'a\n', 'a"', 'a*', 'a?', 'a<', 'a>', 'a|', 'a:', 'a%'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                helper.storage_mkdir(dict(data, name=name))
+        for path in ('/link', '/parent/..', '/.vim4-nasdisk'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                helper.storage_mkdir(dict(data, path=path, name='escape'))
+        self.assertFalse((self.root / 'escape').exists())
+        self.mounted.return_value = False
+        with self.assertRaisesRegex(ValueError, '尚未挂载'):
+            helper.storage_mkdir(dict(data, name='another'))
+        with patch.object(helper, 'storage_bounded', side_effect=TimeoutError('超时')):
+            with self.assertRaises(TimeoutError):
+                helper.storage_mkdir(data)
+
     def test_command_timeout_does_not_wait_forever(self):
         process = Mock()
         process.communicate.side_effect = subprocess.TimeoutExpired('mount', 1)
@@ -257,10 +329,10 @@ class StorageTest(unittest.TestCase):
                 with helper.operation_lock([action]):
                     pass
             opened.assert_not_called()
-            for action in ('storage-save', 'storage-test', 'storage-mount', 'storage-unmount', 'storage-delete'):
+            for action in ('storage-save', 'storage-test', 'storage-mount', 'storage-unmount', 'storage-delete', 'storage-mkdir', 'nasdisk-trash-empty'):
                 with helper.operation_lock([action]):
                     pass
-            self.assertEqual(flock.call_count, 5)
+            self.assertEqual(flock.call_count, 7)
             self.assertTrue(all(call.args[0] == '/run/lock/vim4-manager-storage.lock' for call in opened.call_args_list))
 
     def test_busy_checks_usb_and_process_paths(self):
