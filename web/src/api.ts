@@ -371,6 +371,7 @@ export interface NasDiskSession {
   skipped: { path: string; reason: string }[];
   skippedCount: number;
   hostConnected: boolean;
+  nasStalled?: boolean;
   plan: NasDiskCounts | null;
   progress: { done: number; total: number; bytesDone: number; bytesTotal: number; current: string } | null;
   decision: { reason: string; canForce: boolean } | null;

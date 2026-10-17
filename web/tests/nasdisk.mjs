@@ -92,6 +92,11 @@ try {
     writtenBytes: 12 * 2 ** 20, skippedCount: 2, skipped: [{ path: "/工具/win.iso", reason: "file size outside FAT32 range" },
       { path: "/工具/a:b.txt", reason: "invalid FAT name or more than 255 UTF-16 units" }] } };
   await page.getByText("已挂载到被控电脑").waitFor();
+  assert.equal(await page.getByText("NAS 暂时无响应", { exact: false }).count(), 0);
+  disk = { ...disk, session: { ...disk.session, nasStalled: true } };
+  await page.getByText("NAS 暂时无响应，电脑上读写这个 U 盘会出错", { exact: false }).waitFor();
+  disk = { ...disk, session: { ...disk.session, nasStalled: false } };
+  await page.getByText("NAS 暂时无响应", { exact: false }).waitFor({ state: "detached" });
   await page.getByRole("button", { name: "2 项未放入 U 盘" }).click();
   await page.getByText("不小于 4 GiB").waitFor();
   await shot(page, "nasdisk-attached");
@@ -135,5 +140,5 @@ try {
   await page.getByText("U 盘没有被安全弹出").waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await shot(page, "nasdisk-mobile");
-  console.log("PASS: trash summary and empty, folder picker, new folder, label, start, scanning, attached with skipped list, write-back progress, decision actions, failed actions, pending commit, last result, mobile layout");
+  console.log("PASS: trash summary and empty, folder picker, new folder, label, start, scanning, attached with skipped list and NAS stall hint, write-back progress, decision actions, failed actions, pending commit, last result, mobile layout");
 } finally { await browser.close(); }

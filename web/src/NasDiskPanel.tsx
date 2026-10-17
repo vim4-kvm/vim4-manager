@@ -548,6 +548,11 @@ function SessionCard({
         </div>
       </div>
 
+      {s.nasStalled && (s.state === "attached" || s.state === "committing") && (
+        <p className="storage-warn" role="status">
+          {s.state === "attached" ? "NAS 暂时无响应，电脑上读写这个 U 盘会出错；NAS 恢复后自动恢复。" : "NAS 暂时无响应，回写在等待。"}
+        </p>
+      )}
       {s.state === "attached" && (
         <p className="nasdisk-hint muted">
           {hostEject}
