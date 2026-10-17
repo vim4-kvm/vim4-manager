@@ -3,7 +3,7 @@ const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright")
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 const shot = async (page, name) => process.env.SCREENSHOTS && page.screenshot({ path: `${process.env.SCREENSHOTS}/${name}.png`, fullPage: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: "Asia/Shanghai" });
   const status = { active: "onekvm", apps: [{ id: "onekvm", name: "One-KVM", port: 8080, description: "",
     unit: { name: "one-kvm.service", loaded: true, active: "active", enabled: "enabled", sub: "running" } }], platform: [],
     media: { known: true, inserted: false, token: "", name: "", cdrom: false, readOnly: false, connected: false, pikvm: false },
@@ -86,7 +86,7 @@ try {
   await shot(page, "nasdisk-setup");
   await page.getByRole("button", { name: "挂载到被控电脑" }).click();
   await page.getByText("正在扫描文件夹… 已扫描 1,234 项").waitFor();
-  assert.deepEqual(requests.find((r) => r.path === "/api/nasdisk/start"), { path: "/api/nasdisk/start", body: { storage: "home", path: "/工具", mode: "rw", label: "TOOLS" } });
+  assert.deepEqual(requests.find((r) => r.path === "/api/nasdisk/start"), { path: "/api/nasdisk/start", body: { storage: "home", path: "/工具", mode: "rw", label: "TOOLS", utcOffsetMinutes: 480 } });
 
   disk = { ...disk, session: { ...session, state: "attached", files: 812, dirs: 40, volumeBytes: 70 * 2 ** 30, usedBytes: 6 * 2 ** 30,
     writtenBytes: 12 * 2 ** 20, skippedCount: 2, skipped: [{ path: "/工具/win.iso", reason: "file size outside FAT32 range" },

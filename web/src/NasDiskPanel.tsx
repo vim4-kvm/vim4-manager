@@ -113,7 +113,13 @@ export function NasDiskPanel({
   async function start() {
     if (!setup) return;
     const ok = await act("正在准备 U 盘…", () =>
-      nasDiskWrite("/start", { storage: setup.storage, path: setup.path, mode: setup.mode, label: setup.label }),
+      nasDiskWrite("/start", {
+        storage: setup.storage,
+        path: setup.path,
+        mode: setup.mode,
+        label: setup.label,
+        utcOffsetMinutes: -new Date().getTimezoneOffset(),
+      }),
     );
     if (ok) setSetup(undefined);
   }
