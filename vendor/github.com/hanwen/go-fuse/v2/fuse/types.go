@@ -8,6 +8,7 @@ import (
 	"io"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 const (
@@ -100,16 +101,20 @@ type MkdirIn struct {
 	Umask uint32
 }
 
-type Rename1In struct {
-	InHeader
-	Newdir uint64
-}
-
 type RenameIn struct {
 	InHeader
 	Newdir  uint64
 	Flags   uint32
 	Padding uint32
+}
+
+const compatRenameInSize = int(unsafe.Sizeof(InHeader{})) + 8
+
+func renameInSize(kernelSettings *InitIn) int {
+	if !kernelSettings.supportsRenameSwap() {
+		return compatRenameInSize
+	}
+	return int(unsafe.Sizeof(RenameIn{}))
 }
 
 type LinkIn struct {
@@ -244,8 +249,15 @@ type ReleaseIn struct {
 type OpenIn struct {
 	InHeader
 	Flags uint32
-	Mode  uint32
+
+	// Mode holds open_flags (OPEN_*), not a file mode.
+	Mode uint32
 }
+
+const (
+	// OpenIn.Mode, CreateIn.OpenFlags: O_TRUNC by an unprivileged caller; clear suid/sgid (CAP_HANDLE_KILLPRIV_V2).
+	OPEN_KILL_SUIDGID = (1 << 0)
+)
 
 const (
 	// OpenOut.Flags
@@ -310,6 +322,8 @@ const (
 	CAP_NO_EXPORT_SUPPORT    = (1 << 38)
 	CAP_HAS_RESEND           = (1 << 39)
 	CAP_ALLOW_IDMAP          = (1 << 40)
+	CAP_OVER_IO_URING        = (1 << 41)
+	CAP_REQUEST_TIMEOUT      = (1 << 42)
 )
 
 type InitIn struct {
@@ -337,10 +351,12 @@ type InitOut struct {
 	MaxWrite            uint32
 	TimeGran            uint32
 	MaxPages            uint16
-	Padding             uint16
+	MapAlignment        uint16
 	Flags2              uint32
 	MaxStackDepth       uint32
-	Unused              [6]uint32
+	RequestTimeout      uint16
+
+	_Unused [11]uint16
 }
 
 func (o *InitOut) Flags64() uint64 {
@@ -453,6 +469,8 @@ type FileLock struct {
 	Pid   uint32
 }
 
+const LK_FLOCK = (1 << 0)
+
 type LkIn struct {
 	InHeader
 	Fh      uint64
@@ -502,8 +520,15 @@ type NotifyInvalInodeOut struct {
 type NotifyInvalEntryOut struct {
 	Parent  uint64
 	NameLen uint32
-	Padding uint32
+	Flags   uint32
 }
+
+const (
+	// NotifyInvalEntryOut.Flags: only expire the entry's timeout,
+	// rather than dropping it from the dcache. Needs
+	// CAP_HAS_EXPIRE_ONLY.
+	EXPIRE_ONLY = (1 << 0)
+)
 
 type NotifyInvalDeleteOut struct {
 	Parent  uint64
@@ -537,16 +562,22 @@ type NotifyRetrieveIn struct {
 	Dummy4 uint64
 }
 
+type NotifyPruneOut struct {
+	Count    uint32
+	_padding uint32
+	_spare   uint64
+}
+
 const (
-	//	NOTIFY_POLL         = -1 // notify kernel that a poll waiting for IO on a file handle should wake up
+	NOTIFY_POLL           = -1 // notify kernel that a poll waiting for IO on a file handle should wake up
 	NOTIFY_INVAL_INODE    = -2 // notify kernel that an inode should be invalidated
 	NOTIFY_INVAL_ENTRY    = -3 // notify kernel that a directory entry should be invalidated
 	NOTIFY_STORE_CACHE    = -4 // store data into kernel cache of an inode
 	NOTIFY_RETRIEVE_CACHE = -5 // retrieve data from kernel cache of an inode
 	NOTIFY_DELETE         = -6 // notify kernel that a directory entry has been deleted
 	NOTIFY_RESEND         = -7
-
-// NOTIFY_CODE_MAX     = -6
+	NOTIFY_INC_EPOCH      = -8
+	NOTIFY_PRUNE          = -9
 )
 
 type FlushIn struct {
@@ -657,7 +688,8 @@ type InHeader struct {
 	Unique uint64
 	NodeId uint64
 	Caller
-	Padding uint32
+	TotalExtlen uint16 // in 8-byte units
+	Padding     uint16
 }
 
 type StatfsOut struct {
@@ -768,8 +800,9 @@ type CreateIn struct {
 	Mode uint32
 
 	// Umask used for this create call.
-	Umask   uint32
-	Padding uint32
+	Umask uint32
+
+	OpenFlags uint32
 }
 
 type ReadIn struct {
@@ -865,4 +898,8 @@ func (o *StatxOut) SetTimeout(dt time.Duration) {
 	ns := int64(dt)
 	o.AttrValidNsec = uint32(ns % 1e9)
 	o.AttrValid = uint64(ns / 1e9)
+}
+
+type CopyFileRangeOut struct {
+	BytesCopied uint64
 }

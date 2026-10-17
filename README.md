@@ -294,8 +294,8 @@ trash 为该文件夹 `.vim4-nasdisk/trash` 中全部历史会话的普通文件
 `status.json`、`last.json`、0600 的 `control.sock` 和 FUSE 挂载点 `fs/`。
 镜像名为 `disk-SESSION.img`；socket 接受 JSON `status/commit/discard/reattach/cancel` 请求。
 FUSE 请求解析失败一律回复错误；Android GKI 的 `FUSE_CANONICAL_PATH=2016` 回复 ENOSYS，
-不返回空成功或路径，避免内核越界及递归 LOOKUP 自锁。补丁基于 go-fuse v2.8.0，
-通过 `go.mod replace` 指向 [本地模块与补丁说明](third_party/go-fuse/LOCAL-PATCHES.md)，vendor 由 `go mod vendor` 生成。
+不返回空成功或路径，避免内核越界及递归 LOOKUP 自锁。go-fuse v2.12.0 起上游已如此处理
+（v2.8.0 解析失败不回复，请求永久挂起），升级依赖时保持这一行为。
 创建镜像（含 INIT/WaitMount）的总预算为 15 秒，超时进入 failed，显示「无法创建 U 盘镜像（FUSE 无响应）」。
 取消/停止可中止等待；卸载无响应时按 mountinfo 的设备 minor 写 fusectl `abort` 后 lazy unmount，
 释放内核等待者再退出。守护进程启动及 helper 启动会话前同样清理遗留 fs/ 挂载，不 stat 失效挂载点。

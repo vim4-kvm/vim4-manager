@@ -32,15 +32,27 @@ func setStatxBlocks(out *fuse.Statx) {
 	out.Blocks = pages * 8
 }
 
-func (f *loopbackFile) Statx(ctx context.Context, flags uint32, mask uint32, out *fuse.StatxOut) syscall.Errno {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	st := unix.Statx_t{}
-	err := unix.Statx(f.fd, "", int(flags), int(mask), &st)
-	if err != nil {
-		return ToErrno(err)
-	}
-	out.FromStatx(&st)
+func (f *LoopbackFile) Statx(ctx context.Context, flags uint32, mask uint32, out *fuse.StatxOut) syscall.Errno {
+	return f.withFd(func(fd int) syscall.Errno {
+		st := unix.Statx_t{}
+		err := unix.Statx(fd, "", int(flags), int(mask), &st)
+		if err != nil {
+			return ToErrno(err)
+		}
+		out.FromStatx(&st)
 
-	return OK
+		return OK
+	})
+}
+
+var _ = (FileWritever)((*LoopbackFile)(nil))
+
+func (f *LoopbackFile) Writev(ctx context.Context, data [][]byte, off int64) (uint32, syscall.Errno) {
+	var n int
+	errno := f.withFd(func(fd int) syscall.Errno {
+		var err error
+		n, err = unix.Pwritev(fd, data, off)
+		return ToErrno(err)
+	})
+	return uint32(max(n, 0)), errno
 }

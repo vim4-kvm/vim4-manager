@@ -7,6 +7,7 @@
 package fuse
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,17 +15,27 @@ import (
 	"time"
 )
 
+var notifyNames = []string{
+	"OK",
+	"NOTIFY_POLL",
+	"NOTIFY_INVAL_INODE",
+	"NOTIFY_INVAL_ENTRY",
+	"NOTIFY_STORE_CACHE",
+	"NOTIFY_RETRIEVE_CACHE",
+	"NOTIFY_DELETE",
+	"NOTIFY_RESEND",
+	"NOTIFY_INC_EPOCH",
+	"NOTIFY_PRUNE",
+}
+
 func (code Status) String() string {
 	if code <= 0 {
-		return []string{
-			"OK",
-			"NOTIFY_POLL",
-			"NOTIFY_INVAL_INODE",
-			"NOTIFY_INVAL_ENTRY",
-			"NOTIFY_STORE_CACHE",
-			"NOTIFY_RETRIEVE_CACHE",
-			"NOTIFY_DELETE",
-		}[-code]
+		idx := int(-code)
+		if idx < len(notifyNames) {
+			return notifyNames[idx]
+		}
+
+		return fmt.Sprintf("negative(%d)", code)
 	}
 	return fmt.Sprintf("%d=%v", int(code), syscall.Errno(code))
 }
@@ -36,9 +47,11 @@ func (code Status) Ok() bool {
 // ToStatus extracts an errno number from Go error objects.  If it
 // fails, it logs an error and returns ENOSYS.
 func ToStatus(err error) Status {
-	switch err {
-	case nil:
+	if err == nil {
 		return OK
+	}
+
+	switch err {
 	case os.ErrPermission:
 		return EPERM
 	case os.ErrExist:
@@ -49,18 +62,12 @@ func ToStatus(err error) Status {
 		return EINVAL
 	}
 
-	switch t := err.(type) {
-	case syscall.Errno:
-		return Status(t)
-	case *os.SyscallError:
-		return Status(t.Err.(syscall.Errno))
-	case *os.PathError:
-		return ToStatus(t.Err)
-	case *os.LinkError:
-		return ToStatus(t.Err)
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return Status(errno)
 	}
 	log.Println("can't convert error type:", err)
-	return ENOSYS
+	return ENOTSUP
 }
 
 func CurrentOwner() *Owner {

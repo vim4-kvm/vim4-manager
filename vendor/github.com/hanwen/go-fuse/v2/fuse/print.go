@@ -16,6 +16,7 @@ var (
 	writeFlagNames = newFlagNames([]flagNameEntry{
 		{WRITE_CACHE, "CACHE"},
 		{WRITE_LOCKOWNER, "LOCKOWNER"},
+		{WRITE_KILL_SUIDGID, "KILL_SUIDGID"},
 	})
 	readFlagNames = newFlagNames([]flagNameEntry{
 		{READ_LOCKOWNER, "LOCKOWNER"},
@@ -54,6 +55,8 @@ var (
 		{CAP_NO_EXPORT_SUPPORT, "NO_EXPORT_SUPPORT"},
 		{CAP_HAS_RESEND, "HAS_RESEND"},
 		{CAP_ALLOW_IDMAP, "ALLOW_IDMAP"},
+		{CAP_OVER_IO_URING, "IO_URING"},
+		{CAP_REQUEST_TIMEOUT, "REQUEST_TIMEOUT"},
 	})
 	releaseFlagNames = newFlagNames([]flagNameEntry{
 		{RELEASE_FLUSH, "FLUSH"},
@@ -82,6 +85,12 @@ var (
 		{FOPEN_PARALLEL_DIRECT_WRITES, "PARALLEL_DIRECT_WRITES"},
 		{FOPEN_PASSTHROUGH, "PASSTHROUGH"},
 	})
+	fuseOpenInFlagNames = newFlagNames([]flagNameEntry{
+		{OPEN_KILL_SUIDGID, "KILL_SUIDGID"},
+	})
+	expireFlagNames = newFlagNames([]flagNameEntry{
+		{EXPIRE_ONLY, "EXPIRE_ONLY"},
+	})
 	ioctlFlagNames = newFlagNames([]flagNameEntry{
 		{IOCTL_COMPAT, "COMPAT"},
 		{IOCTL_UNRESTRICTED, "UNRESTRICTED"},
@@ -95,6 +104,14 @@ var (
 	})
 	getAttrFlagNames = newFlagNames([]flagNameEntry{
 		{FUSE_GETATTR_FH, "FH"},
+	})
+	renameFlagNames = newFlagNames([]flagNameEntry{
+		{1, "NOREPLACE"},
+		{2, "EXCHANGE"},
+		{4, "WHITEOUT"},
+	})
+	lockFlagNames = newFlagNames([]flagNameEntry{
+		{(1 << 0), "FLOCK"},
 	})
 )
 
@@ -171,12 +188,8 @@ func (in *MkdirIn) string() string {
 	return fmt.Sprintf("{0%o (mask 0%o)}", in.Mode, in.Umask)
 }
 
-func (in *Rename1In) string() string {
-	return fmt.Sprintf("{i%d}", in.Newdir)
-}
-
 func (in *RenameIn) string() string {
-	return fmt.Sprintf("{i%d %x}", in.Newdir, in.Flags)
+	return fmt.Sprintf("{i%d %s}", in.Newdir, flagString(renameFlagNames, int64(in.Flags), "0"))
 }
 
 func (in *SetAttrIn) string() string {
@@ -214,7 +227,15 @@ func (in *ReleaseIn) string() string {
 }
 
 func (in *OpenIn) string() string {
-	return fmt.Sprintf("{%s}", flagString(openFlagNames, int64(in.Flags), "O_RDONLY"))
+	return fmt.Sprintf("{%s%s}", flagString(openFlagNames, int64(in.Flags), "O_RDONLY"),
+		optFlagString(fuseOpenInFlagNames, int64(in.Mode)))
+}
+
+func optFlagString(names *flagNames, fl int64) string {
+	if fl == 0 {
+		return ""
+	}
+	return " [" + flagString(names, fl, "") + "]"
 }
 
 func (in *OpenOut) string() string {
@@ -233,19 +254,19 @@ func (in *InitIn) string() string {
 }
 
 func (o *InitOut) string() string {
-	return fmt.Sprintf("{%d.%d Ra %d %s %d/%d Wr %d Tg %d MaxPages %d MaxStack %d}",
+	mapAlign := ""
+	if o.MapAlignment != 0 {
+		mapAlign = fmt.Sprintf(" MapAlign %d", o.MapAlignment)
+	}
+	return fmt.Sprintf("{%d.%d Ra %d %s %d/%d Wr %d Tg %d MaxPages %d MaxStack %d%s}",
 		o.Major, o.Minor, o.MaxReadAhead,
 		flagString(initFlagNames, int64(o.Flags64()), ""),
 		o.CongestionThreshold, o.MaxBackground, o.MaxWrite,
-		o.TimeGran, o.MaxPages, o.MaxStackDepth)
+		o.TimeGran, o.MaxPages, o.MaxStackDepth, mapAlign)
 }
 
 func (s *FsyncIn) string() string {
 	return fmt.Sprintf("{Fh %d Flags %x}", s.Fh, s.FsyncFlags)
-}
-
-func (in *SetXAttrIn) string() string {
-	return fmt.Sprintf("{sz %d f%o}", in.Size, in.Flags)
 }
 
 func (in *GetXAttrIn) string() string {
@@ -297,7 +318,8 @@ func (o *StatfsOut) string() string {
 }
 
 func (o *NotifyInvalEntryOut) string() string {
-	return fmt.Sprintf("{parent i%d sz %d}", o.Parent, o.NameLen)
+	return fmt.Sprintf("{parent i%d sz %d%s}", o.Parent, o.NameLen,
+		optFlagString(expireFlagNames, int64(o.Flags)))
 }
 
 func (o *NotifyInvalInodeOut) string() string {
@@ -318,6 +340,10 @@ func (o *NotifyRetrieveOut) string() string {
 
 func (i *NotifyRetrieveIn) string() string {
 	return fmt.Sprintf("{[%d +%d)}", i.Offset, i.Size)
+}
+
+func (o *NotifyPruneOut) string() string {
+	return fmt.Sprintf("{%d}", o.Count)
 }
 
 func (f *FallocateIn) string() string {
@@ -364,7 +390,7 @@ func (p *_PollIn) string() string {
 }
 
 // Print pretty prints FUSE data types for kernel communication
-func Print(obj interface{}) string {
+func Print(obj any) string {
 	t, ok := obj.(interface {
 		string() string
 	})
@@ -381,12 +407,12 @@ func (a *Attr) string() string {
 			"B%d*%d i%d:%d "+
 			"A %f "+
 			"M %f "+
-			"C %f}",
+			"C %f%s}",
 		a.Mode, a.Size, a.Nlink,
 		a.Uid, a.Gid,
 		a.Blocks, a.Blksize,
 		a.Rdev, a.Ino, ft(a.Atime, a.Atimensec), ft(a.Mtime, a.Mtimensec),
-		ft(a.Ctime, a.Ctimensec))
+		ft(a.Ctime, a.Ctimensec), a.flagsString())
 }
 
 func (m *BackingMap) string() string {
@@ -405,4 +431,16 @@ func (o *IoctlOut) string() string {
 		o.Result,
 		flagString(ioctlFlagNames, int64(o.Flags), ""),
 		o.InIovs, o.OutIovs)
+}
+
+func (l *LkIn) string() string {
+	return fmt.Sprintf("{Fh %d Owner %d %s %s}", l.Owner, l.Owner, l.Lk.string(), flagString(lockFlagNames, int64(l.LkFlags), ""))
+}
+
+func (lk *FileLock) string() string {
+	return fmt.Sprintf("{[%d,%d) t%d p%d}", lk.Start, lk.End, lk.Typ, lk.Pid)
+}
+
+func (l *LkOut) string() string {
+	return l.Lk.string()
 }

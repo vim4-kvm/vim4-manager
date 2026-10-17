@@ -6,6 +6,7 @@ package fuse
 
 import (
 	"syscall"
+	"unsafe"
 )
 
 const (
@@ -70,6 +71,10 @@ type SetXAttrIn struct {
 	Padding  uint32
 }
 
+func setXAttrInSize(negotiated uint64) int {
+	return int(unsafe.Sizeof(SetXAttrIn{}))
+}
+
 type GetXAttrIn struct {
 	InHeader
 	Size     uint32
@@ -104,6 +109,12 @@ type ExchangeIn struct {
 	Olddir  uint64
 	Newdir  uint64
 	Options uint64
+}
+
+type MonitorIn struct {
+	InHeader
+	Flags   uint32
+	Padding uint32
 }
 
 func (s *StatfsOut) FromStatfsT(statfs *syscall.Statfs_t) {

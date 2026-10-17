@@ -27,15 +27,15 @@ type StableAttr struct {
 
 	// The inode number must be unique among the currently live
 	// objects in the file system. It is used to communicate to
-	// the kernel about this file object. The value uint64(-1)
-	// is reserved. When using Ino==0, a unique, sequential
-	// number is assigned (starting at 2^63 by default) on Inode creation.
+	// the kernel about this file object. The value uint64(-1), 0
+	// and 1 are reserved. When using Ino==0, a unique, sequential
+	// number is assigned (starting at 2^63 by default) on Inode
+	// creation.
 	Ino uint64
 
 	// When reusing a previously used inode number for a new
 	// object, the new object must have a different Gen
-	// number. This is irrelevant if the FS is not exported over
-	// NFS
+	// number.
 	Gen uint64
 }
 
@@ -65,15 +65,6 @@ type Inode struct {
 
 	// Following data is mutable.
 
-	// file handles.
-	// protected by bridge.mu
-	openFiles []uint32
-
-	// backing files, protected by bridge.mu
-	backingIDRefcount int
-	backingID         int32
-	backingFd         int
-
 	// mu protects the following mutable fields. When locking
 	// multiple Inodes, locks must be acquired using
 	// lockNodes/unlockNodes
@@ -87,7 +78,7 @@ type Inode struct {
 	persistent bool
 
 	// changeCounter increments every time the mutable state
-	// (lookupCount, persistent, children, parents) protected by
+	// (hasKernelRef, persistent, children, parents) protected by
 	// mu is modified.
 	//
 	// This is used in places where we have to relock inode into inode
@@ -95,9 +86,12 @@ type Inode struct {
 	// did not changed, and if it changed - retry the operation.
 	changeCounter uint32
 
-	// Number of kernel refs to this node.
-	// When you change this, you MUST increment changeCounter.
-	lookupCount uint64
+	// hasKernelRef records whether the kernel currently holds at
+	// least one lookup reference to this Inode. This is derived
+	// from lookupCount (which is protected by a different
+	// mutex). When you change this, you MUST increment
+	// changeCounter.
+	hasKernelRef bool
 
 	// Children of this Inode.
 	// When you change this, you MUST increment changeCounter.
@@ -271,7 +265,7 @@ func unlockNodes(ns ...*Inode) {
 func (n *Inode) Forgotten() bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return n.lookupCount == 0 && n.parents.count() == 0 && !n.persistent
+	return !n.hasKernelRef && n.parents.count() == 0 && !n.persistent
 }
 
 // Operations returns the object implementing the file system
@@ -366,24 +360,36 @@ func (n *Inode) ForgetPersistent() {
 // should be standard mode argument (eg. S_IFDIR). The inode number in
 // id.Ino argument is used to implement hard-links.  If it is given,
 // and another node with the same ID is known, the new inode may be
-// ignored, and the old one used instead.
+// ignored, and the old one used instead. If the parent inode
+// implements NodeWrapChilder, the returned Inode will have a
+// different InodeEmbedder from the one passed in.
 func (n *Inode) NewInode(ctx context.Context, node InodeEmbedder, id StableAttr) *Inode {
 	return n.newInode(ctx, node, id, false)
 }
 
 func (n *Inode) newInode(ctx context.Context, ops InodeEmbedder, id StableAttr, persistent bool) *Inode {
+	if wc, ok := n.ops.(NodeWrapChilder); ok {
+		ops = wc.WrapChild(ctx, ops)
+	}
 	return n.bridge.newInode(ctx, ops, id, persistent)
 }
 
-// removeRef decreases references. Returns if this operation caused
-// the node to be forgotten (for kernel references), and whether it is
-// live (ie. was not dropped from the tree)
-func (n *Inode) removeRef(nlookup uint64, dropPersistence bool) (hasLookups, isPersistent, hasChildren bool) {
-	var beforeLookups, beforePersistence, beforeChildren bool
+// removeRef updates this Inode's kernel-ref/persistence state. Returns
+// if this operation left the node holding a kernel reference, and
+// whether it is live (ie. was not dropped from the tree)
+//
+// nlookup references are subtracted from the kernel's lookup count
+// first, and the kernel reference is only dropped if that count
+// reaches zero.
+func (n *Inode) removeRef(nlookup uint64, dropPersistence bool) (hasKernelRef, isPersistent, hasChildren bool) {
+	if nlookup > 0 && dropPersistence {
+		log.Panic("only one allowed")
+	}
+	var beforeKernelRef, beforePersistence, beforeChildren bool
 	var unusedParents []*Inode
-	beforeLookups, hasLookups, beforePersistence, isPersistent, beforeChildren, hasChildren, unusedParents = n.removeRefInner(nlookup, dropPersistence, unusedParents)
+	beforeKernelRef, hasKernelRef, beforePersistence, isPersistent, beforeChildren, hasChildren, unusedParents = n.removeRefInner(nlookup, dropPersistence, unusedParents)
 
-	if !hasLookups && !isPersistent && !hasChildren && (beforeChildren || beforeLookups || beforePersistence) {
+	if !hasKernelRef && !isPersistent && !hasChildren && (beforeChildren || beforeKernelRef || beforePersistence) {
 		if nf, ok := n.ops.(NodeOnForgetter); ok {
 			nf.OnForget()
 		}
@@ -403,43 +409,44 @@ func (n *Inode) removeRef(nlookup uint64, dropPersistence bool) (hasLookups, isP
 	return
 }
 
-func (n *Inode) removeRefInner(nlookup uint64, dropPersistence bool, inputUnusedParents []*Inode) (beforeLookups, hasLookups, beforePersistent, isPersistent, beforeChildren, hasChildren bool, unusedParents []*Inode) {
+func (n *Inode) removeRefInner(nlookup uint64, dropPersistence bool, inputUnusedParents []*Inode) (beforeKernelRef, hasKernelRef, beforePersistent, isPersistent, beforeChildren, hasChildren bool, unusedParents []*Inode) {
 	var lockme []*Inode
 	var parents []parentData
 
 	unusedParents = inputUnusedParents
 
 	n.mu.Lock()
-	beforeLookups = n.lookupCount > 0
+	beforeKernelRef = n.hasKernelRef
 	beforePersistent = n.persistent
 	beforeChildren = n.children.len() > 0
-	if nlookup > 0 && dropPersistence {
-		log.Panic("only one allowed")
-	} else if nlookup > n.lookupCount {
-		log.Panicf("n%d lookupCount underflow: lookupCount=%d, decrement=%d", n.nodeId, n.lookupCount, nlookup)
-	} else if nlookup > 0 {
-		n.lookupCount -= nlookup
-		n.changeCounter++
-	} else if dropPersistence && n.persistent {
+	if n.hasKernelRef {
+		reachedZero := false
+		if nlookup > 0 {
+			// The lookup count must be decremented here,
+			// under n.mu, to keep hasKernelRef in sync
+			// with the node ID's lookup count.
+			_, reachedZero = n.bridge.ids.decLookup(n.nodeId, nlookup)
+		}
+		if reachedZero {
+			n.hasKernelRef = false
+			n.changeCounter++
+		}
+	}
+	if dropPersistence && n.persistent {
 		n.persistent = false
 		n.changeCounter++
 	}
 
-	n.bridge.mu.Lock()
-	if n.lookupCount == 0 {
-		// Dropping the node from stableAttrs guarantees that no new references to this node are
-		// handed out to the kernel, hence we can also safely delete it from kernelNodeIds.
-		delete(n.bridge.stableAttrs, n.stableAttr)
-		delete(n.bridge.kernelNodeIds, n.nodeId)
+	if !n.hasKernelRef {
+		n.bridge.ids.forget(n)
 	}
-	n.bridge.mu.Unlock()
 
 retry:
 	for {
 		lockme = append(lockme[:0], n)
 		parents = parents[:0]
 		nChange := n.changeCounter
-		hasLookups = n.lookupCount > 0
+		hasKernelRef = n.hasKernelRef
 		hasChildren = n.children.len() > 0
 		isPersistent = n.persistent
 		for _, p := range n.parents.all() {
@@ -448,7 +455,7 @@ retry:
 		}
 		n.mu.Unlock()
 
-		if hasLookups || hasChildren || isPersistent {
+		if hasKernelRef || hasChildren || isPersistent {
 			return
 		}
 
@@ -468,13 +475,13 @@ retry:
 			}
 			parentNode.children.del(p.parent, p.name)
 
-			if parentNode.children.len() == 0 && parentNode.lookupCount == 0 && !parentNode.persistent {
+			if parentNode.children.len() == 0 && !parentNode.hasKernelRef && !parentNode.persistent {
 				unusedParents = append(unusedParents, parentNode)
 			}
 		}
 
-		if n.lookupCount != 0 {
-			log.Panicf("n%d %p lookupCount changed: %d", n.nodeId, n, n.lookupCount)
+		if n.hasKernelRef {
+			log.Panicf("n%d %p hasKernelRef changed", n.nodeId, n)
 		}
 
 		unlockNodes(lockme...)
@@ -609,7 +616,7 @@ retry:
 			n.children.del(n, nm)
 		}
 
-		live = n.lookupCount > 0 || n.children.len() > 0 || n.persistent
+		live = n.hasKernelRef || n.children.len() > 0 || n.persistent
 		unlockNodes(lockme...)
 
 		// removal successful
@@ -617,8 +624,8 @@ retry:
 	}
 
 	if !live {
-		hasLookups, isPersistent, hasChildren := n.removeRef(0, false)
-		return true, (hasLookups || isPersistent || hasChildren)
+		hasKernelRef, isPersistent, hasChildren := n.removeRef(0, false)
+		return true, (hasKernelRef || isPersistent || hasChildren)
 	}
 
 	return true, true
@@ -725,7 +732,27 @@ retry:
 // tuple should be invalidated. On next access, a LOOKUP operation
 // will be started.
 func (n *Inode) NotifyEntry(name string) syscall.Errno {
+	if n.bridge.server == nil {
+		return syscall.ENOSYS
+	}
 	status := n.bridge.server.EntryNotify(n.nodeId, name)
+	return syscall.Errno(status)
+}
+
+// NotifyPrune instructs the kernel to forget the inodes passed as
+// argument. The kernel will issue FORGET requests as far as possible
+// in response.  If the receiver Inode must be forgotten too it must
+// be included in the argument separately.
+func (n *Inode) NotifyPrune(nodes []*Inode) syscall.Errno {
+	server, ok := n.bridge.server.(*fuse.Server)
+	if !ok {
+		return syscall.ENOSYS
+	}
+	ids := make([]uint64, 0, len(nodes))
+	for _, n := range nodes {
+		ids = append(ids, n.nodeId)
+	}
+	status := server.PruneNotify(ids)
 	return syscall.Errno(status)
 }
 
@@ -733,25 +760,36 @@ func (n *Inode) NotifyEntry(name string) syscall.Errno {
 // from this directory as entry under the given name. It is equivalent
 // to NotifyEntry, but also sends an event to inotify watchers.
 func (n *Inode) NotifyDelete(name string, child *Inode) syscall.Errno {
+	if n.bridge.server == nil {
+		return syscall.ENOSYS
+	}
 	// XXX arg ordering?
 	return syscall.Errno(n.bridge.server.DeleteNotify(n.nodeId, child.nodeId, name))
-
 }
 
 // NotifyContent notifies the kernel that content under the given
 // inode should be flushed from buffers.
 func (n *Inode) NotifyContent(off, sz int64) syscall.Errno {
+	if n.bridge.server == nil {
+		return syscall.ENOSYS
+	}
 	// XXX how does this work for directories?
 	return syscall.Errno(n.bridge.server.InodeNotify(n.nodeId, off, sz))
 }
 
 // WriteCache stores data in the kernel cache.
 func (n *Inode) WriteCache(offset int64, data []byte) syscall.Errno {
+	if n.bridge.server == nil {
+		return syscall.ENOSYS
+	}
 	return syscall.Errno(n.bridge.server.InodeNotifyStoreCache(n.nodeId, offset, data))
 }
 
 // ReadCache reads data from the kernel cache.
 func (n *Inode) ReadCache(offset int64, dest []byte) (count int, errno syscall.Errno) {
+	if n.bridge.server == nil {
+		return 0, syscall.ENOSYS
+	}
 	c, s := n.bridge.server.InodeRetrieveCache(n.nodeId, offset, dest)
 	return c, syscall.Errno(s)
 }
