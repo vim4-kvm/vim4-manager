@@ -12,6 +12,7 @@ import os
 import pwd
 import re
 import secrets
+import select as io_select
 import shutil
 import signal
 import socket
@@ -1870,7 +1871,512 @@ def update(package, checksum, version):
                        check=True, timeout=30, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
 
 
+NAS_CONFIG = Path('/etc/vim4-kvm/nas')
+NAS_ROOT = Path('/var/lib/vim4-kvm/nas')
+NAS_RUNTIME = Path('/run/vim4-manager-nas')
+NAS_TEST = Path('/run/vim4-manager-nas-test')
+NAS_UNITS = Path('/etc/systemd/system')
+NAS_VERSIONS = {'smb': ('auto', '3.1.1', '3.0', '2.1', '2.0', '1.0'),
+                'nfs': ('auto', '4.2', '4.1', '4.0', '3')}
+
+
+def storage_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,31}', value):
+        raise ValueError('网络存储 ID 无效')
+    return value
+
+
+def storage_validate(data, testing=False):
+    if not isinstance(data, dict):
+        raise ValueError('网络存储参数必须为 JSON 对象')
+    kind = data.get('type')
+    if not isinstance(kind, str) or kind not in NAS_VERSIONS:
+        raise ValueError('网络存储类型必须为 smb 或 nfs')
+    result = {}
+    for key in ('id', 'name', 'server', 'share', 'domain', 'username', 'version'):
+        value = data.get(key, 'auto' if key == 'version' else '')
+        if not isinstance(value, str) or len(value) > 1024:
+            raise ValueError('网络存储字段无效：' + key)
+        result[key] = value
+    if result['id']:
+        storage_id(result['id'])
+    if (not testing and not result['name']) or len(result['name']) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in result['name']):
+        raise ValueError('名称需为 1–80 个可显示字符')
+    server = result['server']
+    try:
+        ipaddress.ip_address(server)
+        if '%' in server:
+            raise ValueError()
+    except ValueError:
+        if len(server) > 253 or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', server) or any(
+                not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in server.split('.')):
+            raise ValueError('服务器必须为主机名、IPv4 或 IPv6 地址') from None
+    share = result['share']
+    if not re.fullmatch(r'/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', share) or '..' in share or any(p == '.' for p in share.split('/')):
+        if not (kind == 'nfs' and share == '/'):
+            raise ValueError('共享路径包含不支持的字符或路径段')
+    if share.startswith('/') != (kind == 'nfs'):
+        raise ValueError('SMB 使用共享名；NFS 使用以 / 开头的导出路径')
+    for key in ('domain', 'username'):
+        if not re.fullmatch(r'[A-Za-z0-9_.@-]*', result[key]) or '..' in result[key]:
+            raise ValueError('用户名或域包含不支持的字符')
+    if result['version'] not in NAS_VERSIONS[kind]:
+        raise ValueError('协议版本不支持')
+    if type(data.get('autoMount', False)) is not bool:
+        raise ValueError('autoMount 必须为布尔值')
+    if 'password' in data and (not isinstance(data['password'], str) or len(data['password']) > 4096 or
+                               any(c in data['password'] for c in '\r\n\0')):
+        raise ValueError('密码不能包含换行或 NUL，最长 4096 字符')
+    result.update(type=kind, autoMount=data.get('autoMount', False))
+    return result
+
+
+def storage_read_request():
+    try:
+        raw = sys.stdin.read(16385)
+        if len(raw) > 16384:
+            raise ValueError()
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError()
+        return data
+    except (ValueError, UnicodeError):
+        raise ValueError('网络存储 JSON 参数无效') from None
+
+
+def storage_atomic(path, content, mode):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    fd, temporary = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as output:
+            os.fchmod(output.fileno(), mode)
+            output.write(content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def storage_load(identifier):
+    identifier = storage_id(identifier)
+    try:
+        data = storage_validate(json.loads((NAS_CONFIG / (identifier + '.json')).read_text()))
+    except FileNotFoundError:
+        raise ValueError('网络存储不存在') from None
+    if data['id'] != identifier:
+        raise ValueError('网络存储配置 ID 不匹配')
+    return data
+
+
+def storage_credentials(config, request):
+    if config['type'] != 'smb' or not config['username']:
+        return None
+    password = request.get('password')
+    if password is None:
+        try:
+            saved = (NAS_CONFIG / (storage_id(config['id']) + '.cred')).read_text()
+            password = next(line[len('password='):] for line in saved.split('\n') if line.startswith('password='))
+        except (ValueError, FileNotFoundError, StopIteration):
+            raise ValueError('SMB 首次保存或测试需要密码（可为空）') from None
+    return f"username={config['username']}\npassword={password}\ndomain={config['domain']}\n"
+
+
+def storage_source(config):
+    server = config['server']
+    if ':' in server:
+        server = '[' + server + ']'
+    return '//' + server + '/' + config['share'] if config['type'] == 'smb' else server + ':' + config['share']
+
+
+def storage_options(config, credentials):
+    if config['type'] == 'smb':
+        login = f'credentials={credentials}' if config['username'] else 'guest'
+        options = (f'{login},uid=khadas,gid=khadas,forceuid,forcegid,'
+                   'file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino')
+        version_key = 'vers'
+    else:
+        options, version_key = 'soft,timeo=150,retrans=3', 'nfsvers'
+    options += ',nofail,_netdev,x-systemd.mount-timeout=30'
+    if config['version'] != 'auto':
+        options += ',' + version_key + '=' + config['version']
+    return options
+
+
+def storage_error(error):
+    # Never relay command output: mount helpers can echo credentials or user input.
+    text = str(error).lower()
+    for terms, message in ((('permission', 'access denied', 'errno 13'), '权限被拒'),
+                           (('unreachable', 'no route', 'resolve', 'host is down', 'errno 113'), '主机不可达'),
+                           (('no such file', 'not found', 'errno 2'), '共享不存在'),
+                           (('protocol', 'not supported', 'errno 95'), '协议版本不匹配'),
+                           (('timeout', 'timed out', '超时'), '超时')):
+        if any(term in text for term in terms):
+            return message
+    return '网络存储操作失败，请检查服务器、共享和凭据'
+
+
+def storage_run(args, timeout=35):
+    process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+                               env={'LC_ALL': 'C', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'})
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except BaseException as error:
+        # mount invokes mount.cifs/mount.nfs: terminate the entire helper group.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        # A mount syscall can stay in D state after SIGKILL; never wait indefinitely.
+        try:
+            process.communicate(timeout=0.1)
+        except subprocess.TimeoutExpired:
+            process.stdout.close()
+            process.stderr.close()
+        if isinstance(error, subprocess.TimeoutExpired):
+            raise ValueError('网络存储操作超时') from None
+        raise
+    if process.returncode:
+        raise ValueError(storage_error(stderr))
+    return stdout.strip()
+
+
+def storage_unit_name(identifier):
+    return storage_run(['systemd-escape', '--path', '--suffix=mount', str(NAS_ROOT / storage_id(identifier))], 2)
+
+
+def storage_unit(config):
+    identifier = config['id']
+    return ('[Unit]\nDescription=VIM4 NAS ' + identifier + '\nWants=network-online.target\nAfter=network-online.target\n'
+            '\n[Mount]\nWhat=' + storage_source(config) + '\nWhere=' + str(NAS_ROOT / identifier) +
+            '\nType=' + ('cifs' if config['type'] == 'smb' else 'nfs') + '\nOptions=' +
+            storage_options(config, NAS_CONFIG / (identifier + '.cred')) +
+            '\nTimeoutSec=30\n\n[Install]\nWantedBy=remote-fs.target\n')
+
+
+def storage_mounted(path):
+    # Directory existence is never evidence of a mount, including after failed starts.
+    for line in Path('/proc/self/mountinfo').read_text().splitlines():
+        fields = line.split()
+        if len(fields) > 4 and re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[4]) == str(path):
+            return True
+    return False
+
+
+def storage_bounded(function, timeout):
+    """Bound NAS syscalls even when a worker is stuck in uninterruptible kernel I/O.
+
+    Do not join a killed worker without a deadline. It may only exit on reconnect.
+    A temporary result file also avoids a pipe filling up on a large directory.
+    """
+    with tempfile.TemporaryFile() as result:
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            os.close(read_fd)
+            # In particular, do not retain the parent's flock in a stuck worker.
+            keep = sorted({result.fileno(), write_fd})
+            start = 3
+            for fd in keep:
+                os.closerange(start, fd)
+                start = fd + 1
+            os.closerange(start, os.sysconf('SC_OPEN_MAX'))
+            try:
+                try:
+                    payload = {'result': function()}
+                except Exception as error:
+                    payload = {'error': storage_error(error)}
+                result.write(json.dumps(payload).encode())
+                result.flush()
+                os.write(write_fd, b'1')
+            finally:
+                os._exit(0)
+        os.close(write_fd)
+        try:
+            if not io_select.select([read_fd], [], [], timeout)[0] or not os.read(read_fd, 1):
+                raise TimeoutError('网络存储操作超时')
+            result.seek(0)
+            payload = json.load(result)
+            if 'error' in payload:
+                raise ValueError(payload['error'])
+            return payload['result']
+        finally:
+            os.close(read_fd)
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            os.waitpid(pid, os.WNOHANG)
+
+
+def storage_capacity(path):
+    info = os.statvfs(path)
+    return {'totalBytes': info.f_blocks * info.f_frsize, 'freeBytes': info.f_bavail * info.f_frsize}
+
+
+def storage_probe(path):
+    if not storage_mounted(path):
+        raise ValueError('网络存储尚未挂载')
+    capacity = storage_capacity(path)
+    user = pwd.getpwnam('khadas')
+    os.initgroups('khadas', user.pw_gid)
+    os.setgid(user.pw_gid)
+    os.setuid(user.pw_uid)
+    name = path / ('.vim4-write-test-' + secrets.token_hex(12))
+    capacity['writable'] = False
+    created = False
+    try:
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        created = True
+        try:
+            os.write(fd, b'vim4 NAS write test\n')
+        finally:
+            os.close(fd)
+        capacity['writable'] = True
+    except PermissionError:
+        pass
+    finally:
+        if created:
+            name.unlink()
+    return capacity
+
+
+def storage_busy(path):
+    prefix = str(path) + '/'
+    def inside(value):
+        return value == str(path) or value.startswith(prefix)
+    for lun in Path('/sys/kernel/config/usb_gadget').glob('*/functions/mass_storage.*/lun.*/file'):
+        if inside(lun.read_text().strip()):
+            return True
+    for process in Path('/proc').glob('[0-9]*'):
+        for link in [process / 'cwd', process / 'root', *process.glob('fd/*')]:
+            try:
+                if inside(os.readlink(link)):
+                    return True
+            except OSError:
+                pass
+        try:
+            if any(inside(line.split(None, 5)[5]) for line in (process / 'maps').read_text().splitlines()
+                   if len(line.split(None, 5)) == 6):
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def storage_status(config):
+    path = NAS_ROOT / config['id']
+    mounted = storage_mounted(path)
+    properties = storage_run(['systemctl', 'show', storage_unit_name(config['id']),
+                              '--property=ActiveState,Result'], 2)
+    properties = dict(line.split('=', 1) for line in properties.splitlines() if '=' in line)
+    active, result = properties.get('ActiveState'), properties.get('Result', '')
+    state = 'mounted' if mounted else ('mounting' if active == 'activating' else
+                                      'error' if active == 'failed' else 'unmounted')
+    data = dict(config, path=str(path), mounted=mounted, state=state,
+                error='' if result in ('', 'success') else
+                ('连接超时，NAS 无响应' if result == 'timeout' else '连接失败，请在编辑中「测试连接」查看原因'),
+                totalBytes=None, freeBytes=None, stale=False, writable=None, busy=False,
+                insecure=config['type'] == 'smb' and config['version'] == '1.0')
+    try:
+        data['writable'] = json.loads((NAS_RUNTIME / (config['id'] + '.json')).read_text())['writable']
+    except (OSError, ValueError, KeyError):
+        pass
+    if mounted:
+        try:
+            data.update(storage_bounded(lambda: storage_capacity(path), 2))
+        except (TimeoutError, ValueError):
+            data['stale'] = True
+        try:
+            data['busy'] = storage_bounded(lambda: storage_busy(path), 1)
+        except (TimeoutError, ValueError):
+            data['busy'] = None
+    return data
+
+
+def storage_detect_write(config):
+    value = None
+    try:
+        value = storage_bounded(lambda: storage_probe(NAS_ROOT / config['id']), 2)['writable']
+    except (TimeoutError, ValueError):
+        pass
+    storage_atomic(NAS_RUNTIME / (config['id'] + '.json'), json.dumps({'writable': value}), 0o644)
+
+
+def storage_unmount(config):
+    path = NAS_ROOT / config['id']
+    try:
+        if storage_bounded(lambda: storage_busy(path), 2):
+            raise ValueError('挂载点正被进程或 USB 虚拟介质使用，请先停止使用并弹出介质')
+    except TimeoutError:
+        raise ValueError('无法确认挂载点是否空闲，请稍后重试') from None
+    storage_run(['systemctl', 'stop', storage_unit_name(config['id'])])
+    if storage_mounted(path):
+        raise ValueError('挂载点仍在使用，卸载失败')
+
+
+def storage_save(request):
+    config = storage_validate(request)
+    existing = None
+    if config['id']:
+        existing = storage_load(config['id'])
+        if existing['type'] != config['type']:
+            raise ValueError('已有网络存储不能更改 ID 或类型')
+    else:
+        if len(list(NAS_CONFIG.glob('*.json'))) >= 8:
+            raise ValueError('最多添加 8 个网络存储')
+        base = re.sub('[^a-z0-9-]+', '-', config['name'].lower()).strip('-')[:23] or 'nas'
+        config['id'] = base + '-' + secrets.token_hex(4)
+        while (NAS_CONFIG / (config['id'] + '.json')).exists():
+            config['id'] = base + '-' + secrets.token_hex(4)
+    credentials = storage_credentials(config, request)
+    path = NAS_ROOT / config['id']
+    mounted = storage_mounted(path)
+    if existing:
+        # Stop pending jobs too, before replacing options used by systemd.
+        storage_unmount(existing)
+    NAS_CONFIG.mkdir(parents=True, exist_ok=True, mode=0o755)
+    NAS_ROOT.mkdir(parents=True, exist_ok=True, mode=0o755)
+    NAS_CONFIG.chmod(0o755)
+    NAS_ROOT.chmod(0o755)
+    path.mkdir(exist_ok=True, mode=0o755)
+    if credentials is not None:
+        storage_atomic(NAS_CONFIG / (config['id'] + '.cred'), credentials, 0o600)
+    storage_atomic(NAS_CONFIG / (config['id'] + '.json'), json.dumps(config), 0o644)
+    unit = storage_unit_name(config['id'])
+    storage_atomic(NAS_UNITS / unit, storage_unit(config), 0o644)
+    storage_run(['systemctl', 'daemon-reload'])
+    storage_run(['systemctl', 'enable' if config['autoMount'] else 'disable', unit])
+    (NAS_RUNTIME / (config['id'] + '.json')).unlink(missing_ok=True)
+    if mounted or config['autoMount']:
+        storage_run(['systemctl', 'start', unit])
+        storage_detect_write(config)
+    return storage_status(config)
+
+
+def storage_test(request):
+    started = time.monotonic()
+    config = storage_validate(request, testing=True)
+    if config['id']:
+        existing = storage_load(config['id'])
+        if existing['type'] != config['type']:
+            raise ValueError('已有网络存储不能更改类型')
+    credentials = storage_credentials(config, request)
+    NAS_TEST.mkdir(parents=True, exist_ok=True, mode=0o755)
+    NAS_TEST.chmod(0o755)
+    temporary = Path(tempfile.mkdtemp(dir=NAS_TEST))
+    # khadas must be able to traverse the temporary parent for the write probe.
+    temporary.chmod(0o711)
+    path, cred = temporary / 'mount', temporary / 'credentials'
+    path.mkdir()
+    answer = dict(ok=False, totalBytes=None, freeBytes=None, writable=None, elapsedMs=0, error='')
+    try:
+        if credentials is not None:
+            storage_atomic(cred, credentials, 0o600)
+        storage_run(['mount', '-t', 'cifs' if config['type'] == 'smb' else 'nfs',
+                     '-o', storage_options(config, cred), storage_source(config), str(path)], 8)
+        answer.update(storage_bounded(lambda: storage_probe(path), 3))
+        answer['ok'] = True
+        if not answer['writable']:
+            answer['error'] = 'khadas 权限被拒：共享不可写'
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        answer['error'] = str(error) if isinstance(error, ValueError) else storage_error(error)
+    finally:
+        try:
+            if storage_mounted(path):
+                storage_run(['umount', str(path)], 3)
+            path.rmdir()
+        except (OSError, ValueError) as error:
+            answer.update(ok=False, error='测试挂载清理失败：' + storage_error(error))
+        # Never recursively remove the temporary directory: it may still be a NAS mount.
+        cred.unlink(missing_ok=True)
+        try:
+            temporary.rmdir()
+        except OSError:
+            pass
+    if config['id']:
+        storage_atomic(NAS_RUNTIME / (config['id'] + '.json'),
+                       json.dumps({'writable': answer['writable']}), 0o644)
+    answer['elapsedMs'] = round((time.monotonic() - started) * 1000)
+    return answer
+
+
+def storage_dirs(config, path):
+    if not isinstance(path, str) or not path.startswith('/') or len(path) > 4096 or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise ValueError('目录路径无效')
+    parts = path[1:].split('/') if path != '/' else []
+    if len(parts) > 32 or any(p in ('', '.', '..') or len(p) > 255 for p in parts):
+        raise ValueError('目录路径不能包含空段、. 或 ..')
+    root = NAS_ROOT / config['id']
+    if not storage_mounted(root):
+        raise ValueError('网络存储尚未挂载')
+    def listing():
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in parts:
+                next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = next_fd
+            entries = []
+            with os.scandir(fd) as directory:
+                for entry in directory:
+                    if entry.is_dir(follow_symlinks=False):
+                        entries.append(entry.name)
+                        if len(entries) == 501:
+                            break
+            return {'path': path, 'entries': [{'name': name} for name in sorted(entries[:500])],
+                    'truncated': len(entries) > 500}
+        finally:
+            os.close(fd)
+    return storage_bounded(listing, 3)
+
+
+def storage_command(argv):
+    match argv:
+        case ['storage-list']:
+            return {'known': True, 'tools': {'smb': bool(shutil.which('mount.cifs')),
+                                            'nfs': bool(shutil.which('mount.nfs'))},
+                    'storages': [storage_status(storage_load(p.stem)) for p in sorted(NAS_CONFIG.glob('*.json'))]}
+        case ['storage-save']:
+            return storage_save(storage_read_request())
+        case ['storage-test']:
+            return storage_test(storage_read_request())
+        case ['storage-dirs', identifier, path]:
+            return storage_dirs(storage_load(identifier), path)
+        case ['storage-mount', identifier]:
+            config = storage_load(identifier)
+            storage_run(['systemctl', 'start', storage_unit_name(identifier)])
+            storage_detect_write(config)
+            return storage_status(config)
+        case ['storage-unmount', identifier]:
+            config = storage_load(identifier)
+            storage_unmount(config)
+            return storage_status(config)
+        case ['storage-delete', identifier]:
+            config = storage_load(identifier)
+            if storage_read_request().get('confirm') != config['name']:
+                raise ValueError('请确认完整的网络存储名称')
+            storage_unmount(config)
+            # Refuse misplaced local data before removing a recoverable unit/config.
+            path = NAS_ROOT / identifier
+            if path.exists():
+                path.rmdir()
+            unit = storage_unit_name(identifier)
+            storage_run(['systemctl', 'disable', unit])
+            (NAS_UNITS / unit).unlink(missing_ok=True)
+            storage_run(['systemctl', 'daemon-reload'])
+            for suffix in ('.json', '.cred'):
+                (NAS_CONFIG / (identifier + suffix)).unlink(missing_ok=True)
+            (NAS_RUNTIME / (identifier + '.json')).unlink(missing_ok=True)
+            return {'ok': True}
+        case _:
+            raise ValueError('不支持的网络存储操作')
+
+
 def main(argv):
+    if argv and argv[0].startswith('storage-'):
+        print(json.dumps(storage_command(argv)))
+        return
     if argv and argv[0].startswith('wifi-'):
         print(json.dumps(wifi_command(argv)))
         return
@@ -1927,11 +2433,13 @@ def main(argv):
 @contextmanager
 def operation_lock(argv):
     action = argv[0] if argv else ''
-    if action.startswith('disk-') or action in ('media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
+    if action.startswith('disk-') or action in ('storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
                                                'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'
+    if action.startswith('storage-'):
+        path = '/run/lock/vim4-manager-storage.lock'
     fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
         # The package worker may start before the launching helper releases its
@@ -1966,6 +2474,7 @@ if __name__ == '__main__':
     except BlockingIOError:
         action = sys.argv[1] if len(sys.argv) > 1 else ''
         busy = ('Another package operation is in progress' if action in ('update', 'tailscale-package') else
+                '另一个网络存储操作正在进行，请稍后重试' if action.startswith('storage-') else
                 '另一个数据盘操作正在进行，请稍后重试' if action.startswith('disk-') else
                 'Another tailscale operation is in progress' if action.startswith('tailscale-') else
                 'Another switch is in progress')

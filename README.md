@@ -3,6 +3,7 @@
 VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM、One-KVM 或 PiKVM），
 查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
 页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。监听 **80** 端口，KVM 界面仍在 8080。
+网络存储页路由约定为 `#/storage`，使用下述 SMB/NFS 后端 API（前端另行实现）。
 
 概览在开机时长左侧显示本次开机的 PD 协商电压、电流与供电额度。
 API 中的实时电压存在检测依赖板级 `usb-pd-init --status`，旧版本或读取失败为未知；
@@ -160,6 +161,67 @@ mtools 4.0.43 跨目录移动会丢失小写标记、目标不存在时崩溃，
 快照完成后才发布，恢复和扩容准备完成后原子替换，准备阶段中断保留原盘。
 强制结束进程可能遗留占空间的隐藏临时文件，但不会把未完成快照列为可恢复项目。
 `GET /api/media` 继续返回所有数据盘（`source:"data",disk:true`）及各应用镜像。
+
+## 网络存储 API
+
+管理器包依赖 `cifs-utils`、`nfs-common`，提供虚拟能力 `vim4-nas-api-1`，供后续
+One-KVM 等包声明依赖。当前只管理单板 NAS 挂载；录制目标和文件夹虚拟 U 盘另行实现。
+最多 8 个存储，创建时从名称加随机后缀生成 `[a-z0-9][a-z0-9-]{0,31}` ID；创建后 ID、类型不可改。
+
+稳定的板上接口：helper 按需创建 root:root 0755 的 `/etc/vim4-kvm/nas/` 和
+`/var/lib/vim4-kvm/nas/`。每个 `ID.json` 为 root:root 0644，仅含
+`id,name,type,server,share,domain,username,version,autoMount`，无密码；SMB 的 `ID.cred`
+为 root:root 0600，内容为 mount.cifs 的 `username=`、`password=`、`domain=` 三行。
+文件原子替换。包卸载不删除这些用户配置或 NAS 数据。
+挂载点固定为 `/var/lib/vim4-kvm/nas/ID`；单元名由
+`systemd-escape --path --suffix=mount` 生成，单元在 `/etc/systemd/system/`。
+`autoMount:true` 启用单元（`WantedBy=remote-fs.target`）；禁用自动挂载不表示立即卸载。
+其他程序必须查 `/proc/self/mountinfo` 或比较挂载点与父目录 `st_dev` 判断已挂载，不能只看目录存在。
+
+| HTTP | 参数与结果 |
+|---|---|
+| `GET /api/storage` | `{known,tools:{smb,nfs},storages:[…]}`；helper 失败时 `known:false` |
+| `POST /api/storage/test` | `{id?,type,server,share,domain,username,password?,version}` → `{ok,totalBytes,freeBytes,writable,elapsedMs,error}` |
+| `POST /api/storage` | `{id?,name,type,server,share,domain,username,password?,version,autoMount}` → 保存后的存储对象 |
+| `POST /api/storage/mount`、`/api/storage/unmount` | `{id}` → 操作后的存储对象 |
+| `POST /api/storage/delete` | `{id,confirm}`，confirm 必须等于完整存储名称 → `{ok:true}` |
+| `GET /api/storage/dirs?id=&path=` | 挂载内绝对路径（根为 `/`）→ `{path,entries:[{name}],truncated}` |
+
+存储对象含全部非敏感配置及 `mounted,state,error,path,totalBytes,freeBytes,stale,writable,busy,insecure`。
+`state` 为 mounted/unmounted/mounting/error；`error` 使用 systemd 最近失败的 Result 原因。
+只在实际挂载后探测容量，子进程 2 秒超时则 `stale:true`、容量为 null。
+`writable` 为最近一次测试或挂载后以 khadas 身份创建、写入、删除隐藏文件的结果，未检测或超时为 null；
+运行时结果保存在 `/run/vim4-manager-nas/`，重启后清空。`busy` 尽力检查进程 fd/cwd/root/maps 和 USB LUN，
+检测失败为 null；卸载时无法确认空闲也拒绝操作，最终仍由普通 systemd stop/umount 检查占用，不提供强制或 lazy 卸载。
+目录读取用 openat/O_NOFOLLOW 逐级打开，拒绝符号链接、`.`、`..`、空段、控制字符和反斜杠；
+深度最多 32，最多返回 500 个子目录，返回项按名称排序，3 秒超时。
+
+SMB share 为共享名，可附子路径 `share/sub/dir`；NFS share 必须为 `/export/path`。
+server 只接受主机名、IPv4、IPv6（裸 IPv6 输入，源地址自动加方括号，不支持 zone ID）。
+共享路径段只接受 ASCII 字母、数字、点、下划线、连字符，用户名/域另允许 `@`；拒绝 `..`、逗号、
+反斜杠、空白及单元文件插值字符。名称可用中文，最长 80 字符，不进入单元选项。
+密码禁止 CR/LF/NUL；新 SMB 配置必须提供 password，可为空，编辑或测试已有 ID 时省略则沿用保存值。
+密码只经请求体和 helper stdin 传递，不进入命令行、配置 JSON、日志或返回值。
+
+SMB 固定选项为 `credentials=…,uid=khadas,gid=khadas,forceuid,forcegid,file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino,nofail,_netdev,x-systemd.mount-timeout=30`。
+version 默认 auto（不传 vers），其他只允许 3.1.1/3.0/2.1/2.0/1.0；1.0 返回 `insecure:true`。
+NFS 固定 `soft,timeo=150,retrans=3,nofail,_netdev,x-systemd.mount-timeout=30`，版本 auto 或 4.2/4.1/4.0/3，
+非 auto 传 nfsvers。NFS 属主由服务器决定，`ok:true,writable:false` 表示挂载可读但 khadas 不可写。
+soft 挂载在网络故障时可能返回 I/O 错误，调用方需处理失败，不能把挂载存在等同于可写。
+
+测试临时挂载在 `/run/vim4-manager-nas-test/随机/mount`，挂载、探测、卸载预算分别为 8/3/3 秒，
+正常 15 秒内返回。内核不可中断 I/O 的工作进程可能在返回后等待 NAS 恢复；清理失败会明确返回失败，
+保留挂载目录供管理员检查，删除临时凭据，不递归删除目录。强制结束助手也可能留下临时挂载或隐藏探测文件。
+保存会停止旧单元、原子更新配置/凭据/单元、daemon-reload、enable/disable；原先已挂载或 autoMount 为真则启动。
+启动失败仍保留新配置，之后可重试挂载；多文件更新不保证断电事务回滚。
+状态与目录读取不占写锁，其余操作共用独立 storage 锁。接口沿用局域网 Host、JSON、同源与禁止 Tailscale 写入边界，无独立认证。
+manager 仍以 khadas 运行，root helper 执行挂载；service 无需增加 ReadWritePaths，也不能加入隔离挂载命名空间。
+
+离线验证：`go test ./...`、`go vet ./...`、`python3 -m unittest discover -s deploy -p 'test_*.py'`。
+板上由操作者使用 `sudo /usr/libexec/vim4-manager-helper storage-list`、
+`findmnt /var/lib/vim4-kvm/nas/ID` 和 `systemctl status "$(systemd-escape --path --suffix=mount /var/lib/vim4-kvm/nas/ID)"`
+核对状态；真实 NAS 凭据通过 API 请求体输入，不写进命令行。需另验证 SMB/NFS 挂载、重启自动挂载、
+khadas 写权限、USB LUN 占用拒绝、断网超时/恢复及临时挂载清理。
 
 ## EDID 兼容性预设
 

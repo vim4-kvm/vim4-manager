@@ -20,6 +20,7 @@ import (
 func Handler(service *board.Service, assets fs.FS) http.Handler {
 	mux := http.NewServeMux()
 	diskRoutes(mux, service)
+	storageRoutes(mux, service)
 	tailscaleRoutes(mux, service)
 	mux.HandleFunc("GET /api/media", func(w http.ResponseWriter, r *http.Request) {
 		images, err := service.MediaImages(r.Context())
