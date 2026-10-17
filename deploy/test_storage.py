@@ -39,8 +39,8 @@ class StorageTest(unittest.TestCase):
         for key, values in {
             'type': [[], {}, 'cifs'],
             'server': ['host,vers=1', 'host\nOptions=x', 'a b', 'a..b', '-host', 'fe80::1%eth0', '[::1]', 'a\\b'],
-            'share': ['share/../x', 'share,..', 'share//x', 'share/./x', 'share\\x', 'share x', 'share\tx', '%n', '/smb'],
-            'username': ['a,password=x', 'a\nb', 'a\\b', '..', 'a b', '%n'],
+            'share': ['share/../x', 'share//x', 'share/./x', 'share\\x', ' share', 'share/x ', 'share\tx', '%n', '/smb', 'a:b', 'a*'],
+            'username': ['a,password=x', 'a\nb', 'a\\b', '..', ' a', '%n', 'a=b'],
             'domain': ['a,b', 'a=b', 'a\rb', '..'],
             'password': ['a\nb', 'a\rb', 'a\0b'],
             'version': ['3.0,uid=root', '5', ''],
@@ -51,6 +51,10 @@ class StorageTest(unittest.TestCase):
                 with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                     helper.storage_validate(request(**{key: value}))
         helper.storage_validate(request(password='a, b=\\%secret'))
+        for share in ('公共 资料', '公共 资料/录像 2026', 'Public Data'):
+            helper.storage_validate(request(share=share))
+        helper.storage_validate(request(type='nfs', share='/volume1/影音 库'))
+        helper.storage_validate(request(username='张 三'))
         for server in ('192.168.1.1', 'nas.local', '2001:db8::1', '::1'):
             helper.storage_validate(request(server=server))
         with self.assertRaises(ValueError):
@@ -72,10 +76,18 @@ class StorageTest(unittest.TestCase):
                 else:
                     self.assertIn(option + version, text)
                 if kind == 'smb':
-                    self.assertIn('forceuid,forcegid,file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino', text)
+                    self.assertIn('forceuid,forcegid,file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino,iocharset=utf8', text)
                 else:
                     self.assertIn('soft,timeo=150,retrans=3', text)
                 self.assertNotIn('secret', text)
+
+    def test_mount_cifs_errors_are_translated(self):
+        for text, message in (('mount error(113): could not connect to 10.0.0.9', '主机不可达'),
+                              ('mount error(13): Permission denied', '权限被拒'),
+                              ('mount error(2): No such file or directory', '共享不存在'),
+                              ('mount error(95): Operation not supported', '协议版本不匹配')):
+            with self.subTest(text=text):
+                self.assertEqual(helper.storage_error(text), message)
 
     def test_guest_smb_uses_no_credentials_file(self):
         config = helper.storage_validate(request(id='guest', username='', password=''))
@@ -179,6 +191,8 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(list(helper.NAS_TEST.iterdir()), [])
         self.assertNotIn('secret', str(self.commands))
         self.assertTrue(any(cmd[0] == 'umount' for cmd in self.commands))
+        mount = next(cmd for cmd in self.commands if cmd[0] == 'mount')
+        self.assertNotIn('nofail', mount[mount.index('-o') + 1], 'nofail hides direct mount failures')
         with patch.object(helper, 'storage_bounded', side_effect=TimeoutError('timeout')):
             result = helper.storage_test(request())
         self.assertFalse(result['ok'])

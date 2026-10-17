@@ -1912,13 +1912,17 @@ def storage_validate(data, testing=False):
                 not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in server.split('.')):
             raise ValueError('服务器必须为主机名、IPv4 或 IPv6 地址') from None
     share = result['share']
-    if not re.fullmatch(r'/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*', share) or '..' in share or any(p == '.' for p in share.split('/')):
-        if not (kind == 'nfs' and share == '/'):
-            raise ValueError('共享路径包含不支持的字符或路径段')
     if share.startswith('/') != (kind == 'nfs'):
         raise ValueError('SMB 使用共享名；NFS 使用以 / 开头的导出路径')
+    # NAS shares are often named in Chinese or with spaces. The value lands in a
+    # unit's What= (systemd expands % and trims outer blanks) and a mount argument.
+    segments = share[1:].split('/') if kind == 'nfs' else share.split('/')
+    if share != '/' and (any(not part or part in ('.', '..') or part != part.strip() for part in segments) or
+                         re.search(r'[\x00-\x1f\x7f\\"*?<>|:%]', share)):
+        raise ValueError('共享路径包含不支持的字符或路径段')
     for key in ('domain', 'username'):
-        if not re.fullmatch(r'[A-Za-z0-9_.@-]*', result[key]) or '..' in result[key]:
+        value = result[key]
+        if value != value.strip() or re.search(r'[\x00-\x1f\x7f\\/"\[\]:;|=,+*?<>%]', value) or value in ('.', '..'):
             raise ValueError('用户名或域包含不支持的字符')
     if result['version'] not in NAS_VERSIONS[kind]:
         raise ValueError('协议版本不支持')
@@ -1989,15 +1993,17 @@ def storage_source(config):
     return '//' + server + '/' + config['share'] if config['type'] == 'smb' else server + ':' + config['share']
 
 
-def storage_options(config, credentials):
+def storage_options(config, credentials, unit=True):
     if config['type'] == 'smb':
         login = f'credentials={credentials}' if config['username'] else 'guest'
         options = (f'{login},uid=khadas,gid=khadas,forceuid,forcegid,'
-                   'file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino')
+                   'file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino,iocharset=utf8')
         version_key = 'vers'
     else:
         options, version_key = 'soft,timeo=150,retrans=3', 'nfsvers'
-    options += ',nofail,_netdev,x-systemd.mount-timeout=30'
+    if unit:
+        # nofail makes a direct mount exit 0 on failure, hiding the reason from tests.
+        options += ',nofail,_netdev,x-systemd.mount-timeout=30'
     if config['version'] != 'auto':
         options += ',' + version_key + '=' + config['version']
     return options
@@ -2006,10 +2012,11 @@ def storage_options(config, credentials):
 def storage_error(error):
     # Never relay command output: mount helpers can echo credentials or user input.
     text = str(error).lower()
-    for terms, message in ((('permission', 'access denied', 'errno 13'), '权限被拒'),
-                           (('unreachable', 'no route', 'resolve', 'host is down', 'errno 113'), '主机不可达'),
-                           (('no such file', 'not found', 'errno 2'), '共享不存在'),
-                           (('protocol', 'not supported', 'errno 95'), '协议版本不匹配'),
+    for terms, message in ((('permission', 'access denied', 'errno 13', 'error(13)'), '权限被拒'),
+                           (('unreachable', 'no route', 'resolve', 'host is down', 'could not connect', 'connection refused',
+                             'errno 113', 'error(113)', 'error(112)', 'error(111)'), '主机不可达'),
+                           (('no such file', 'not found', 'errno 2', 'error(2)'), '共享不存在'),
+                           (('protocol', 'not supported', 'errno 95', 'error(95)'), '协议版本不匹配'),
                            (('timeout', 'timed out', '超时'), '超时')):
         if any(term in text for term in terms):
             return message
@@ -2274,7 +2281,7 @@ def storage_test(request):
         if credentials is not None:
             storage_atomic(cred, credentials, 0o600)
         storage_run(['mount', '-t', 'cifs' if config['type'] == 'smb' else 'nfs',
-                     '-o', storage_options(config, cred), storage_source(config), str(path)], 8)
+                     '-o', storage_options(config, cred, unit=False), storage_source(config), str(path)], 8)
         answer.update(storage_bounded(lambda: storage_probe(path), 3))
         answer['ok'] = True
         if not answer['writable']:
