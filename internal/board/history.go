@@ -14,9 +14,11 @@ import (
 type Sample struct {
 	UnixMs int64   `json:"t"`
 	CPU    float64 `json:"cpu"`
-	Mem    float64 `json:"mem"`
-	TempC  float64 `json:"tempC"`
-	FanPct int     `json:"fan"`
+	// Null means unavailable; zero is a valid idle dynamic-power estimate.
+	CPUPowerW *float64 `json:"cpuPowerW"`
+	Mem       float64  `json:"mem"`
+	TempC     float64  `json:"tempC"`
+	FanPct    int      `json:"fan"`
 	// Physical-link throughput since the previous sample, in bits per second.
 	RxBps float64 `json:"rxBps"`
 	TxBps float64 `json:"txBps"`
@@ -26,13 +28,15 @@ type Sample struct {
 type History struct {
 	Root     string
 	Capacity int
+	Execute  Runner
 
-	mu      sync.Mutex
-	samples []Sample
-	busy    uint64
-	total   uint64
-	rx, tx  uint64
-	last    time.Time
+	mu       sync.Mutex
+	samples  []Sample
+	busy     uint64
+	total    uint64
+	rx, tx   uint64
+	last     time.Time
+	cpuPower []cpuPowerDomain
 }
 
 // Run samples every interval until ctx is cancelled.
@@ -67,9 +71,12 @@ func (h *History) Sample(now time.Time) {
 	}
 	s.FanPct, _ = strconv.Atoi(afterColon(read("sys/class/fan/speed")))
 	rx, tx := netBytes(h.Root)
+	currentPower := readCPUPowerSnapshot(h.Execute)
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	s.CPUPowerW = estimateCPUPower(h.cpuPower, currentPower)
+	h.cpuPower = currentPower
 	primed := h.total > 0 && total > h.total
 	if primed {
 		s.CPU = 100 * float64(busy-h.busy) / float64(total-h.total)

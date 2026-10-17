@@ -54,6 +54,7 @@ export interface CurvePoint {
 export interface Sample {
   t: number;
   cpu: number;
+  cpuPowerW?: number | null;
   mem: number;
   tempC: number;
   fan: number;

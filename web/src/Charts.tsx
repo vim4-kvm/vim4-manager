@@ -45,6 +45,8 @@ export function TrendChart({
   tickFormat,
   hover,
   onHover,
+  maxGapMs = Infinity,
+  currentAvailable = true,
 }: {
   label: string;
   points: Point[];
@@ -58,6 +60,9 @@ export function TrendChart({
   tickFormat?: (v: number) => string;
   hover?: number;
   onHover: (t?: number) => void;
+  /** Do not connect across unavailable sampling intervals. */
+  maxGapMs?: number;
+  currentAvailable?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
@@ -65,8 +70,16 @@ export function TrendChart({
   const x = (t: number) => PAD_LEFT + ((t - start) / windowMs) * plotW;
   const y = (v: number) => PAD_TOP + (1 - (Math.min(domain[1], Math.max(domain[0], v)) - domain[0]) / (domain[1] - domain[0])) * HEIGHT;
   const visible = points.filter((p) => p.t >= start);
-  const line = visible.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
-  const area = visible.length > 1 ? `${line}L${x(visible[visible.length - 1].t).toFixed(1)},${PAD_TOP + HEIGHT}L${x(visible[0].t).toFixed(1)},${PAD_TOP + HEIGHT}Z` : "";
+  const segments: Point[][] = [];
+  for (const point of visible) {
+    const segment = segments.at(-1);
+    if (!segment || point.t - segment[segment.length - 1].t > maxGapMs) segments.push([point]);
+    else segment.push(point);
+  }
+  const path = (segment: Point[]) => segment.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  const line = segments.map(path).join("");
+  const area = segments.filter((segment) => segment.length > 1).map((segment) =>
+    `${path(segment)}L${x(segment[segment.length - 1].t).toFixed(1)},${PAD_TOP + HEIGHT}L${x(segment[0].t).toFixed(1)},${PAD_TOP + HEIGHT}Z`).join("");
   const last = visible[visible.length - 1];
   const other = compare?.points.filter((p) => p.t >= start) ?? [];
   const otherLine = other.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
@@ -90,7 +103,7 @@ export function TrendChart({
 
   const values = visible.map((p) => p.v);
   const summary = visible.length
-    ? `${label}，最近 ${Math.round(windowMs / 60000)} 分钟：当前 ${format(last.v)}，最低 ${format(Math.min(...values))}，最高 ${format(Math.max(...values))}`
+    ? `${label}，最近 ${Math.round(windowMs / 60000)} 分钟：当前 ${currentAvailable ? format(last.v) : "暂无数据"}，最低 ${format(Math.min(...values))}，最高 ${format(Math.max(...values))}`
     : `${label}：正在采样`;
 
   const minutes = Math.round(windowMs / 60000);
@@ -138,7 +151,7 @@ export function TrendChart({
               <circle className="chart-dot" cx={x(active.t)} cy={y(active.v)} r={4} />
             </>
           )}
-          {!active && last && <circle className="chart-dot" cx={x(last.t)} cy={y(last.v)} r={4} />}
+          {!active && last && currentAvailable && <circle className="chart-dot" cx={x(last.t)} cy={y(last.v)} r={4} />}
         </svg>
       )}
       {active && width > 0 && (

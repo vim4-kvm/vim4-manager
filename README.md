@@ -10,6 +10,15 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 `GET /api/status` 的 `power.vbusPresent` 与 `power.bootContract` 可分别为 null。
 读取最多每 5 秒一次，失败清除旧读数。当前不测实际电流、功耗或 USB-C/VIN 供电分担。
 
+趋势图的「CPU 动态功耗（估算）」复用 5 秒采样和 15 分钟内存历史。
+限定助手 `cpu-power-snapshot` 读取内核 Energy Model（必须标记 milliWatts）、
+各频率 time_in_state 和各核 /proc/stat。每个 CPU 簇按区间频率驻留加权模型功率，
+乘以各核忙碌比例之和，再汇总成瓦数。频率与负载的区间内相关性未知，因此只是
+动态功耗近似，不含漏电、GPU、编码器、内存或供电损耗，未经仪表校准。
+`history[].cpuPowerW` 为 null 表示缺失、计数器重置或模型/在线核变化；
+恢复后需要两次连续有效采样，图表缺口不连线。零值仅代表估算的动态功耗为零。
+浏览器回归：`node web/tests/power.mjs`（本地前端默认 5188，可用 TEST_URL 覆盖）。
+
 四个界面共用 HDMI 采集、硬件编码器、HID 端点和 8080 端口，同一时间只运行一个。
 PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 再启动另一个，避免端口和编码器仍被旧进程占用。

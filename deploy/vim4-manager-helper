@@ -78,6 +78,54 @@ TAILSCALE_PACKAGE_UNIT = 'vim4-manager-tailscale-package.service'
 TAILSCALE_LOGIN_UNIT = 'vim4-manager-tailscale-login.service'
 
 
+def cpu_power_snapshot():
+    """Read the kernel's per-core dynamic power model and interval counters.
+
+    Keep debugfs privileged; never expose arbitrary paths through the helper.
+    Abstract energy costs cannot be presented as watts.
+    """
+    counters = {}
+    for line in Path('/proc/stat').read_text().splitlines():
+        fields = line.split()
+        if fields and re.fullmatch(r'cpu\d+', fields[0]):
+            values = [int(v) for v in fields[1:9]]
+            if len(values) != 8:
+                raise ValueError('Incomplete CPU counters')
+            counters[int(fields[0][3:])] = {
+                'busy': sum(values) - values[3] - values[4], 'total': sum(values)}
+    domains = []
+    covered = set()
+    for domain in sorted(Path('/sys/kernel/debug/energy_model').glob('cpu[0-9]*')):
+        if domain.joinpath('units').read_text().strip() != 'milliWatts':
+            raise ValueError('CPU energy model does not report milliwatts')
+        cpus = []
+        for part in domain.joinpath('cpus').read_text().strip().split(','):
+            bounds = [int(v) for v in part.split('-')]
+            if len(bounds) not in (1, 2) or not 0 <= bounds[0] <= bounds[-1] <= 4095:
+                raise ValueError('Invalid CPU domain')
+            cpus.extend(range(bounds[0], bounds[-1] + 1))
+        if not cpus or covered.intersection(cpus):
+            raise ValueError('Overlapping CPU domains')
+        online = [cpu for cpu in cpus if cpu in counters]
+        if not online:
+            continue
+        residency = Path(f'/sys/devices/system/cpu/cpufreq/policy{cpus[0]}/stats/time_in_state')
+        states = {}
+        for line in residency.read_text().splitlines():
+            frequency, ticks = (int(v) for v in line.split())
+            power = int(domain.joinpath(f'ps:{frequency}', 'power').read_text())
+            if frequency <= 0 or ticks < 0 or power <= 0:
+                raise ValueError('Invalid CPU power state')
+            states[str(frequency)] = {'ticks': ticks, 'milliwatts': power}
+        if not states:
+            raise ValueError('No CPU residency counters')
+        domains.append({'cpus': {str(cpu): counters[cpu] for cpu in online}, 'states': states})
+        covered.update(online)
+    if not counters or covered != set(counters):
+        raise ValueError('Incomplete CPU energy model')
+    return domains
+
+
 def boot_power_contract(log):
     """Only completed bootstrap contracts; never infer consumption from PDOs."""
     if 'PD bootstrap complete; USB-capable 5V contract established' not in log:
@@ -1835,6 +1883,8 @@ def main(argv):
             print(json.dumps(result))
         return
     match argv:
+        case ['cpu-power-snapshot']:
+            print(json.dumps(cpu_power_snapshot()))
         case ['power-status']:
             print(json.dumps(power_status()))
         case ['media-list']:
@@ -1878,7 +1928,7 @@ def main(argv):
 def operation_lock(argv):
     action = argv[0] if argv else ''
     if action.startswith('disk-') or action in ('media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
-                                               'wifi-status', 'wifi-scan', 'power-status'):
+                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'

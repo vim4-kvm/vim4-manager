@@ -29,7 +29,7 @@ func main() {
 		os.Exit(1)
 	}
 	// 180 samples at 5 s cover the last 15 minutes of the trend charts.
-	history := &board.History{Root: "/", Capacity: 180}
+	history := &board.History{Root: "/", Capacity: 180, Execute: board.Exec}
 	updater := &board.Updater{Client: &http.Client{}, Dir: board.UpdateDir}
 	service := &board.Service{Run: board.Exec, Root: "/", History: history, Events: &board.Events{Capacity: 60}, Updater: updater}
 	server := &http.Server{Addr: *listen, Handler: web.CheckHost(service, web.Handler(service, assets), strings.Split(*allowedHosts, ",")), ReadHeaderTimeout: 10 * time.Second}

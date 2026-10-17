@@ -251,6 +251,7 @@ function bytes(n: number): string {
   return n >= 2 ** 40 ? `${(n / 2 ** 40).toFixed(1)} TiB` : `${(n / 2 ** 30).toFixed(1)} GiB`;
 }
 const celsius = (v: number) => `${v.toFixed(1)} °C`;
+const watts = (v: number) => `${v.toFixed(2)} W`;
 
 function TrendCard({
   title,
@@ -291,6 +292,9 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const [hover, setHover] = useState<number>();
   const series = (pick: (s: Sample) => number): Point[] => history.map((s) => ({ t: s.t, v: pick(s) }));
   const cpu = series((s) => s.cpu);
+  const cpuPower = history.flatMap((s) => s.cpuPowerW == null ? [] : [{ t: s.t, v: s.cpuPowerW }]);
+  const lastPower = history.at(-1)?.cpuPowerW;
+  const powerMax = niceCeil(Math.max(1, ...cpuPower.map((p) => p.v)));
   const mem = series((s) => s.mem);
   const temp = series((s) => s.tempC);
   const fan = series((s) => s.fan);
@@ -308,6 +312,12 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
     <div className="trends">
       <TrendCard title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent)}`}>
         <TrendChart label="CPU 使用率" points={cpu} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
+      </TrendCard>
+      <TrendCard title="CPU 动态功耗（估算）" value={lastPower == null ? "—" : watts(lastPower)}
+        detail={lastPower == null ? "暂无估算数据 · 需要连续两次有效采样" : "按频率驻留与各核利用率估算 · 不含静态功耗"}>
+        <TrendChart label="CPU 动态功耗估算" points={cpuPower} domain={[0, powerMax]}
+          ticks={[0, powerMax / 2, powerMax]} format={watts} maxGapMs={7500}
+          currentAvailable={lastPower != null} {...shared} />
       </TrendCard>
       <TrendCard
         title="内存"
@@ -347,7 +357,6 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
             接收 {bitrate(lastRx)}
           </span>
         }
-        wide
       >
         <TrendChart
           label="网络发送"

@@ -22,6 +22,31 @@ loader.exec_module(helper)
 class PowerTest(unittest.TestCase):
     COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
 
+    def test_cpu_snapshot_requires_complete_model_with_physical_units(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def write(path, text):
+                dest = root / path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(text)
+            write('proc/stat', 'cpu0 10 0 20 70 5 0 0 0 10 0\ncpu1 0 0 0 100 0 0 0 0 0 0\n')
+            base = 'sys/kernel/debug/energy_model/cpu0/'
+            write(base + 'units', 'milliWatts\n')
+            write(base + 'cpus', '0-1\n')
+            write(base + 'ps:1000000/power', '351\n')
+            write('sys/devices/system/cpu/cpufreq/policy0/stats/time_in_state', '1000000 200\n')
+            with patch.object(helper, 'Path', side_effect=lambda p: root / str(p).lstrip('/')):
+                snapshot = helper.cpu_power_snapshot()
+                self.assertEqual(snapshot[0]['cpus']['0'], {'busy': 30, 'total': 105})
+                self.assertEqual(snapshot[0]['states']['1000000'], {'ticks': 200, 'milliwatts': 351})
+                write(base + 'units', 'bogoWatts\n')
+                with self.assertRaises(ValueError):
+                    helper.cpu_power_snapshot()
+                write(base + 'units', 'milliWatts\n')
+                write(base + 'cpus', '0\n')
+                with self.assertRaises(ValueError):
+                    helper.cpu_power_snapshot()
+
     def test_bootstrap_requires_completion_and_uses_requested_current(self):
         log = 'Request rdo 13025896: tx 0\n'
         self.assertIsNone(helper.boot_power_contract(log))

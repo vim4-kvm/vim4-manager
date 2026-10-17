@@ -1,0 +1,41 @@
+import assert from "node:assert/strict";
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
+const now = Date.now();
+const status = {
+  active: "", apps: [], platform: [],
+  power: { vbusPresent: true, bootContract: { voltageV: 5, currentA: 3 } },
+  hardware: { hostname: "vim4", kernel: "5.15.137", uptimeSeconds: 60, load1: 0, cpus: 8,
+    memTotalKiB: 1024, memAvailableKiB: 512, tempC: 50, zones: [], fanAuto: true,
+    fanPercent: 30, usb: "configured", hdmi: { signal: false, audio: false }, hdrCurve: { white: 203, peak: 1000 } },
+  system: { links: [], disk: { totalBytes: 1, freeBytes: 1 }, packages: [] }, events: [],
+  history: [0.5, 0.8, null, 0.2, 0].map((cpuPowerW, i) => ({
+    t: now - (4 - i) * 5000, cpu: 10, mem: 50, tempC: 50, fan: 30, rxBps: 0, txBps: 0, cpuPowerW,
+  })),
+};
+const browser = await chromium.launch({ channel: "chrome", headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+  await page.route("**/api/status", (route) => route.fulfill({ json: status }));
+  await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
+  await page.getByText("5 V / 3 A", { exact: true }).waitFor();
+  await page.getByText(/供电额度 15 W/).waitFor();
+  const chart = page.locator("figure").filter({ hasText: "CPU 动态功耗（估算）" });
+  await chart.getByText("0.00 W", { exact: true }).waitFor();
+  const line = chart.locator(".chart-line");
+  await line.waitFor();
+  assert.equal(((await line.getAttribute("d")) || "").split("M").length - 1, 2, "missing interval splits the curve");
+  await chart.getByRole("img").focus();
+  await page.keyboard.press("ArrowLeft");
+  await chart.locator(".chart-tooltip").getByText("0.00 W", { exact: true }).waitFor();
+  status.history.push({ ...status.history.at(-1), t: now + 5000, cpuPowerW: null });
+  await page.reload();
+  await chart.getByText("—", { exact: true }).waitFor();
+  assert.equal(await chart.locator(".chart-dot").count(), 0, "unavailable current sample does not show a stale last dot");
+  assert.match(await chart.getByRole("img").getAttribute("aria-label"), /当前\s*暂无数据/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+  if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/power-phone.png`, fullPage: true });
+  console.log("PASS: PD allowance, CPU watts, gaps, zero vs unavailable, keyboard tooltip and mobile layout");
+} finally {
+  await browser.close();
+}
