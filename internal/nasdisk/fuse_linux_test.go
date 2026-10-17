@@ -5,11 +5,13 @@ package nasdisk
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -18,6 +20,96 @@ import (
 )
 
 type stalledReader struct{ entered chan struct{} }
+
+func TestFUSEIOTimeoutReturnsEIOAndRecovers(t *testing.T) {
+	if _, err := os.Stat("/dev/fuse"); err != nil {
+		t.Skip("/dev/fuse unavailable")
+	}
+	for _, mode := range []string{"read", "write"} {
+		t.Run(mode, func(t *testing.T) {
+			s := testSession(t)
+			release := make(chan struct{})
+			defer func() {
+				select {
+				case <-release:
+				default:
+					close(release)
+				}
+			}()
+			// Exercise the production deadline through actual kernel I/O.
+			disk := &Disk{Size: s.layout.Geometry.Size}
+			if mode == "read" {
+				volume := vfat.NewVolume(s.layout, s.source)
+				var first atomic.Bool
+				disk.Reader = readerFunc(func(p []byte, off int64) (int, error) {
+					if first.CompareAndSwap(false, true) {
+						<-release
+					}
+					return volume.ReadAt(p, off)
+				})
+			} else {
+				backend := &blockedOverlay{Overlay: s.disk.Overlay, entered: make(chan struct{}), release: release}
+				disk.Reader, disk.Overlay = backend, backend
+				disk.EnableWrites()
+			}
+			mount := t.TempDir()
+			unmount, err := MountDisk(context.Background(), mount, "disk.img", disk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer unmount()
+			flags := os.O_RDONLY
+			if mode == "write" {
+				flags = os.O_RDWR
+			}
+			file, err := os.OpenFile(filepath.Join(mount, "disk.img"), flags, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer file.Close()
+			off := s.layout.Geometry.ClusterOffset(s.layout.Entries[1].FirstCluster)
+			buffer := make([]byte, 8)
+			operation := func() (int, error) { return file.ReadAt(buffer, off) }
+			if mode == "write" {
+				operation = func() (int, error) { return file.WriteAt([]byte("host new"), off) }
+			}
+			started := time.Now()
+			if n, err := operation(); n != 0 || !errors.Is(err, syscall.EIO) {
+				t.Fatalf("FUSE timeout: %d %v", n, err)
+			}
+			elapsed := time.Since(started)
+			budget := disk.ioTimeout
+			if budget == 0 {
+				budget = diskIOTimeout
+			}
+			if elapsed > budget+time.Second || elapsed < budget-50*time.Millisecond {
+				t.Fatalf("FUSE deadline: %s (budget %s)", elapsed, budget)
+			}
+			t.Logf("FUSE %s returned EIO after %s", mode, elapsed)
+			if !disk.NasStalled(time.Now()) {
+				t.Fatal("FUSE timeout omitted stall status")
+			}
+			if mode == "write" {
+				disk.ioTimeout = 100 * time.Millisecond
+				requireIOError(t, operation)
+				if err := file.Sync(); !errors.Is(err, syscall.EIO) {
+					t.Fatalf("FUSE fsync exceeded the I/O bound: %v", err)
+				}
+			}
+			close(release)
+			if err := disk.Sync(); err != nil {
+				t.Fatal(err)
+			}
+			want := "original"
+			if mode == "write" {
+				want = "host new"
+			}
+			if _, err := file.ReadAt(buffer, off); err != nil || string(buffer) != want {
+				t.Fatalf("FUSE recovery: %q %v", buffer, err)
+			}
+		})
+	}
+}
 
 func (r stalledReader) ReadAt(p []byte, off int64) (int, error) {
 	close(r.entered)

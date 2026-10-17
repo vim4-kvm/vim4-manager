@@ -217,7 +217,7 @@ NFS 固定 `soft,timeo=150,retrans=3,nofail,_netdev,x-systemd.mount-timeout=30`�
 soft 挂载在网络故障时可能返回 I/O 错误，调用方需处理失败，不能把挂载存在等同于可写。
 SMB 在 NAS 无响应约 30 秒后报错；NFSv4/TCP 在服务器静默丢包时，实测 `timeo=50,retrans=2` 下写入和 stat 仍阻塞超过 300 秒，
 挂载参数无法给出上限。所有读写 NAS 的程序必须自行设上限（管理器 2–3 秒子进程、One-KVM 录制 1.5 秒等待）；
-NAS 文件夹 U 盘在 NAS 卡住期间，被控电脑的读写也会卡住。
+NAS 文件夹 U 盘为主机读写另设 8 秒上限，NAS 卡住时向被控电脑返回 I/O 错误。
 
 测试临时挂载在 `/run/vim4-manager-nas-test/随机/mount`，挂载、探测、卸载预算分别为 8/3/3 秒，
 正常 15 秒内返回。内核不可中断 I/O 的工作进程可能在返回后等待 NAS 恢复；清理失败会明确返回失败，
@@ -276,8 +276,9 @@ FAT 时间是不带时区的本地时间，时区取自发起挂载的浏览器�
 跨簇脏标记的限制；新规则只用于新会话，不改动已有写入层。
 
 重启或崩溃后，已挂载存储下含写入层或 journal 的会话列入 `pending`，可以回写或放弃。
-恢复模式不挂 LUN；之前崩溃遗留的 LUN 必须先弹出。状态扫描有 3 秒预算和条目上限，
-超时返回 `known:false`，不能据空 pending 列表判断没有待恢复数据。
+恢复模式不挂 LUN；之前崩溃遗留的 LUN 必须先弹出。状态查询中的服务探测、pending 扫描和
+trash 统计共享约 3 秒预算，扫描另有条目上限。
+pending 扫描超时返回 `known:false`，不能据空 pending 列表判断没有待恢复数据。
 服务持有 NAS 目录描述符和写入层文件；网络存储 busy 检查还检查正在运行的会话，防止扫描启动窗口内卸载。
 
 | HTTP | 参数与结果 |
@@ -292,7 +293,9 @@ FAT 时间是不带时区的本地时间，时区取自发起挂载的浏览器�
 
 session 包含存储、路径、模式、卷标、扫描计数、文件/目录数、容量、已用/写入字节数、
 跳过项、USB configured 状态、计划计数、步骤/字节进度、决策原因和错误。
-`session.utcOffsetMinutes` 为固定时区偏移；`decision.reason` 和 failed 的 `error` 为中文可读原因，
+`session.utcOffsetMinutes` 为固定时区偏移；`decision.reason` 和 failed 的 `error` 为中文可读原因。
+`session.nasStalled` 表示最近 10 秒内发生过 I/O 超时，可提示「NAS 暂时无响应，电脑上的读取会失败」；
+没有新超时后自动清除。状态发布读取缓存的写入量，不等待 NAS 或写入层互斥锁。
 `session.detail` 保留原始错误或 FAT 警告（通常为英文，供前端折叠排查），恢复正常状态后清空。
 源读取失败会携带所选目录内以 `/` 开头的文件路径，如「读取 NAS 上的 /工具/random.bin 失败：文件在 U 盘挂载期间被改动，或 NAS 暂时无法访问」。
 状态为 `scanning/attaching/attached/parsing/committing/needs-decision/failed`。
@@ -336,7 +339,18 @@ Linux CIFS 的 `cifs_inode_needs_reval` 按缓存期限、缓存权限等决定�
 OrbStack vim4-build 无 cifs-utils/Samba，回归使用本地目录复现临时名写入、fsync、rename、设置 mtime 后立即扫描读取，
 并用受控 mtime 变化覆盖瞬时不一致恢复、真实修改永久 EIO；不能当作 SMB 断线重连验证。
 每个写入块均同步到 NAS，速度受网络往返影响。回写暂存内容和临时文件需要额外空间，空间不足保留会话供恢复。
-NAS 断线期间 I/O 可阻塞至挂载选项的超时；SMB/NFS 恢复、真实 USB eject 和电源中断仍需实板验证。
+单个 FUSE 读、写及 fsync（包括等待写入层串行门）超过 8 秒返回 EIO，
+低于 macOS/Windows/Linux 常见的 30 秒 SCSI 命令超时，为 f_mass_storage 和主机重试留余量。
+预期主机表现为读写报错、f_mass_storage 报告介质错误，避免因 NAS 长时间无响应而复位整个 USB 设备；
+实际主机的重试和复位策略仍需实板验证。超时不表示源文件被修改，不改变上述快照复核规则。
+已进入 NAS 系统调用的操作可能稍后完成；每会话最多保留 4 个后台操作，满额立即 EIO。
+可写卷的串行门一直保留至实际操作结束，后续请求在自己的截止时间内放弃，不留下迟到写入队列；
+因此早先卡住的写不会覆盖后来成功的版本。读写使用独立缓冲区，超时后不再访问主机请求内存。
+写入或同步超时后，即使主机已收到失败，写入层也可能稍后记录成功的版本；主机可能重试或将文件系统标脏，
+Parse 会继续检查结构，但结构正确不能证明主机意图。会话保留写超时标记，弹出后强制进入 `needs-decision`，
+原因是「NAS 在 U 盘写入期间暂时无响应」，不自动回写。NAS 恢复后可重新挂载检查，
+或显式选择回写可识别内容、放弃；重新挂载不清除该会话的写超时标记。
+SMB/NFS 恢复、真实 USB eject 和电源中断仍需实板验证。
 
 Go 依赖固定在 `go.mod/go.sum`，同时提交 vendor，Go 构建无需下载模块。
 Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev/fuse`、dosfstools、mtools 的 VM

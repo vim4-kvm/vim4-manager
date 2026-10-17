@@ -1,6 +1,8 @@
 import io
 import json
 import os
+import signal
+import time
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +13,8 @@ from test_helper import helper
 
 
 class NASDiskTest(unittest.TestCase):
+    real_bounded = staticmethod(helper.storage_bounded)
+
     def setUp(self):
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         for name in ('NAS_ROOT', 'NAS_CONFIG', 'NASDISK_RUNTIME'):
@@ -117,6 +121,48 @@ class NASDiskTest(unittest.TestCase):
         with patch.object(helper, 'media_locks', lock), patch.object(helper, 'media_active'), patch.object(helper, 'storage_run', side_effect=lambda args, timeout: 'active' if args[-1] == helper.APPS['jetkvm'] else 'inactive'):
             with self.assertRaisesRegex(ValueError, 'JetKVM'):
                 helper.nasdisk_command(['nasdisk-lun-attach', identifier])
+
+    def test_status_shares_budget_across_service_pending_and_trash(self):
+        (helper.NASDISK_RUNTIME / 'status.json').write_text(json.dumps(dict(id='live', state='attached')))
+        (helper.NASDISK_RUNTIME / 'last.json').write_text(json.dumps(dict(id='old')))
+        clock = 0.0
+        def active(timeout):
+            nonlocal clock
+            self.assertLessEqual(timeout, 0.5)
+            clock += timeout
+            raise TimeoutError('service unavailable')
+        def pending(timeout):
+            nonlocal clock
+            self.assertAlmostEqual(timeout, 2.2)
+            clock += timeout
+            raise TimeoutError('NAS unavailable')
+        with patch.object(helper.time, 'monotonic', side_effect=lambda: clock), patch.object(
+                helper, 'nasdisk_active', side_effect=active), patch.object(
+                helper, 'nasdisk_pending', side_effect=pending), patch.object(helper, 'nasdisk_trash') as trash:
+            answer = helper.nasdisk_command(['nasdisk-status'])
+        self.assertFalse(answer['known'])
+        self.assertEqual(answer['session']['id'], 'live')
+        self.assertIsNone(answer['last']['trash'])
+        trash.assert_not_called()
+
+    def test_status_returns_with_blocked_pending_or_trash_worker(self):
+        (helper.NASDISK_RUNTIME / 'status.json').write_text(json.dumps(dict(id='live', state='attached')))
+        (helper.NASDISK_RUNTIME / 'last.json').write_text(json.dumps(dict(id='old')))
+        self.active.return_value = True
+        for blocked in ('pending', 'trash'):
+            with self.subTest(blocked=blocked):
+                def stall(*args, timeout):
+                    return self.real_bounded(signal.pause, timeout)
+                pending = stall if blocked == 'pending' else lambda **kwargs: []
+                with patch.object(helper, 'nasdisk_pending', side_effect=pending), patch.object(
+                        helper, 'nasdisk_trash', side_effect=stall):
+                    started = time.monotonic()
+                    answer = helper.nasdisk_command(['nasdisk-status'])
+                    elapsed = time.monotonic() - started
+                self.assertLess(elapsed, 3.3)
+                self.assertEqual(answer['session']['id'], 'live')
+                self.assertIsNone(answer['last']['trash'])
+                self.assertEqual(answer['known'], blocked != 'pending')
 
     def trash_fixture(self):
         identifier = 'a' * 32

@@ -63,6 +63,7 @@ type Status struct {
 	Skipped       []Skipped `json:"skipped"`
 	SkippedCount  int       `json:"skippedCount"`
 	HostConnected bool      `json:"hostConnected"`
+	NasStalled    bool      `json:"nasStalled"`
 	Plan          *Counts   `json:"plan"`
 	Progress      *Progress `json:"progress"`
 	Decision      *Decision `json:"decision"`
@@ -386,6 +387,7 @@ func (s *session) initialize(ctx context.Context) error {
 		}
 		disk.Overlay = overlay
 		disk.Reader = overlay
+		disk.written.Store(overlay.WrittenBytes())
 	}
 	s.mu.Lock()
 	s.disk = disk
@@ -444,10 +446,8 @@ func (s *session) checkEjected(ctx context.Context) error {
 	if strings.TrimSpace(string(b)) == s.image {
 		return nil
 	}
-	if e = s.disk.Freeze(); e != nil {
-		return e
-	}
 	if s.status.Mode == "ro" {
+		s.disk.Freeze()
 		return s.finish("unchanged", nil)
 	}
 	if e = s.commit(ctx, false); e != nil {
@@ -466,11 +466,22 @@ func (s *session) commit(ctx context.Context, force bool) error {
 	if s.journal == nil {
 		s.setState("parsing")
 		if e := s.disk.Freeze(); e != nil {
+			if s.disk.writeTimeout.Load() {
+				s.writeTimeoutDecision(false)
+				return nil
+			}
 			return e
 		}
 		result, e := vfat.Parse(ctx, s.disk.Reader, vfat.ReaderOptions{UTCOffsetMinutes: s.status.UTCOffsetMinutes})
 		s.result = result
 		canForce := result != nil && result.Geometry == s.layout.Geometry && len(result.Nodes) > 0
+		// A timed-out write can become durable after the host received EIO.
+		// Host retries or dirty FAT flags cannot prove intent: even a valid
+		// volume requires an explicit decision before publishing to the NAS.
+		if s.disk.writeTimeout.Load() && !force {
+			s.writeTimeoutDecision(canForce)
+			return nil
+		}
 		if (e != nil || !result.Safe || len(result.Warnings) > 0) && (!force || !canForce) {
 			reason := "文件系统需要检查"
 			detail := "FAT32 validation did not complete"
@@ -526,6 +537,15 @@ func (s *session) commit(ctx context.Context, force bool) error {
 	}
 	s.setState("committing")
 	return s.journal.Execute(ctx, s.executionRoot(), s.directory, func(p Progress) error { s.mu.Lock(); s.status.Progress = &p; s.mu.Unlock(); return nil })
+}
+
+func (s *session) writeTimeoutDecision(canForce bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.State = "needs-decision"
+	s.status.Decision = &Decision{"NAS 在 U 盘写入期间暂时无响应", canForce}
+	s.status.Error = ""
+	s.status.Detail = "A timed-out overlay write or sync may have completed after the host received EIO."
 }
 
 func (s *session) executionRoot() string {
@@ -655,6 +675,7 @@ func (s *session) publish(ctx context.Context) {
 		s.status.HostConnected = connected
 		if s.disk != nil {
 			s.status.WrittenBytes = s.disk.Written()
+			s.status.NasStalled = s.disk.NasStalled(time.Now())
 		}
 		if s.status.State != "finished" {
 			AtomicJSON(s.runtimePath("status.json"), s.status)

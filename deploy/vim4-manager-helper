@@ -2481,7 +2481,7 @@ def nasdisk_folder(config, path):
     return storage_bounded(validate, 3)
 
 
-def nasdisk_pending():
+def nasdisk_pending(timeout=3):
     def scan():
         pending = []
         remaining = 100000
@@ -2513,11 +2513,11 @@ def nasdisk_pending():
                                         startedAt=metadata['startedAt'], utcOffsetMinutes=metadata.get('utcOffsetMinutes', 0),
                                         journal=(session / 'journal').exists()))
         return pending
-    return storage_bounded(scan, 3)
+    return storage_bounded(scan, timeout)
 
 
-def nasdisk_active():
-    return storage_run(['systemctl', 'show', '--property=ActiveState', '--value', 'vim4-nasdisk.service'], 3).strip() in ('active', 'activating', 'deactivating')
+def nasdisk_active(timeout=3):
+    return storage_run(['systemctl', 'show', '--property=ActiveState', '--value', 'vim4-nasdisk.service'], timeout).strip() in ('active', 'activating', 'deactivating')
 
 
 def nasdisk_cleanup_mount():
@@ -2537,7 +2537,7 @@ def nasdisk_cleanup_mount():
         storage_run(['umount', '-l', str(mount)], 3)
 
 
-def nasdisk_trash(last, empty=False):
+def nasdisk_trash(last, empty=False, timeout=3):
     config = storage_load(last.get('storage'))
     def visit():
         with ExitStack() as stack:
@@ -2579,7 +2579,7 @@ def nasdisk_trash(last, empty=False):
                                 os.unlink(entry.name, dir_fd=parent)
             walk(fd, 0)
             return dict(bytes=0, files=0) if empty else result
-    return storage_bounded(visit, 3)
+    return storage_bounded(visit, timeout)
 
 
 def nasdisk_trash_empty(request):
@@ -2612,18 +2612,31 @@ def nasdisk_control(action, identifier='', force=False, confirm=''):
 def nasdisk_command(argv):
     match argv:
         case ['nasdisk-status']:
+            # All probes share one budget; independent 3 s limits would add
+            # up when pending and trash both hit the same frozen NAS.
+            deadline = time.monotonic() + 2.7
+            def remaining():
+                budget = deadline - time.monotonic()
+                if budget <= 0:
+                    raise TimeoutError('网络存储状态查询超时')
+                return budget
+            session = nasdisk_read('status.json')
+            last = nasdisk_read('last.json')
             known = True
             try:
-                pending = nasdisk_pending()
+                if not nasdisk_active(timeout=min(0.5, remaining())):
+                    session = None
+            except (ValueError, OSError):
+                known = False
+            try:
+                pending = nasdisk_pending(timeout=remaining())
             except (ValueError, OSError):
                 pending, known = [], False
-            session = nasdisk_read('status.json') if nasdisk_active() else None
             if session:
                 pending = [item for item in pending if item['id'] != session['id']]
-            last = nasdisk_read('last.json')
             if last:
                 try:
-                    last['trash'] = nasdisk_trash(last)
+                    last['trash'] = nasdisk_trash(last, timeout=remaining())
                 except (ValueError, OSError):
                     last['trash'] = None
             return dict(known=known, session=session, last=last, pending=pending)

@@ -50,10 +50,7 @@ func (n *diskNode) Write(ctx context.Context, f fs.FileHandle, data []byte, off 
 	return uint32(count), 0
 }
 func (n *diskNode) Fsync(ctx context.Context, f fs.FileHandle, flags uint32) syscall.Errno {
-	if n.disk.Overlay != nil {
-		return fs.ToErrno(n.disk.Overlay.Sync())
-	}
-	return 0
+	return fs.ToErrno(n.disk.Sync())
 }
 func (n *diskNode) Release(ctx context.Context, f fs.FileHandle) syscall.Errno {
 	n.disk.Release()
