@@ -113,6 +113,14 @@ try {
   await page.waitForTimeout(100);
   assert.deepEqual(requests.at(-1), { path: "/api/nasdisk/reattach", body: { id: "s1" } });
 
+  disk = { ...disk, session: { ...disk.session, state: "failed", decision: null, error: "读取 NAS 上的文件失败" } };
+  await page.getByText("未写回的修改仍保存在 NAS 的暂存区").waitFor();
+  await page.getByRole("button", { name: "重试写回" }).click();
+  await page.waitForTimeout(100);
+  assert.deepEqual(requests.at(-1), { path: "/api/nasdisk/commit", body: { id: "s1" } });
+  await page.getByRole("button", { name: "放弃修改…" }).waitFor();
+  await shot(page, "nasdisk-failed");
+
   disk = { ...disk, session: null, pending: [{ id: "p1", storage: "home", storageName: "家庭 NAS", path: "/", writtenBytes: 2 ** 30, startedAt: 1760000000, journal: true }] };
   await page.getByText("未写回的修改").waitFor();
   await page.getByRole("button", { name: "写回 NAS" }).click();
@@ -125,5 +133,5 @@ try {
   await page.getByText("U 盘没有被安全弹出").waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await shot(page, "nasdisk-mobile");
-  console.log("PASS: trash summary and empty, folder picker, new folder, label, start, scanning, attached with skipped list, write-back progress, decision actions, pending commit, last result, mobile layout");
+  console.log("PASS: trash summary and empty, folder picker, new folder, label, start, scanning, attached with skipped list, write-back progress, decision actions, failed actions, pending commit, last result, mobile layout");
 } finally { await browser.close(); }

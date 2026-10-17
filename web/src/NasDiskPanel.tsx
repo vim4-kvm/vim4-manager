@@ -156,7 +156,12 @@ export function NasDiskPanel({
           onCancel={() => setConfirming({ kind: "cancel" })}
           onReattach={() => void act("正在重新挂载…", () => nasDiskWrite("/reattach", { id: session.id }))}
           onForce={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: session.id, force: true }))}
-          onDiscard={() => setConfirming({ kind: "discard", id: session.id, name: `${session.storageName} › ${displayPath(session.path)}` })}
+          onRetry={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: session.id }))}
+          onDiscard={() =>
+            session.mode === "ro"
+              ? void act("正在结束…", () => nasDiskWrite("/discard", { id: session.id, confirm: session.id }))
+              : setConfirming({ kind: "discard", id: session.id, name: `${session.storageName} › ${displayPath(session.path)}` })
+          }
         />
       ) : setup ? (
         <SetupForm setup={setup} setSetup={setSetup} storages={mounted} locked={locked} onCancel={() => setSetup(undefined)} onStart={() => void start()} />
@@ -470,6 +475,7 @@ function SessionCard({
   onCancel,
   onReattach,
   onForce,
+  onRetry,
   onDiscard,
 }: {
   session: NasDiskSession;
@@ -479,6 +485,7 @@ function SessionCard({
   onCancel: () => void;
   onReattach: () => void;
   onForce: () => void;
+  onRetry: () => void;
   onDiscard: () => void;
 }) {
   const rw = s.mode === "rw";
@@ -587,7 +594,30 @@ function SessionCard({
         </div>
       )}
 
-      {s.state === "failed" && s.error && <p className="storage-error">{s.error}</p>}
+      {s.state === "failed" && (
+        <div className="nasdisk-decision">
+          <p>
+            {s.error || "U 盘出错。"}
+            {rw && " 未写回的修改仍保存在 NAS 的暂存区。"}
+          </p>
+          <ul className="nasdisk-choices">
+            {rw && (
+              <li>
+                <button className="button primary" disabled={locked} onClick={onRetry}>
+                  重试写回
+                </button>
+                <span className="muted">NAS 恢复访问后再试</span>
+              </li>
+            )}
+            <li>
+              <button className="button danger" disabled={locked} onClick={onDiscard}>
+                {rw ? "放弃修改…" : "结束"}
+              </button>
+              <span className="muted">{rw ? "NAS 保持挂载前的样子" : "结束这次 U 盘"}</span>
+            </li>
+          </ul>
+        </div>
+      )}
 
       {s.skippedCount > 0 && (
         <div className="nasdisk-skipped">
