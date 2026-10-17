@@ -2077,7 +2077,8 @@ main {
   box-shadow: 0 0 0 1px var(--accent);
 }
 
-.field input[aria-invalid="true"] {
+.field input[aria-invalid="true"],
+.nasdisk-mkdir-row input[aria-invalid="true"] {
   border-color: var(--critical);
 }
 
@@ -2756,7 +2757,8 @@ section:has(.wifi-card) + section:has(.tailscale-card) {
 }
 
 .field input,
-.disk-inline input {
+.disk-inline input,
+.nasdisk-mkdir-row input {
   height: 32px;
   min-width: 0;
   padding: 0 10px;
@@ -2769,7 +2771,8 @@ section:has(.wifi-card) + section:has(.tailscale-card) {
 }
 
 .field input:focus,
-.disk-inline input:focus {
+.disk-inline input:focus,
+.nasdisk-mkdir-row input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
@@ -4160,4 +4163,39 @@ section:has(.wifi-card) + section:has(.tailscale-card) {
   .nasdisk-pending li > div {
     grid-column: 1 / -1;
   }
+}
+
+.nasdisk-mkdir {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--rule);
+  font-size: 12.5px;
+}
+
+.nasdisk-mkdir-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nasdisk-mkdir-row input {
+  flex: 1;
+  max-width: 280px;
+  height: 28px;
+}
+
+.nasdisk-trash {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.nasdisk-trash code {
+  overflow-wrap: anywhere;
 }

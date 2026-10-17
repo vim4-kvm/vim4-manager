@@ -388,6 +388,7 @@ export interface NasDiskLast {
   conflicts: { path: string; copy: string }[];
   error: string;
   finishedAt: number;
+  trash?: { bytes: number; files: number } | null;
 }
 
 export interface NasDiskState {

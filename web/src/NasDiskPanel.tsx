@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { nasDiskWrite, request, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage } from "./api";
+import { nasDiskWrite, request, storageWrite, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage } from "./api";
 import { bytes } from "./DiskPanel";
 import { hostEject } from "./MediaPanel";
 
 type Setup = { storage: string; path: string; mode: "ro" | "rw"; label: string; labelEdited: boolean };
-type Confirm = { kind: "discard"; id: string; name: string } | { kind: "cancel" };
+type Confirm = { kind: "discard"; id: string; name: string } | { kind: "cancel" } | { kind: "trash"; id: string; files: number; bytes: number };
 
 const SKIP_REASONS: Record<string, string> = {
   "file size outside FAT32 range": "不小于 4 GiB",
@@ -15,6 +15,8 @@ const SKIP_REASONS: Record<string, string> = {
   "directory entry limit": "所在文件夹条目过多",
   "excluded directory": "管理用目录",
 };
+
+const CONFIRM_TITLE = { discard: "放弃修改", cancel: "取消挂载", trash: "清空回收目录" };
 
 export function folderLabel(path: string) {
   const name = path.split("/").filter(Boolean).pop() ?? "";
@@ -159,7 +161,13 @@ export function NasDiskPanel({
       ) : setup ? (
         <SetupForm setup={setup} setSetup={setSetup} storages={mounted} locked={locked} onCancel={() => setSetup(undefined)} onStart={() => void start()} />
       ) : (
-        state?.last && <LastResult last={state.last} />
+        state?.last && (
+          <LastResult
+            last={state.last}
+            locked={locked}
+            onEmptyTrash={(t) => setConfirming({ kind: "trash", id: state.last!.id, files: t.files, bytes: t.bytes })}
+          />
+        )
       )}
 
       {!!state?.pending.length && (
@@ -195,11 +203,13 @@ export function NasDiskPanel({
       )}
 
       {confirming && (
-        <div className="confirm" role="alertdialog" aria-label={confirming.kind === "discard" ? "放弃修改" : "取消挂载"}>
+        <div className="confirm" role="alertdialog" aria-label={CONFIRM_TITLE[confirming.kind]}>
           <span>
             {confirming.kind === "discard"
               ? `放弃「${confirming.name}」中被控电脑做的全部修改。NAS 上的文件保持挂载前的样子，此操作无法撤销。`
-              : "停止准备 U 盘。被控电脑还没有看到这个 U 盘。"}
+              : confirming.kind === "trash"
+                ? `永久删除回收目录中的 ${confirming.files.toLocaleString()} 个文件（${bytes(confirming.bytes)}）。它们是回写时被删除或覆盖的旧版本，删除后无法找回。`
+                : "停止准备 U 盘。被控电脑还没有看到这个 U 盘。"}
           </span>
           <button className="button" onClick={() => setConfirming(undefined)}>
             返回
@@ -210,10 +220,12 @@ export function NasDiskPanel({
             onClick={() =>
               void (confirming.kind === "discard"
                 ? act("正在放弃修改…", () => nasDiskWrite("/discard", { id: confirming.id, confirm: confirming.id }))
-                : act("正在取消…", () => nasDiskWrite("/cancel", {})))
+                : confirming.kind === "trash"
+                  ? act("正在清空回收目录…", () => nasDiskWrite("/trash-empty", { id: confirming.id, confirm: confirming.id }))
+                  : act("正在取消…", () => nasDiskWrite("/cancel", {})))
             }
           >
-            {confirming.kind === "discard" ? "放弃修改" : "取消挂载"}
+            {CONFIRM_TITLE[confirming.kind]}
           </button>
         </div>
       )}
@@ -244,12 +256,17 @@ function SetupForm({
 }) {
   const [dirs, setDirs] = useState<{ names: string[]; truncated: boolean }>();
   const [dirError, setDirError] = useState("");
+  const [newName, setNewName] = useState<string>();
+  const [creating, setCreating] = useState(false);
+  const [mkdirError, setMkdirError] = useState("");
   const storage = storages.find((s) => s.id === setup.storage);
 
   useEffect(() => {
     let cancelled = false;
     setDirs(undefined);
     setDirError("");
+    setNewName(undefined);
+    setMkdirError("");
     request<{ entries: { name: string }[]; truncated: boolean }>(
       `/api/storage/dirs?${new URLSearchParams({ id: setup.storage, path: setup.path })}`,
       undefined,
@@ -266,6 +283,32 @@ function SetupForm({
   const parts = setup.path.split("/").filter(Boolean);
   const labelValid = /^[A-Z0-9 _-]{1,11}$/.test(setup.label) && setup.label.trim() === setup.label;
   const readOnlyOnly = storage?.writable === false;
+  const nameTrimmed = newName?.trim() ?? "";
+  const nameProblem = !nameTrimmed
+    ? ""
+    : nameTrimmed === "." || nameTrimmed === ".." || nameTrimmed === ".vim4-nasdisk"
+      ? "不能使用这个名称"
+      : /[\x00-\x1f\x7f\\/"*?<>|:%]/.test(nameTrimmed)
+      ? "名称不能包含 \\ / \" * ? < > | : % 或控制字符"
+      : new TextEncoder().encode(nameTrimmed).length > 255
+        ? "名称过长"
+        : dirs?.names.some((n) => n.toLowerCase() === nameTrimmed.toLowerCase())
+          ? "已有同名文件夹"
+          : "";
+
+  async function mkdir() {
+    if (!nameTrimmed || nameProblem || creating) return;
+    setCreating(true);
+    setMkdirError("");
+    try {
+      const r = await storageWrite<{ path: string }>("/mkdir", { id: setup.storage, path: setup.path, name: nameTrimmed });
+      go(r.path);
+    } catch (e) {
+      setMkdirError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreating(false);
+    }
+  }
 
   return (
     <form
@@ -329,6 +372,49 @@ function SetupForm({
             ))}
             {dirs.truncated && <li className="muted nasdisk-dirs-note">只显示前 500 个文件夹</li>}
           </ul>
+        )}
+        {dirs && !readOnlyOnly && (
+          <div className="nasdisk-mkdir">
+            {newName === undefined ? (
+              <button type="button" className="link-button" disabled={locked} onClick={() => setNewName("")}>
+                新建文件夹
+              </button>
+            ) : (
+              <>
+                <div className="nasdisk-mkdir-row">
+                  <input
+                    aria-label="新文件夹名称"
+                    placeholder="文件夹名称"
+                    value={newName}
+                    autoFocus
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={!!nameProblem}
+                    onChange={(e) => {
+                      setNewName(e.target.value);
+                      setMkdirError("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void mkdir();
+                      } else if (e.key === "Escape") {
+                        e.preventDefault();
+                        setNewName(undefined);
+                      }
+                    }}
+                  />
+                  <button type="button" className="button small primary" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
+                    {creating ? "正在创建…" : "创建"}
+                  </button>
+                  <button type="button" className="button small" disabled={creating} onClick={() => setNewName(undefined)}>
+                    取消
+                  </button>
+                </div>
+                {(nameProblem || mkdirError) && <span className="field-hint nasdisk-mkdir-error">{nameProblem || mkdirError}</span>}
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -526,7 +612,7 @@ function SessionCard({
   );
 }
 
-function LastResult({ last }: { last: NasDiskLast }) {
+function LastResult({ last, locked, onEmptyTrash }: { last: NasDiskLast; locked: boolean; onEmptyTrash: (t: { files: number; bytes: number }) => void }) {
   const where = `${last.storageName} › ${displayPath(last.path)}`;
   const text = {
     committed: counts(last.summary) ? `已写回 NAS：${counts(last.summary)}。` : "已写回 NAS。",
@@ -558,6 +644,16 @@ function LastResult({ last }: { last: NasDiskLast }) {
             </li>
           ))}
         </ul>
+      )}
+      {!!last.trash?.files && (
+        <div className="nasdisk-trash">
+          <span className="muted">
+            回收目录：{last.trash.files.toLocaleString()} 个文件 · {bytes(last.trash.bytes)}，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 <code className="mono">.vim4-nasdisk/trash</code>
+          </span>
+          <button type="button" className="button small" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>
+            清空…
+          </button>
+        </div>
       )}
     </div>
   );
