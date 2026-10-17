@@ -3882,3 +3882,282 @@ section:has(.wifi-card) + section:has(.tailscale-card) {
     margin-left: 0;
   }
 }
+
+/* NAS folder USB disk */
+.nasdisk {
+  margin-bottom: 28px;
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+}
+
+.nasdisk > .confirm,
+.nasdisk > .storage-error,
+.nasdisk > .storage-warn {
+  margin-top: 12px;
+}
+
+.nasdisk-session {
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.nasdisk-session .storage-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.nasdisk-facts {
+  font-size: 12px;
+}
+
+.nasdisk-hint,
+.nasdisk-plan,
+.nasdisk-progress,
+.nasdisk-decision,
+.nasdisk-skipped {
+  margin: 0 0 14px 22px;
+  font-size: 12.5px;
+}
+
+.nasdisk-progress {
+  display: grid;
+  grid-template-columns: minmax(120px, 280px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.nasdisk-progress .muted {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nasdisk-decision {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--critical);
+  border-radius: var(--radius);
+  background: var(--field);
+  animation: reveal 0.16s ease-out;
+}
+
+.nasdisk-choices,
+.nasdisk-skipped ul,
+.nasdisk-last ul,
+.nasdisk-pending ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nasdisk-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nasdisk-choices li {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.nasdisk-skipped ul,
+.nasdisk-last ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.nasdisk-skipped li,
+.nasdisk-last li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  font-size: 12px;
+}
+
+.nasdisk-skipped code,
+.nasdisk-last code {
+  overflow-wrap: anywhere;
+}
+
+.nasdisk-last {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+}
+
+.nasdisk-last > .muted {
+  font-size: 12px;
+}
+
+.nasdisk-last.is-failed > span:not(.muted) {
+  color: var(--critical-ink);
+}
+
+.nasdisk-pending {
+  margin-top: 16px;
+}
+
+.nasdisk-pending h4 {
+  font-size: 13.5px;
+  font-weight: 650;
+}
+
+.nasdisk-pending > .muted {
+  font-size: 12px;
+}
+
+.nasdisk-pending li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.nasdisk-pending li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.nasdisk-pending li .muted {
+  font-size: 12px;
+}
+
+.nasdisk-setup .field select {
+  max-width: 260px;
+}
+
+.nasdisk-browser {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.nasdisk-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--page);
+  font-size: 12.5px;
+}
+
+.nasdisk-crumbs > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nasdisk-crumbs .link-button[aria-current="location"] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.nasdisk-dirs {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.nasdisk-dirs button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nasdisk-dirs button:hover {
+  background: var(--hover);
+}
+
+.nasdisk-dirs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.nasdisk-dirs svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.6;
+}
+
+.nasdisk-dirs span {
+  overflow-wrap: anywhere;
+}
+
+.nasdisk-dirs-note {
+  padding: 12px;
+  font-size: 12.5px;
+}
+
+.nasdisk-chosen {
+  font-size: 13px;
+}
+
+.nasdisk-chosen strong {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.nasdisk-label {
+  max-width: 200px;
+}
+
+.nasdisk-note {
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .nasdisk-hint,
+  .nasdisk-plan,
+  .nasdisk-progress,
+  .nasdisk-decision,
+  .nasdisk-skipped {
+    margin-left: 0;
+  }
+
+  .nasdisk-choices li {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .nasdisk-pending li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .nasdisk-pending li > div {
+    grid-column: 1 / -1;
+  }
+}

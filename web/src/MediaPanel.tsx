@@ -8,6 +8,11 @@ export function needsMediaEject(media: Media | undefined, target: string): boole
   return !!media?.inserted && (target === "pikvm" || media.pikvm);
 }
 
+export function mediaName(media: Media): string {
+  const nas = media.nasdisk;
+  return nas ? `${nas.storageName} › ${nas.path === "/" ? "根目录" : nas.path.replace(/^\//, "")}` : media.name;
+}
+
 function size(bytes: number): string {
   return bytes >= 2 ** 30 ? `${(bytes / 2 ** 30).toFixed(1)} GiB` : `${(bytes / 2 ** 20).toFixed(1)} MiB`;
 }
@@ -33,7 +38,7 @@ function MediaIcon({ cdrom, empty }: { cdrom?: boolean; empty?: boolean }) {
 function MediaFacts({ media }: { media: Media }) {
   return (
     <span className="media-facts">
-      <span className="tag tag-quiet">{media.cdrom ? "虚拟光盘" : "虚拟磁盘"}</span>
+      <span className="tag tag-quiet">{media.nasdisk ? "NAS 文件夹" : media.cdrom ? "虚拟光盘" : "虚拟磁盘"}</span>
       <span className="tag tag-quiet">{media.readOnly ? "只读" : "可写"}</span>
       <span className={`status status-${media.connected ? "good" : "warning"}`}>
         <span className="lamp" aria-hidden="true" />
@@ -43,7 +48,7 @@ function MediaFacts({ media }: { media: Media }) {
   );
 }
 
-const hostEject = "在被控电脑上安全弹出此介质。Mac：访达侧栏中点击弹出按钮；Windows：使用“安全删除硬件”。仅关闭窗口或卸载卷不算弹出。";
+export const hostEject = "在被控电脑上安全弹出此介质。Mac：访达侧栏中点击弹出按钮；Windows：使用“安全删除硬件”。仅关闭窗口或卸载卷不算弹出。";
 
 export function MediaSummary({ media }: { media?: Media }) {
   if (media?.known && !media.inserted) return null;
@@ -53,7 +58,7 @@ export function MediaSummary({ media }: { media?: Media }) {
         <>
           <MediaIcon cdrom={media.cdrom} />
           <span className="media-strip-text">
-            <strong>{media.name}</strong>
+            <strong>{mediaName(media)}</strong>
             <MediaFacts media={media} />
           </span>
         </>
@@ -83,7 +88,7 @@ export function MediaWait({ media, target, onCancel }: { media?: Media; target: 
       </div>
       {media?.inserted && (
         <p>
-          <strong>{media.name}</strong> 仍挂载在被控电脑上。当前会话保持运行，检测到弹出后自动切换。
+          <strong>{mediaName(media)}</strong> 仍挂载在被控电脑上。当前会话保持运行，检测到弹出后自动切换。
         </p>
       )}
       <p className="hint">{hostEject}</p>
@@ -132,8 +137,9 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
         <MediaIcon cdrom={media.cdrom} />
         <div className="media-current-text">
           <span className="media-eyebrow">已挂载到被控电脑</span>
-          <h3>{media.name}</h3>
+          <h3>{mediaName(media)}</h3>
           <MediaFacts media={media} />
+          {media.nasdisk?.mode === "rw" && <p className="muted">弹出后修改会写回 NAS，进度见「网络存储」页。</p>}
         </div>
         {!ejecting && (
           <button className="button" disabled={locked} onClick={() => setEjecting(true)}>

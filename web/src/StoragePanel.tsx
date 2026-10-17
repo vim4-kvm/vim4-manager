@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { request, storageWrite, type Storage, type StorageConfig, type StorageState, type StorageTest, type StorageType } from "./api";
 import { bytes } from "./DiskPanel";
 import { CopyButton, PasswordInput } from "./Icons";
+import { NasDiskPanel } from "./NasDiskPanel";
 
 const VERSIONS: Record<StorageType, { value: string; label: string }[]> = {
   smb: [
@@ -75,6 +76,8 @@ export function StoragePanel({ busy }: { busy: boolean }) {
   const [editor, setEditor] = useState<Editor>();
   const [test, setTest] = useState<StorageTest & { running?: boolean }>();
   const [confirming, setConfirming] = useState<Confirm>();
+  const [diskSetup, setDiskSetup] = useState<string>();
+  const clearDiskSetup = useCallback(() => setDiskSetup(undefined), []);
 
   useEffect(() => {
     if (pending) return;
@@ -162,6 +165,15 @@ export function StoragePanel({ busy }: { busy: boolean }) {
   const missingTools = state && (!state.tools.smb || !state.tools.nfs);
 
   return (
+    <>
+    {storages.length > 0 && (
+      <NasDiskPanel
+        storages={storages}
+        setupFor={diskSetup}
+        onSetupDone={clearDiskSetup}
+        locked={busy || stale}
+      />
+    )}
     <section className="storage" aria-label="网络存储">
       <div className="storage-head">
         <div>
@@ -243,7 +255,19 @@ export function StoragePanel({ busy }: { busy: boolean }) {
                     )}
                     {!s.mounted && s.error && <span className="storage-error">{s.error}</span>}
                   </div>
-                  <div className="storage-actions">
+                    <div className="storage-actions">
+                    {s.mounted && (
+                      <button
+                        className="button small"
+                        disabled={locked}
+                        onClick={() => {
+                          setDiskSetup(s.id);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                      >
+                        作为 U 盘…
+                      </button>
+                    )}
                     {s.mounted ? (
                       <button className="button small" disabled={locked} onClick={() => setConfirming({ kind: "unmount", storage: s })}>
                         断开
@@ -327,6 +351,7 @@ export function StoragePanel({ busy }: { busy: boolean }) {
         </p>
       )}
     </section>
+    </>
   );
 }
 

@@ -131,6 +131,7 @@ export interface Media {
   cdrom: boolean;
   connected: boolean;
   pikvm: boolean;
+  nasdisk?: { storage: string; storageName: string; path: string; mode: "ro" | "rw" };
 }
 
 export interface MediaImage {
@@ -343,3 +344,57 @@ export interface StorageTest {
 
 export const storageWrite = <T = unknown>(path: string, body: unknown) =>
   request<T>(`/api/storage${path}`, body, AbortSignal.timeout(60000));
+
+export interface NasDiskCounts {
+  mkdirs: number;
+  writes: number;
+  renames: number;
+  deletes: number;
+  ignored: number;
+  conflicts: number;
+}
+
+export interface NasDiskSession {
+  id: string;
+  storage: string;
+  storageName: string;
+  path: string;
+  mode: "ro" | "rw";
+  label: string;
+  state: "scanning" | "attaching" | "attached" | "parsing" | "committing" | "needs-decision" | "failed";
+  scanned: number;
+  files: number;
+  dirs: number;
+  volumeBytes: number;
+  usedBytes: number;
+  writtenBytes: number;
+  skipped: { path: string; reason: string }[];
+  skippedCount: number;
+  hostConnected: boolean;
+  plan: NasDiskCounts | null;
+  progress: { done: number; total: number; bytesDone: number; bytesTotal: number; current: string } | null;
+  decision: { reason: string; canForce: boolean } | null;
+  error: string;
+  startedAt: number;
+}
+
+export interface NasDiskLast {
+  id: string;
+  storageName: string;
+  path: string;
+  mode: "ro" | "rw";
+  result: "committed" | "discarded" | "unchanged" | "failed" | "cancelled";
+  summary: NasDiskCounts;
+  conflicts: { path: string; copy: string }[];
+  error: string;
+  finishedAt: number;
+}
+
+export interface NasDiskState {
+  known: boolean;
+  session: NasDiskSession | null;
+  last: NasDiskLast | null;
+  pending: { id: string; storage: string; storageName: string; path: string; writtenBytes: number; startedAt: number; journal: boolean }[];
+}
+
+export const nasDiskWrite = (path: string, body: unknown) => request(`/api/nasdisk${path}`, body, AbortSignal.timeout(60000));
