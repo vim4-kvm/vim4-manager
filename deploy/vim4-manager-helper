@@ -2,6 +2,7 @@
 """Root operations for vim4-manager. Only fixed actions are accepted."""
 import fcntl
 import errno
+import logging
 from contextlib import ExitStack, contextmanager
 import hashlib
 import http.client
@@ -10,6 +11,7 @@ import json
 import os
 import pwd
 import re
+import secrets
 import shutil
 import signal
 import socket
@@ -20,6 +22,7 @@ import tempfile
 import time
 import urllib.request
 import urllib.parse
+import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -1069,18 +1072,548 @@ def restart(unit):
 
 
 def wifi(enabled):
-    env = {'LC_ALL': 'C.UTF-8', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}
-    result = subprocess.run(['nmcli', '-t', '-f', 'DEVICE,TYPE', 'device'],
-                            check=True, capture_output=True, text=True, timeout=10, env=env)
-    devices = [line.rsplit(':', 1)[0] for line in result.stdout.splitlines() if line.endswith(':wifi')]
-    if not devices:
-        raise ValueError('No Wi-Fi adapter is available')
-    subprocess.run(['nmcli', 'radio', 'wifi', enabled], check=True, timeout=15, env=env)
+    device = wifi_device()
+    if not device:
+        raise ValueError('没有可用的 Wi-Fi 设备')
+    subprocess.run(['nmcli', 'radio', 'wifi', enabled], check=True, timeout=15, env=WIFI_ENV)
     if enabled == 'on':
         # On VIM4 NetworkManager can report enabled while the primary link is
         # still down. Bring it up so scans can run without a saved connection.
-        subprocess.run(['ip', 'link', 'set', 'dev', devices[0], 'up'],
-                       check=True, timeout=15, env=env)
+        subprocess.run(['ip', 'link', 'set', 'dev', device, 'up'],
+                       check=True, timeout=15, env=WIFI_ENV)
+
+
+WIFI_ENV = {'LC_ALL': 'C.UTF-8', 'PATH': '/usr/sbin:/usr/bin:/sbin:/bin'}
+WIFI_HOTSPOT = 'vim4-hotspot'
+WIFI_UUID = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
+
+
+def nmcli(*args, timeout=10):
+    # Never forward nmcli stderr: a settings parse error can quote a secret.
+    try:
+        return subprocess.run(['nmcli', *args], check=True, capture_output=True,
+                              text=True, timeout=timeout, env=WIFI_ENV).stdout
+    except (OSError, subprocess.SubprocessError):
+        raise ValueError('无线网络操作失败，请检查网络、密码和 NetworkManager 状态') from None
+
+
+def nm_fields(line):
+    """Decode nmcli terse fields; both colons and backslashes are escaped."""
+    fields, value, escaped = [], '', False
+    for char in line:
+        if escaped:
+            value += char
+            escaped = False
+        elif char == '\\':
+            escaped = True
+        elif char == ':':
+            fields.append(value)
+            value = ''
+        else:
+            value += char
+    fields.append(value + ('\\' if escaped else ''))
+    return fields
+
+
+def nm_values(fields, *args, secret=False):
+    output = nmcli(*(['--show-secrets'] if secret else []), '-g', ','.join(fields), *args)
+    # Split only NM's record delimiter. str.splitlines also splits valid UTF-8
+    # SSIDs containing Unicode line/paragraph separators.
+    lines = output[:-1].split('\n') if output.endswith('\n') else output.split('\n')
+    values = [nm_fields(line)[0] for line in lines]
+    if len(values) != len(fields):
+        raise ValueError('无法识别无线网络配置')
+    return dict(zip(fields, values))
+
+
+def wifi_device():
+    for line in nmcli('-t', '-f', 'DEVICE,TYPE', 'device').split('\n'):
+        if not line:
+            continue
+        device, kind = nm_fields(line)
+        if kind == 'wifi':
+            return device
+    return ''
+
+
+def wifi_device_info(device, timeout=10):
+    info = {}
+    for line in nmcli('-t', '-f', 'GENERAL.STATE,GENERAL.CON-UUID,GENERAL.HWADDR,IP4.ADDRESS,IP6.ADDRESS',
+                      'device', 'show', device, timeout=timeout).split('\n'):
+        if not line:
+            continue
+        # device show leaves colons in values (MAC, IPv6) unescaped.
+        key, _, value = line.partition(':')
+        info[key] = value
+    return info
+
+
+def wifi_profiles():
+    profiles = []
+    for line in nmcli('-t', '-f', 'UUID,TYPE,NAME', 'connection', 'show').split('\n'):
+        if not line:
+            continue
+        identifier, kind, name = nm_fields(line)
+        if kind not in ('wifi', '802-11-wireless'):
+            continue
+        fields = ('802-11-wireless.ssid', '802-11-wireless.mode',
+                  'connection.autoconnect', '802-11-wireless.channel')
+        values = nm_values(fields, 'connection', 'show', 'uuid', identifier)
+        profiles.append({'id': identifier, 'name': name, 'ssid': values[fields[0]],
+                         'mode': values[fields[1]], 'autoconnect': values[fields[2]] == 'yes',
+                         'channel': int(values[fields[3]] or 0)})
+    return profiles
+
+
+def wifi_context(device=None):
+    device = device or wifi_device()
+    if not device:
+        raise ValueError('没有可用的 Wi-Fi 设备')
+    radio = nm_fields(nmcli('-t', '-f', 'WIFI-HW,WIFI', 'general').strip())
+    if len(radio) != 2 or any(value not in ('enabled', 'disabled') for value in radio):
+        raise ValueError('无法识别 Wi-Fi 开关状态')
+    return device, radio, wifi_device_info(device), wifi_profiles()
+
+
+def wifi_hotspot_profile(profiles):
+    return next((p for p in profiles if p['name'] == WIFI_HOTSPOT and p['mode'] == 'ap'), None)
+
+
+def wifi_client_profiles(profiles):
+    return [p for p in profiles if p['name'] != WIFI_HOTSPOT and p['mode'] in ('', 'infrastructure')]
+
+
+def wifi_default_ssid(info):
+    suffix = info.get('GENERAL.HWADDR', '').replace(':', '')[-4:].upper()
+    return 'VIM4-KVM-' + suffix
+
+
+def wifi_stations(device):
+    try:
+        result = subprocess.run(['iw', 'dev', device, 'station', 'dump'], check=True,
+                                capture_output=True, text=True, timeout=5, env=WIFI_ENV)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    stations = {mac.lower(): {'mac': mac.lower(), 'ip': '', 'hostname': ''}
+                for mac in re.findall(r'^Station ([0-9a-fA-F:]{17})\b', result.stdout, re.M)}
+    try:
+        leases = Path(f'/var/lib/NetworkManager/dnsmasq-{device}.leases').read_text()
+    except OSError:
+        leases = ''
+    for line in leases.splitlines():
+        parts = line.split()
+        if len(parts) < 4 or not parts[0].isdigit():
+            continue
+        expiry, mac, address, hostname = parts[:4]
+        if mac.lower() in stations and (int(expiry) == 0 or int(expiry) > time.time()):
+            stations[mac.lower()].update(ip=address, hostname='' if hostname == '*' else hostname)
+    return list(stations.values())
+
+
+def wifi_access_points(device, profiles, rescan):
+    networks = []
+    saved = {p['ssid'] for p in wifi_client_profiles(profiles)}
+    output = nmcli('--wait', '10', '-t', '-f', 'SSID,SIGNAL,SECURITY,FREQ,IN-USE',
+                   'device', 'wifi', 'list', 'ifname', device, '--rescan',
+                   'yes' if rescan else 'no', timeout=12)
+    for line in output.split('\n'):
+        if not line:
+            continue
+        ssid, signal, security, frequency, active = nm_fields(line)
+        if not ssid:
+            continue
+        network = {'ssid': ssid, 'signal': int(signal or 0), 'security': '' if security == '--' else security,
+                   # NM 1.46 keeps the MHz suffix even in terse output.
+                   'frequency': int(frequency.split()[0]) if frequency else 0,
+                   'saved': ssid in saved, 'active': active == '*'}
+        networks.append(network)
+    return networks
+
+
+def wifi_networks(device, profiles, rescan):
+    strongest = {}
+    for network in wifi_access_points(device, profiles, rescan):
+        previous = strongest.get(network['ssid'])
+        active = network['active'] or bool(previous and previous['active'])
+        if previous is None or network['signal'] > previous['signal']:
+            strongest[network['ssid']] = network
+        strongest[network['ssid']]['active'] = active
+    return sorted(strongest.values(), key=lambda n: (-n['signal'], n['ssid']))
+
+
+def wifi_status():
+    state = {'supported': False, 'enabled': False, 'hardwareEnabled': False, 'device': '',
+             'mode': '', 'state': '', 'current': None, 'saved': [],
+             'hotspot': {'configured': False, 'active': False, 'ssid': '', 'password': '',
+                         'channel': 0, 'autostart': False, 'address': '', 'clients': []}}
+    device = wifi_device()
+    if not device:
+        return state
+    device, radio, info, profiles = wifi_context(device)
+    active = info.get('GENERAL.CON-UUID', '')
+    hotspot = wifi_hotspot_profile(profiles)
+    enabled, hardware = radio[1] == 'enabled', radio[0] == 'enabled'
+    mode = 'off' if not enabled or not hardware else 'hotspot' if hotspot and active == hotspot['id'] else 'client'
+    code = int(info.get('GENERAL.STATE', '0').split()[0])
+    status = ('connected' if code == 100 else 'connecting' if 40 <= code <= 90 else
+              'disconnected' if code in (30, 110, 120) else 'unavailable')
+    state.update(supported=True, enabled=enabled, hardwareEnabled=hardware, device=device, mode=mode, state=status)
+    state['saved'] = [{'id': p['id'], 'ssid': p['ssid'], 'autoconnect': p['autoconnect'], 'active': p['id'] == active}
+                      for p in wifi_client_profiles(profiles)]
+    state['hotspot'].update(ssid=wifi_default_ssid(info), address='10.42.0.1/24')
+    if hotspot:
+        password = nm_values(('802-11-wireless-security.psk',), 'connection', 'show', 'uuid',
+                             hotspot['id'], secret=True)['802-11-wireless-security.psk']
+        state['hotspot'].update(configured=True, active=mode == 'hotspot', ssid=hotspot['ssid'],
+                                password=password, channel=hotspot['channel'], autostart=hotspot['autoconnect'])
+    addresses = [value for key, value in info.items() if key.startswith('IP4.ADDRESS')]
+    if mode == 'hotspot':
+        state['hotspot'].update(address=next(iter(addresses), '10.42.0.1/24'), clients=wifi_stations(device))
+    elif mode == 'client':
+        current = next((p for p in wifi_client_profiles(profiles) if p['id'] == active), None)
+        if current:
+            # Status reads cached AP data; they never initiate a scan.
+            networks = wifi_access_points(device, profiles, False)
+            ap = next((n for n in networks if n['active']), {})
+            state['current'] = {'id': active, 'ssid': current['ssid'], 'signal': ap.get('signal', 0),
+                                'security': ap.get('security', ''), 'frequency': ap.get('frequency', 0),
+                                'ipv4': next(iter(addresses), '')}
+    return state
+
+
+def wifi_validate_ssid(ssid):
+    if (not isinstance(ssid, str) or not 1 <= len(ssid.encode('utf-8')) <= 32 or
+            any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in ssid)):
+        raise ValueError('SSID 必须为 1–32 字节 UTF-8，且不能包含控制字符')
+
+
+def wifi_validate_password(password, hotspot=False):
+    if not isinstance(password, str):
+        raise ValueError('密码格式错误')
+    if password == '' or (8 <= len(password) <= 63 and all(32 <= ord(c) <= 126 for c in password)):
+        return
+    if not hotspot and re.fullmatch(r'[0-9a-fA-F]{64}', password):
+        return
+    raise ValueError('密码必须为 8–63 位可打印 ASCII 字符' + ('' if hotspot else '，或 64 位十六进制'))
+
+
+def wifi_read_request(hotspot=False):
+    try:
+        raw = sys.stdin.read(4097)
+        if len(raw) > 4096:
+            raise ValueError('无线网络请求过大')
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError('无线网络请求格式错误')
+        wifi_validate_ssid(data.get('ssid'))
+        wifi_validate_password(data.get('password', ''), hotspot)
+        if hotspot:
+            if type(data.get('channel')) is not int or not 0 <= data['channel'] <= 11:
+                raise ValueError('热点信道必须为 0–11')
+            if type(data.get('autostart')) is not bool:
+                raise ValueError('需要 autostart 布尔值')
+        elif type(data.get('hidden', False)) is not bool:
+            raise ValueError('需要 hidden 布尔值')
+        return data
+    except (TypeError, UnicodeError, json.JSONDecodeError):
+        raise ValueError('无线网络请求格式错误') from None
+
+
+def wifi_saved(identifier, profiles):
+    if not WIFI_UUID.fullmatch(identifier):
+        raise ValueError('无线连接 UUID 格式错误')
+    profile = next((p for p in wifi_client_profiles(profiles) if p['id'].lower() == identifier.lower()), None)
+    if not profile:
+        raise ValueError('找不到已保存的无线连接')
+    return profile
+
+
+def wifi_dbus(action, identifier=None, settings=None):
+    # Let NM's settings plugin persist changes (on VIM4 this is netplan).
+    # Secrets travel over D-Bus, never through argv or nmcli's editor parser.
+    try:
+        import dbus
+    except ImportError:
+        raise ValueError('无线网络配置需要 python3-dbus') from None
+    # dbus-python logs rejected arguments, PSK included, to stderr.
+    logging.getLogger('dbus').disabled = True
+    logging.getLogger('dbus.connection').disabled = True
+    try:
+        bus = dbus.SystemBus()
+        service = 'org.freedesktop.NetworkManager'
+        manager = dbus.Interface(bus.get_object(service, '/org/freedesktop/NetworkManager/Settings'),
+                                 service + '.Settings')
+        connection = None
+        if identifier:
+            connection = dbus.Interface(bus.get_object(service, manager.GetConnectionByUuid(identifier)),
+                                        service + '.Settings.Connection')
+        if action == 'read':
+            config = connection.GetSettings()
+            # GetSettings omits secrets. Include them in snapshots so Update
+            # and rollback cannot silently discard the existing credentials.
+            for section in ('802-11-wireless-security', '802-1x'):
+                if section in config:
+                    for name, values in connection.GetSecrets(section).items():
+                        config.setdefault(name, {}).update(values)
+            return config
+        config = {name: dict(values) for name, values in settings.items()}
+        wireless = config.get('802-11-wireless', {})
+        if 'ssid' in wireless:
+            wireless['ssid'] = dbus.ByteArray(wireless['ssid'])
+        if 'channel' in wireless:
+            wireless['channel'] = dbus.UInt32(wireless['channel'])
+        security = config.get('802-11-wireless-security', {})
+        if 'psk-flags' in security:
+            security['psk-flags'] = dbus.UInt32(security['psk-flags'])
+        for name in ('proto', 'pairwise'):
+            if name in security:
+                security[name] = dbus.Array(security[name], signature='s')
+        connection_settings = config.get('connection', {})
+        if 'autoconnect-priority' in connection_settings:
+            connection_settings['autoconnect-priority'] = dbus.Int32(connection_settings['autoconnect-priority'])
+        config = dbus.Dictionary({name: dbus.Dictionary(values, signature='sv')
+                                  for name, values in config.items()}, signature='sa{sv}')
+        if action == 'update':
+            connection.Update(config)
+        elif action == 'add':
+            manager.AddConnection(config)
+        else:
+            raise ValueError('未知无线配置操作')
+    except dbus.DBusException:
+        # D-Bus errors may quote settings, including the PSK.
+        raise ValueError('无线网络配置失败，请检查 NetworkManager 状态') from None
+
+
+def wifi_profile_config(device, data, existing=None, hotspot=False):
+    if existing:
+        previous = wifi_dbus('read', existing['id'])
+        # Copy sections only: deepcopy drops the D-Bus signature of empty
+        # arrays, and NM then rejects the whole Update.
+        config = {name: dict(values) for name, values in previous.items()}
+    else:
+        previous = None
+        identifier = str(uuid.uuid4())
+        config = {}
+        # A client SSID may equal our reserved AP connection name.
+        name = WIFI_HOTSPOT if hotspot else data['ssid']
+        if not hotspot and name == WIFI_HOTSPOT:
+            name = 'vim4-client-' + identifier
+        config['connection'] = {'id': name, 'uuid': identifier,
+                                'type': '802-11-wireless', 'autoconnect': False}
+    config['connection']['interface-name'] = device
+    wireless = config.setdefault('802-11-wireless', {})
+    wireless.update({'ssid': data['ssid'].encode('utf-8'),
+                     'mode': 'ap' if hotspot else 'infrastructure'})
+    if hotspot:
+        config['connection'].update({'autoconnect': data['autostart'], 'autoconnect-priority': 100})
+        wireless.update({'band': 'bg', 'channel': data['channel']})
+        config.setdefault('ipv4', {})['method'] = 'shared'
+        config.setdefault('ipv6', {})['method'] = 'disabled'
+    else:
+        wireless['hidden'] = data.get('hidden', False)
+        if not existing:
+            config['ipv4'] = {'method': 'auto'}
+            config['ipv6'] = {'method': 'auto'}
+    if data.get('password'):
+        security = config.setdefault('802-11-wireless-security', {})
+        security.update({'key-mgmt': 'wpa-psk', 'psk': data['password'], 'psk-flags': 0})
+        if hotspot:
+            security.update({'proto': ['rsn'], 'pairwise': ['ccmp']})
+    elif not hotspot and 'password' in data:
+        config.pop('802-11-wireless-security', None)
+        config.pop('802-1x', None)
+    return config, previous, config['connection']['uuid']
+
+
+def wifi_disconnect(device):
+    # nmcli fails on an already inactive device, which would abort recovery.
+    state = wifi_device_info(device).get('GENERAL.STATE', '')
+    if state.split(' ', 1)[0] in ('10', '20', '30'):
+        return
+    nmcli('device', 'disconnect', device)
+
+
+def wifi_up(identifier, device, wait=45):
+    nmcli('--wait', str(wait), 'connection', 'up', 'uuid', identifier, 'ifname', device, timeout=wait + 2)
+
+
+def wifi_restore(active, device):
+    if active and active != '--':
+        wifi_up(active, device, 30)
+    else:
+        wifi_disconnect(device)
+
+
+def wifi_apply_profile(device, data, existing, active, hotspot=False):
+    config, previous, identifier = wifi_profile_config(device, data, existing, hotspot)
+    try:
+        wifi_dbus('update' if existing else 'add', identifier if existing else None, config)
+        wifi_up(identifier, device)
+        if not hotspot and not existing:
+            nmcli('connection', 'modify', 'uuid', identifier, 'connection.autoconnect', 'yes')
+    except (ValueError, OSError):
+        # Always cancel a timed-out activation before recovery. Existing saved
+        # profiles keep their UUID, settings and old password after failure.
+        recovery_failed = False
+        for recover in (
+                lambda: wifi_disconnect(device),
+                (lambda: wifi_dbus('update', identifier, previous)) if existing else
+                (lambda: nmcli('connection', 'delete', 'uuid', identifier)),
+                lambda: wifi_restore(active, device)):
+            try:
+                recover()
+            except (ValueError, OSError):
+                recovery_failed = True
+        raise ValueError('无线连接失败，' + ('恢复原连接失败，请通过有线网络检查' if recovery_failed else '已恢复原连接')) from None
+    return identifier
+
+
+def wifi_configure_hotspot(device, info, profiles, data=None):
+    existing = wifi_hotspot_profile(profiles)
+    if data is None:
+        data = {'ssid': existing['ssid'] if existing else wifi_default_ssid(info), 'password': '',
+                'channel': existing['channel'] if existing else 0,
+                'autostart': existing['autoconnect'] if existing else False}
+    data = dict(data)
+    if not data.get('password') and existing:
+        data['password'] = nm_values(('802-11-wireless-security.psk',), 'connection', 'show', 'uuid',
+                                     existing['id'], secret=True)['802-11-wireless-security.psk']
+    if not data.get('password'):
+        data['password'] = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789') for _ in range(12))
+    wifi_validate_password(data['password'], hotspot=True)
+    if existing and existing['id'] == info.get('GENERAL.CON-UUID'):
+        return wifi_apply_profile(device, data, existing, existing['id'], hotspot=True)
+    config, previous, identifier = wifi_profile_config(device, data, existing, hotspot=True)
+    try:
+        wifi_dbus('update' if existing else 'add', identifier if existing else None, config)
+    except (ValueError, OSError):
+        if existing:
+            wifi_dbus('update', identifier, previous)
+        raise
+    return identifier
+
+
+def wifi_disable_hotspot_autostart(hotspot):
+    if hotspot:
+        nmcli('connection', 'modify', 'uuid', hotspot['id'], 'connection.autoconnect', 'no')
+
+
+def wifi_change_mode(mode, force, device, info, profiles):
+    hotspot = wifi_hotspot_profile(profiles)
+    active = info.get('GENERAL.CON-UUID', '')
+    if mode == 'hotspot':
+        identifier = wifi_configure_hotspot(device, info, profiles)
+        if active == identifier:
+            return
+        try:
+            wifi_up(identifier, device)
+        except ValueError:
+            try:
+                wifi_disconnect(device)
+                wifi_restore(active, device)
+            except ValueError:
+                raise ValueError('热点启动失败，恢复原连接失败，请通过有线网络检查') from None
+            raise ValueError('热点启动失败，已恢复原连接') from None
+        return
+    wifi_disable_hotspot_autostart(hotspot)
+    if not hotspot or active != hotspot['id']:
+        return
+    if force:
+        wifi_disconnect(device)
+        nmcli('device', 'set', device, 'autoconnect', 'yes')
+        return
+    try:
+        wifi_disconnect(device)
+        deadline = time.monotonic() + 30
+        if not wifi_client_profiles(profiles):
+            raise ValueError('没有已保存的无线连接')
+        # Re-enable device autoconnection after device disconnect. Let NM try
+        # eligible saved networks; device up could create an unwanted profile.
+        nmcli('device', 'set', device, 'autoconnect', 'yes')
+        clients = {p['id'] for p in wifi_client_profiles(profiles)}
+        while (remaining := deadline - time.monotonic()) > 0:
+            current = wifi_device_info(device, timeout=min(3, remaining))
+            if current.get('GENERAL.CON-UUID') in clients and current.get('GENERAL.STATE', '').startswith('100 '):
+                return
+            time.sleep(min(0.5, remaining))
+        raise ValueError('30 秒内未连接到已保存网络')
+    except ValueError as error:
+        reason = str(error)
+        try:
+            wifi_disconnect(device)
+            wifi_up(hotspot['id'], device, 30)
+            if hotspot['autoconnect']:
+                nmcli('connection', 'modify', 'uuid', hotspot['id'], 'connection.autoconnect', 'yes')
+        except ValueError:
+            raise ValueError('客户端连接失败，恢复热点失败，请通过有线网络检查') from None
+        raise ValueError(reason + '，已恢复热点') from None
+
+
+def wifi_command(argv):
+    if argv == ['wifi-status']:
+        return wifi_status()
+    data = None
+    match argv:
+        case ['wifi-scan', rescan] if rescan in ('0', '1'):
+            pass
+        case ['wifi-connect'] | ['wifi-hotspot']:
+            data = wifi_read_request(argv[0] == 'wifi-hotspot')
+        case ['wifi-activate', identifier] | ['wifi-forget', identifier]:
+            if not WIFI_UUID.fullmatch(identifier):
+                raise ValueError('无线连接 UUID 格式错误')
+        case ['wifi-autoconnect', identifier, enabled] if enabled in ('yes', 'no'):
+            if not WIFI_UUID.fullmatch(identifier):
+                raise ValueError('无线连接 UUID 格式错误')
+        case ['wifi-disconnect']:
+            pass
+        case ['wifi-mode', mode] | ['wifi-mode', mode, 'force'] if mode in ('client', 'hotspot'):
+            pass
+        case _:
+            raise ValueError('无线网络操作参数错误')
+    if argv[0] == 'wifi-scan' and not wifi_device():
+        return {'networks': []}
+    device, radio, info, profiles = wifi_context()
+    active = info.get('GENERAL.CON-UUID', '')
+    hotspot = wifi_hotspot_profile(profiles)
+    action = argv[0]
+    if action == 'wifi-scan':
+        return {'networks': [] if radio != ['enabled', 'enabled'] or hotspot and active == hotspot['id'] else
+                wifi_networks(device, profiles, argv[1] == '1')}
+    if action in ('wifi-connect', 'wifi-activate', 'wifi-mode') and radio != ['enabled', 'enabled']:
+        raise ValueError('请先开启 Wi-Fi 并解除硬件禁用')
+    if action == 'wifi-connect':
+        existing = next((p for p in wifi_client_profiles(profiles) if p['ssid'] == data['ssid']), None)
+        wifi_apply_profile(device, data, existing, active)
+        wifi_disable_hotspot_autostart(hotspot)
+    elif action == 'wifi-hotspot':
+        wifi_configure_hotspot(device, info, profiles, data)
+    elif action == 'wifi-mode':
+        wifi_change_mode(argv[1], len(argv) == 3, device, info, profiles)
+    elif action == 'wifi-disconnect':
+        if hotspot and active == hotspot['id']:
+            raise ValueError('请通过模式切换停止热点')
+        wifi_disconnect(device)
+    else:
+        profile = wifi_saved(argv[1], profiles)
+        identifier = profile['id']
+        if action == 'wifi-autoconnect':
+            nmcli('connection', 'modify', 'uuid', identifier, 'connection.autoconnect', argv[2])
+        elif action == 'wifi-forget':
+            if active == identifier:
+                wifi_disconnect(device)
+            nmcli('connection', 'delete', 'uuid', identifier)
+        elif action == 'wifi-activate':
+            try:
+                wifi_up(identifier, device)
+            except ValueError:
+                try:
+                    wifi_disconnect(device)
+                    wifi_restore(active, device)
+                except ValueError:
+                    raise ValueError('无线连接失败，恢复原连接失败，请通过有线网络检查') from None
+                raise ValueError('无线连接失败，已恢复原连接') from None
+            wifi_disable_hotspot_autostart(hotspot)
+    return {'ok': True}
 
 
 def nits(text, low, high):
@@ -1239,6 +1772,9 @@ def update(package, checksum, version):
 
 
 def main(argv):
+    if argv and argv[0].startswith('wifi-'):
+        print(json.dumps(wifi_command(argv)))
+        return
     if argv and argv[0].startswith('tailscale-'):
         print(json.dumps(tailscale_command(argv)))
         return
@@ -1288,7 +1824,8 @@ def main(argv):
 @contextmanager
 def operation_lock(argv):
     action = argv[0] if argv else ''
-    if action.startswith('disk-') or action in ('media-list', 'media-status', 'tailscale-status', 'tailscale-ping'):
+    if action.startswith('disk-') or action in ('media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
+                                               'wifi-status', 'wifi-scan'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'

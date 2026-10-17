@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { request } from "./api";
-import { CopyButton, TailscaleDevices, type TailscaleDevice } from "./TailscaleDevices";
+import { CopyButton } from "./Icons";
+import { TailscaleDevices, type TailscaleDevice } from "./TailscaleDevices";
 
 export const OFFICIAL_CONTROL = "https://controlplane.tailscale.com";
 
@@ -264,10 +265,12 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
                     {accessURLs(state).map(({ label, url }) => (
                       <li key={url}>
                         <span className="ts-url-label">{label}</span>
-                        <a className="mono" href={url} target="_blank" rel="noreferrer noopener">
-                          {url}
-                        </a>
-                        <CopyButton text={url} label={`${label}地址`} />
+                        <span className="ts-url-value">
+                          <a className="mono" href={url} target="_blank" rel="noreferrer noopener">
+                            {url}
+                          </a>
+                          <CopyButton text={url} label={`${label}地址`} />
+                        </span>
                       </li>
                     ))}
                   </ul>

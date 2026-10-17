@@ -36,6 +36,11 @@ PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
   切换为自动调速，原子保存到 /etc/default/vim4-kvm-fan。
 - `fan-restore`：vim4-manager.service 启动前以 root 执行（ExecStartPre=-+），恢复保存的曲线；
   没有保存文件时不改动驱动默认值，失败不阻止面板启动。
+- Wi-Fi：`wifi on|off`、`wifi-status`、`wifi-scan`、`wifi-connect`、`wifi-activate`、
+  `wifi-disconnect`、`wifi-forget`、`wifi-autoconnect`、`wifi-hotspot`、`wifi-mode`。
+  网络页管理客户端与 WPA2 热点；密码通过助手标准输入传递，以 0600 keyfile 保存。
+  状态与扫描不占写操作锁，模式切换和连接失败会尝试恢复无线入口。API 与回退规则见
+  [Wi-Fi 说明](docs/wifi.md)。
 
 USB gadget、PD 和 CPU 频率服务只显示状态，不提供重启：重新绑定和重新协商会断开
 被控机的 USB 连接，交给板级工具处理。

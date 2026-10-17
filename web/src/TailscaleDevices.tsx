@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { request } from "./api";
+import { CopyButton } from "./Icons";
 
 export interface TailscaleDevice {
   id: string;
@@ -24,46 +25,6 @@ interface PingResult {
 }
 
 type PingState = { pending: true } | { pending: false; result?: PingResult; error?: string };
-
-// The dashboard is served over plain http on a LAN address, where the async
-// Clipboard API is unavailable; fall back to a hidden textarea copy.
-async function copyText(text: string) {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  const ok = document.execCommand("copy");
-  area.remove();
-  if (!ok) throw new Error("copy failed");
-}
-
-export function CopyButton({ text, label }: { text: string; label: string }) {
-  const [state, setState] = useState<"idle" | "done" | "failed">("idle");
-  const timer = useRef<number>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
-  async function copy() {
-    try {
-      await copyText(text);
-      setState("done");
-    } catch {
-      setState("failed");
-    }
-    window.clearTimeout(timer.current);
-    timer.current = window.setTimeout(() => setState("idle"), 1600);
-  }
-  return (
-    <button type="button" className="button small copy-button" aria-label={`复制${label}`} onClick={() => void copy()}>
-      {state === "done" ? "已复制" : state === "failed" ? "复制失败" : "复制"}
-    </button>
-  );
-}
 
 function lastSeen(value: string) {
   if (!value) return "";

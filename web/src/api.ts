@@ -228,3 +228,68 @@ export function uploadDiskFile(disk: string, path: string, file: File, overwrite
     xhr.send(file);
   });
 }
+
+export interface WifiConnection {
+  id: string;
+  ssid: string;
+  signal: number;
+  security: string;
+  frequency: number;
+  ipv4: string;
+}
+
+export interface SavedWifi {
+  id: string;
+  ssid: string;
+  autoconnect: boolean;
+  active: boolean;
+}
+
+export interface HotspotClient {
+  mac: string;
+  ip: string;
+  hostname: string;
+}
+
+export interface Hotspot {
+  configured: boolean;
+  active: boolean;
+  ssid: string;
+  password: string;
+  channel: number;
+  autostart: boolean;
+  address: string;
+  clients: HotspotClient[];
+}
+
+export interface WifiState {
+  supported: boolean;
+  enabled: boolean;
+  hardwareEnabled: boolean;
+  device?: string;
+  mode?: "client" | "hotspot" | "off";
+  state?: "connected" | "connecting" | "disconnected" | "unavailable";
+  viaWifi?: boolean;
+  current?: WifiConnection | null;
+  saved?: SavedWifi[];
+  hotspot?: Hotspot;
+}
+
+export interface WifiNetwork {
+  ssid: string;
+  signal: number;
+  security: string;
+  frequency: number;
+  saved: boolean;
+  active: boolean;
+}
+
+export interface HotspotConfig {
+  ssid: string;
+  password: string;
+  channel: number;
+  autostart: boolean;
+}
+
+// Mode changes and connects can block for the helper's 45 s connect and 30 s fallback windows.
+export const wifiWrite = (path: string, body: unknown) => request(`/api/wifi${path}`, body, AbortSignal.timeout(100000));

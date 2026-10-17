@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import io
 import json
@@ -8,7 +9,7 @@ import subprocess
 import tempfile
 import unittest
 import sys
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'board'))
 import vim4media  # Preload workspace code before the production helper adds its install path.
@@ -16,6 +17,450 @@ loader = importlib.machinery.SourceFileLoader('helper', str(Path(__file__).with_
 spec = importlib.util.spec_from_loader(loader.name, loader)
 helper = importlib.util.module_from_spec(spec)
 loader.exec_module(helper)
+
+
+class WifiTest(unittest.TestCase):
+    CLIENT = '11111111-1111-1111-1111-111111111111'
+    HOTSPOT = '22222222-2222-2222-2222-222222222222'
+
+    def setUp(self):
+        self.enterContext(patch.object(helper, 'wifi_dbus', side_effect=self.dbus_settings))
+        self.enterContext(patch.object(helper.subprocess, 'run', side_effect=self.run_nm))
+        self.profiles = {}
+        self.settings = {}
+        self.secrets = {}
+        self.calls = []
+        self.active = ''
+        self.radio = 'enabled:enabled\n'
+        self.devices = 'eth0:ethernet\np2p-dev-wlan0:wifi-p2p\nwlan0:wifi\nwlan1:wifi\n'
+        self.scan = ''
+        self.fail_up = False
+        self.fail_device_set = False
+        self.auto_client = ''
+
+    @staticmethod
+    def escape(value):
+        return str(value).replace('\\', '\\\\').replace(':', '\\:')
+
+    def add_profile(self, identifier, ssid, hotspot=False, autoconnect=True, name=None):
+        # Include a static IP setting to check that password updates preserve
+        # administrator configuration, rather than replacing the profile.
+        self.dbus_settings('add', settings={
+            'connection': {'id': name or ('vim4-hotspot' if hotspot else ssid),
+                           'uuid': identifier, 'type': '802-11-wireless', 'autoconnect': autoconnect},
+            '802-11-wireless': {'ssid': ssid.encode(), 'mode': 'ap' if hotspot else 'infrastructure', 'channel': 6},
+            '802-11-wireless-security': {'key-mgmt': 'wpa-psk', 'psk': 'oldsecret'},
+            'ipv4': {'method': 'manual', 'address-data': [{'address': '192.168.5.3', 'prefix': 24}]},
+        })
+
+    def dbus_settings(self, action, identifier=None, settings=None):
+        if action == 'read':
+            config = copy.deepcopy(self.settings[identifier])
+            for name, values in self.secrets[identifier].items():
+                config.setdefault(name, {}).update(copy.deepcopy(values))
+            return config
+        self.assertIn(action, ('add', 'update'))
+        config = copy.deepcopy(settings)
+        connection, wifi = config['connection'], config['802-11-wireless']
+        identifier = connection['uuid']
+        if action == 'add':
+            self.assertNotIn(identifier, self.settings)
+        else:
+            self.assertIn(identifier, self.settings)
+        security = config.get('802-11-wireless-security', {})
+        password = security.pop('psk', '')
+        # Like GetSettings, the stored settings omit the secret. An Update
+        # without a PSK loses it, exposing missing secret preservation.
+        self.settings[identifier] = config
+        self.secrets[identifier] = {'802-11-wireless-security': {'psk': password}} if password else {}
+        self.profiles[connection['uuid']] = {
+            'name': connection['id'], 'ssid': bytes(wifi['ssid']).decode(), 'mode': wifi['mode'],
+            'autoconnect': connection.get('autoconnect', True),
+            'channel': int(wifi.get('channel', '0')),
+            'password': password,
+        }
+
+    def run_nm(self, argv, **kwargs):
+        self.calls.append((argv, kwargs))
+        self.assertEqual(kwargs['env'], helper.WIFI_ENV)
+        if argv[:1] == ['iw']:
+            output = 'Station AA:BB:CC:DD:EE:01 (on wlan0)\nStation aa:bb:cc:dd:ee:02 (on wlan0)\n'
+        else:
+            self.assertEqual(argv[0], 'nmcli')
+            args = argv[1:]
+            if args[:1] == ['--show-secrets']:
+                args = args[1:]
+            if args[:1] == ['--wait']:
+                args = args[2:]
+            output = ''
+            if args == ['-t', '-f', 'DEVICE,TYPE', 'device']:
+                output = self.devices
+            elif args == ['-t', '-f', 'WIFI-HW,WIFI', 'general']:
+                output = self.radio
+            elif args[:2] == ['-t', '-f'] and args[3:5] == ['device', 'show']:
+                output = (f'GENERAL.STATE:{"100 (connected)" if self.active else "30 (disconnected)"}\n'
+                          f'GENERAL.CON-UUID:{self.active}\nGENERAL.HWADDR:AA:BB:CC:DD:BC:28\n'
+                          'IP4.ADDRESS[1]:192.168.5.3/24\nIP6.ADDRESS[1]:2001:db8::1/64\n')
+            elif args == ['-t', '-f', 'UUID,TYPE,NAME', 'connection', 'show']:
+                output = 'not-a-wifi-id:802-3-ethernet:Wired\n' + ''.join(
+                    f'{identifier}:802-11-wireless:{self.escape(p["name"])}\n' for identifier, p in self.profiles.items())
+            elif args[:1] == ['-g']:
+                p = self.profiles[args[-1]]
+                values = {'802-11-wireless.ssid': p['ssid'], '802-11-wireless.mode': p['mode'],
+                          'connection.autoconnect': 'yes' if p['autoconnect'] else 'no',
+                          '802-11-wireless.channel': p['channel'], '802-11-wireless-security.psk': p['password']}
+                output = ''.join(self.escape(values[field]) + '\n' for field in args[1].split(','))
+            elif 'wifi' in args and 'list' in args:
+                output = self.scan
+            elif args[:3] == ['connection', 'up', 'uuid']:
+                if self.fail_up:
+                    self.fail_up = False
+                    raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+                self.active = args[3]
+            elif args[:2] == ['device', 'disconnect']:
+                if not self.active:
+                    # Real nmcli exits 6 for an inactive device.
+                    raise subprocess.CalledProcessError(6, argv, stderr='This device is not active')
+                self.active = ''
+            elif args[:2] == ['device', 'set']:
+                if self.fail_device_set:
+                    raise subprocess.CalledProcessError(1, argv, stderr='NM unavailable')
+                self.active = self.auto_client
+            elif args[:2] == ['connection', 'modify']:
+                self.profiles[args[3]]['autoconnect'] = args[5] == 'yes'
+                self.settings[args[3]]['connection']['autoconnect'] = args[5] == 'yes'
+            elif args[:2] == ['connection', 'delete']:
+                self.profiles.pop(args[3], None)
+                self.settings.pop(args[3], None)
+                self.secrets.pop(args[3], None)
+            else:
+                self.fail(f'unexpected command {argv}')
+        return subprocess.CompletedProcess(argv, 0, output, '')
+
+    def request(self, action, body):
+        with patch('sys.stdin', io.StringIO(json.dumps(body))):
+            return helper.wifi_command([action])
+
+    def test_escaped_fields_scan_dedup_and_current(self):
+        self.assertEqual(helper.nm_fields(r'Home\:5G:a\\b::end'), ['Home:5G', 'a\\b', '', 'end'])
+        self.add_profile(self.CLIENT, 'Home:5G')
+        self.active = self.CLIENT
+        self.scan = 'Home\\:5G:20:WPA2:2412 MHz:*\nHome\\:5G:90:WPA2:2437 MHz: \n:99:WPA2:2412 MHz: \nOpen:70::5180 MHz: \n'
+        result = helper.wifi_command(['wifi-scan', '1'])['networks']
+        self.assertEqual([n['ssid'] for n in result], ['Home:5G', 'Open'])
+        self.assertTrue(result[0]['active'])
+        self.assertTrue(result[0]['saved'])
+        self.assertEqual((result[0]['signal'], result[0]['frequency']), (90, 2437))
+        self.assertEqual(result[1]['security'], '')
+        state = helper.wifi_status()
+        self.assertEqual(state['current']['id'], self.CLIENT)
+        self.assertEqual(state['current']['ipv4'], '192.168.5.3/24')
+        self.assertEqual((state['current']['signal'], state['current']['frequency']), (20, 2412))
+        self.assertEqual(state['hotspot']['ssid'], 'VIM4-KVM-BC28')
+        self.assertEqual(state['hotspot']['password'], '')
+        self.assertEqual(self.calls[-1][0][-1], 'no')
+
+    def test_scan_suppressed_when_off_hotspot_or_unsupported(self):
+        self.radio = 'enabled:disabled\n'
+        self.assertEqual(helper.wifi_command(['wifi-scan', '1']), {'networks': []})
+        self.assertEqual(helper.wifi_status()['mode'], 'off')
+        self.radio = 'enabled:enabled\n'
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        self.assertEqual(helper.wifi_command(['wifi-scan', '1']), {'networks': []})
+        self.devices = 'p2p-dev-wlan0:wifi-p2p\n'
+        self.assertFalse(helper.wifi_status()['supported'])
+        self.assertEqual(helper.wifi_command(['wifi-scan', '1']), {'networks': []})
+        self.assertFalse(any('list' in argv for argv, _ in self.calls))
+
+    def test_unicode_line_separator_in_ssid_is_not_a_record_delimiter(self):
+        ssid = 'Home\u2028WiFi'
+        self.add_profile(self.CLIENT, ssid)
+        self.scan = ssid + ':80:WPA2:2412 MHz: \n'
+        network = helper.wifi_command(['wifi-scan', '0'])['networks'][0]
+        self.assertEqual(network['ssid'], ssid)
+        self.assertTrue(network['saved'])
+
+    def test_station_leases_merge_only_associated_nonexpired_clients(self):
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        with patch.object(helper.Path, 'read_text', return_value=(
+                '9999999999 aa:bb:cc:dd:ee:01 10.42.0.2 laptop *\n'
+                '1 aa:bb:cc:dd:ee:02 10.42.0.3 expired *\n'
+                '9999999999 aa:bb:cc:dd:ee:03 10.42.0.4 stale *\n')):
+            state = helper.wifi_status()
+        self.assertEqual(state['mode'], 'hotspot')
+        self.assertIsNone(state['current'])
+        self.assertEqual(state['saved'], [])
+        self.assertEqual(state['hotspot']['password'], 'oldsecret')
+        self.assertEqual(state['hotspot']['clients'], [
+            {'mac': 'aa:bb:cc:dd:ee:01', 'ip': '10.42.0.2', 'hostname': 'laptop'},
+            {'mac': 'aa:bb:cc:dd:ee:02', 'ip': '', 'hostname': ''}])
+
+    def test_validation_happens_before_any_subprocess(self):
+        invalid = [
+            ('wifi-connect', {'ssid': '', 'password': ''}),
+            ('wifi-connect', {'ssid': '中' * 11}),
+            ('wifi-connect', {'ssid': 'Home\x7f'}),
+            ('wifi-connect', {'ssid': 'Home\u0085'}),
+            ('wifi-connect', {'ssid': 'Home', 'password': 'short'}),
+            ('wifi-connect', {'ssid': 'Home', 'password': 'g' * 64}),
+            ('wifi-connect', {'ssid': 'Home', 'hidden': 'yes'}),
+            ('wifi-hotspot', {'ssid': 'AP', 'password': 'a' * 64, 'channel': 1, 'autostart': False}),
+            ('wifi-hotspot', {'ssid': 'AP', 'channel': 12, 'autostart': False}),
+            ('wifi-hotspot', {'ssid': 'AP', 'channel': True, 'autostart': False}),
+            ('wifi-hotspot', {'ssid': 'AP', 'channel': 0, 'autostart': 'no'}),
+        ]
+        for action, body in invalid:
+            with self.subTest(action=action, body=body), self.assertRaises(ValueError):
+                self.request(action, body)
+        for argv in (['wifi-activate', '--help'], ['wifi-forget', self.CLIENT + '\n'],
+                     ['wifi-mode', 'off'], ['wifi-autoconnect', self.CLIENT, 'maybe']):
+            with self.assertRaises(ValueError):
+                helper.wifi_command(argv)
+        self.assertEqual(self.calls, [])
+
+    def test_connect_password_persisted_without_argv_and_existing_settings_kept(self):
+        self.add_profile(self.CLIENT, 'Home', autoconnect=False)
+        original_ip = copy.deepcopy(self.settings[self.CLIENT]['ipv4'])
+        password = ' pass:word\\x '
+        self.request('wifi-connect', {'ssid': 'Home', 'password': password, 'hidden': True})
+        self.assertEqual(self.active, self.CLIENT)
+        self.assertEqual(self.profiles[self.CLIENT]['password'], password)
+        self.assertEqual(self.settings[self.CLIENT]['ipv4'], original_ip)
+        self.assertTrue(self.settings[self.CLIENT]['802-11-wireless']['hidden'])
+        self.assertFalse(self.profiles[self.CLIENT]['autoconnect'])
+        for argv, _ in self.calls:
+            self.assertNotIn(password, ' '.join(argv))
+
+    def test_failed_new_connect_deletes_only_new_profile_and_restores_hotspot(self):
+        self.add_profile(self.CLIENT, 'Other', name='Home')
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        self.fail_up = True
+        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+            self.request('wifi-connect', {'ssid': 'Home', 'password': 'newsecret'})
+        self.assertEqual(set(self.profiles), {self.CLIENT, self.HOTSPOT})
+        self.assertEqual(self.active, self.HOTSPOT)
+        self.assertEqual(set(self.settings), {self.CLIENT, self.HOTSPOT})
+        up = [(argv, options) for argv, options in self.calls if 'up' in argv]
+        self.assertEqual(up[0][0][1:3], ['--wait', '45'])
+        self.assertEqual(up[0][1]['timeout'], 47)
+        self.assertNotIn('newsecret', repr(self.calls))
+
+    def test_failed_password_update_restores_original_settings(self):
+        self.add_profile(self.CLIENT, 'Home')
+        original = self.dbus_settings('read', self.CLIENT)
+        self.active = self.CLIENT
+        self.fail_up = True
+        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+            self.request('wifi-connect', {'ssid': 'Home', 'password': 'newsecret'})
+        self.assertEqual(self.dbus_settings('read', self.CLIENT), original)
+        self.assertEqual(self.profiles[self.CLIENT]['password'], 'oldsecret')
+        self.assertEqual(self.active, self.CLIENT)
+        self.assertFalse(any('delete' in argv for argv, _ in self.calls))
+
+    def test_hotspot_creation_and_keep_password(self):
+        self.request('wifi-hotspot', {'ssid': 'AP', 'password': '', 'channel': 11, 'autostart': True})
+        identifier, profile = next(iter(self.profiles.items()))
+        password = profile['password']
+        self.assertEqual(len(password), 12)
+        self.assertFalse(any(c in '0O1lI' for c in password))
+        config = self.settings[identifier]
+        self.assertEqual(config['802-11-wireless'], {'ssid': b'AP', 'mode': 'ap', 'band': 'bg', 'channel': 11})
+        self.assertEqual(config['802-11-wireless-security'],
+                         {'key-mgmt': 'wpa-psk', 'psk-flags': 0, 'proto': ['rsn'], 'pairwise': ['ccmp']})
+        self.assertEqual(config['ipv4']['method'], 'shared')
+        self.assertEqual(config['ipv6']['method'], 'disabled')
+        self.assertEqual(config['connection']['autoconnect-priority'], 100)
+        self.assertEqual(config['connection']['interface-name'], 'wlan0')
+        self.request('wifi-hotspot', {'ssid': 'Renamed', 'password': '', 'channel': 0, 'autostart': False})
+        self.assertEqual(self.profiles[identifier]['password'], password)
+        self.assertEqual(self.settings[identifier]['802-11-wireless']['channel'], 0)
+        self.assertEqual(self.active, '')
+        self.assertNotIn(password, repr(self.calls))
+
+    def test_hotspot_password_round_trips_and_survives_channel_update(self):
+        for password in ('a b  c\\d"e#f', '  lead trail  ', "x;y|z'q:"):
+            with self.subTest(password=password):
+                self.request('wifi-hotspot', {'ssid': 'AP', 'password': password, 'channel': 1, 'autostart': True})
+                self.assertEqual(helper.wifi_status()['hotspot']['password'], password)
+                self.request('wifi-hotspot', {'ssid': 'AP', 'channel': 11, 'autostart': False})
+                self.assertEqual(helper.wifi_status()['hotspot']['password'], password)
+                self.assertEqual(helper.wifi_status()['hotspot']['channel'], 11)
+                self.assertNotIn(password, repr(self.calls))
+
+    def test_client_omitted_password_preserves_secret_but_empty_removes_security(self):
+        self.add_profile(self.CLIENT, 'Home')
+        self.request('wifi-connect', {'ssid': 'Home', 'hidden': True})
+        self.assertEqual(self.profiles[self.CLIENT]['password'], 'oldsecret')
+        self.request('wifi-connect', {'ssid': 'Home', 'password': ''})
+        self.assertNotIn('802-11-wireless-security', self.settings[self.CLIENT])
+        self.assertEqual(self.secrets[self.CLIENT], {})
+
+    def test_failed_dbus_update_restores_existing_settings_and_secret(self):
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        original = self.dbus_settings('read', self.HOTSPOT)
+        failed = False
+
+        def fail_after_update(action, identifier=None, settings=None):
+            nonlocal failed
+            result = self.dbus_settings(action, identifier, settings)
+            if action == 'update' and not failed:
+                failed = True
+                raise ValueError('settings update failed')
+            return result
+
+        with patch.object(helper, 'wifi_dbus', side_effect=fail_after_update):
+            with self.assertRaisesRegex(ValueError, 'settings update failed'):
+                self.request('wifi-hotspot', {'ssid': 'Changed', 'password': 'newsecret',
+                                              'channel': 11, 'autostart': False})
+        self.assertEqual(self.dbus_settings('read', self.HOTSPOT), original)
+        self.assertNotIn('newsecret', repr(self.calls))
+
+    def test_active_hotspot_reapply_failure_restores_settings_and_password(self):
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        original = self.dbus_settings('read', self.HOTSPOT)
+        self.active = self.HOTSPOT
+        self.fail_up = True
+        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+            self.request('wifi-hotspot', {'ssid': 'Renamed', 'password': 'newsecret', 'channel': 11, 'autostart': False})
+        self.assertEqual(self.dbus_settings('read', self.HOTSPOT), original)
+        self.assertEqual(self.active, self.HOTSPOT)
+        self.assertEqual(self.profiles[self.HOTSPOT]['password'], 'oldsecret')
+
+    def test_client_to_hotspot_failure_restores_client(self):
+        self.add_profile(self.CLIENT, 'Home')
+        self.active = self.CLIENT
+        self.fail_up = True
+        with self.assertRaisesRegex(ValueError, '热点启动失败，已恢复原连接'):
+            helper.wifi_command(['wifi-mode', 'hotspot'])
+        self.assertEqual(self.active, self.CLIENT)
+
+    def test_hotspot_to_client_fallback_force_and_success(self):
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        with self.assertRaisesRegex(ValueError, '已恢复热点'):
+            helper.wifi_command(['wifi-mode', 'client'])
+        self.assertEqual(self.active, self.HOTSPOT)
+        self.assertTrue(self.profiles[self.HOTSPOT]['autoconnect'])
+        self.add_profile(self.CLIENT, 'Home')
+        # Controlled deadline proves the full 30-second window without sleeps.
+        with patch.object(helper.time, 'monotonic', side_effect=[100, 100, 130]), \
+             patch.object(helper.time, 'sleep'):
+            with self.assertRaisesRegex(ValueError, '30 秒内'):
+                helper.wifi_command(['wifi-mode', 'client'])
+        self.assertEqual(self.active, self.HOTSPOT)
+        helper.wifi_command(['wifi-mode', 'client', 'force'])
+        self.assertEqual(self.active, '')
+        self.assertFalse(self.profiles[self.HOTSPOT]['autoconnect'])
+        self.active = self.HOTSPOT
+        self.auto_client = self.CLIENT
+        helper.wifi_command(['wifi-mode', 'client'])
+        self.assertEqual(self.active, self.CLIENT)
+
+    def test_activate_failure_restores_and_uuid_actions_reject_hotspot(self):
+        self.add_profile(self.CLIENT, 'Home')
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        self.fail_up = True
+        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+            helper.wifi_command(['wifi-activate', self.CLIENT])
+        self.assertEqual(self.active, self.HOTSPOT)
+        for action in ('wifi-activate', 'wifi-forget', 'wifi-autoconnect'):
+            args = [action, self.HOTSPOT] + (['yes'] if action == 'wifi-autoconnect' else [])
+            with self.assertRaisesRegex(ValueError, '找不到'):
+                helper.wifi_command(args)
+        helper.wifi_command(['wifi-activate', self.CLIENT])
+        self.assertFalse(self.profiles[self.HOTSPOT]['autoconnect'])
+        helper.wifi_command(['wifi-autoconnect', self.CLIENT, 'no'])
+        self.assertFalse(self.profiles[self.CLIENT]['autoconnect'])
+        helper.wifi_command(['wifi-disconnect'])
+        self.assertEqual(self.active, '')
+        self.active = self.CLIENT
+        helper.wifi_command(['wifi-forget', self.CLIENT])
+        self.assertEqual(self.active, '')
+        self.assertNotIn(self.CLIENT, self.profiles)
+
+    def test_force_does_not_restore_hotspot_even_when_autoconnect_fails(self):
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        self.fail_device_set = True
+        with self.assertRaises(ValueError):
+            helper.wifi_command(['wifi-mode', 'client', 'force'])
+        self.assertEqual(self.active, '')
+        self.assertFalse(any('up' in argv for argv, _ in self.calls))
+
+    def test_open_network_and_raw_hex_client_psk(self):
+        self.request('wifi-connect', {'ssid': 'Open', 'password': ''})
+        self.assertNotIn('802-11-wireless-security', self.settings[self.active])
+        password = 'a' * 64
+        self.request('wifi-connect', {'ssid': 'Secured', 'password': password})
+        self.assertEqual(self.profiles[self.active]['password'], password)
+        self.assertNotIn(password, repr(self.calls))
+
+    def test_client_ssid_matching_reserved_hotspot_name_stays_manageable(self):
+        self.request('wifi-connect', {'ssid': 'vim4-hotspot', 'password': 'secret123'})
+        state = helper.wifi_status()
+        self.assertEqual(state['mode'], 'client')
+        self.assertEqual(state['current']['ssid'], 'vim4-hotspot')
+        self.assertEqual(len(state['saved']), 1)
+        helper.wifi_command(['wifi-forget', self.active])
+        self.assertEqual(self.profiles, {})
+
+    def test_reads_skip_operation_lock_writes_take_it(self):
+        with patch.object(helper.os, 'open', return_value=123) as opened, \
+             patch.object(helper.os, 'close'), patch.object(helper.fcntl, 'flock') as flock:
+            for action in ('wifi-status', 'wifi-scan'):
+                with helper.operation_lock([action]):
+                    pass
+            opened.assert_not_called()
+            with helper.operation_lock(['wifi-connect']):
+                flock.assert_called_once_with(123, helper.fcntl.LOCK_EX | helper.fcntl.LOCK_NB)
+
+
+class WifiDBusTest(unittest.TestCase):
+    def test_settings_snapshot_and_persistent_writes_use_dbus_types(self):
+        class Dictionary(dict):
+            def __init__(self, values, signature):
+                super().__init__(values)
+                self.signature = signature
+
+        class UInt32(int):
+            pass
+
+        connection = Mock()
+        connection.GetSettings.return_value = {
+            'connection': {'uuid': WifiTest.CLIENT},
+            '802-11-wireless': {'ssid': b'Home', 'channel': 6},
+            '802-11-wireless-security': {'key-mgmt': 'wpa-psk', 'psk-flags': 0},
+            'ipv4': {'method': 'manual', 'address-data': [{'address': '192.168.5.3', 'prefix': 24}]},
+        }
+        password = '  old\\secret  '
+        connection.GetSecrets.return_value = {'802-11-wireless-security': {'psk': password}}
+        manager = Mock()
+        dbus = Mock(Dictionary=Dictionary, UInt32=UInt32, ByteArray=bytes, DBusException=RuntimeError)
+        dbus.Interface.side_effect = [manager, connection, manager, connection, manager]
+        with patch.dict(sys.modules, {'dbus': dbus}):
+            snapshot = helper.wifi_dbus('read', WifiTest.CLIENT)
+            self.assertEqual(snapshot['802-11-wireless-security']['psk'], password)
+            connection.GetSecrets.assert_called_once_with('802-11-wireless-security')
+            helper.wifi_dbus('update', WifiTest.CLIENT, snapshot)
+            helper.wifi_dbus('add', settings=snapshot)
+        manager.GetConnectionByUuid.assert_called_with(WifiTest.CLIENT)
+        for settings in (connection.Update.call_args.args[0], manager.AddConnection.call_args.args[0]):
+            self.assertEqual(settings, snapshot)
+            self.assertEqual(settings.signature, 'sa{sv}')
+            self.assertTrue(all(section.signature == 'sv' for section in settings.values()))
+            self.assertIsInstance(settings['802-11-wireless']['channel'], UInt32)
+            self.assertIsInstance(settings['802-11-wireless-security']['psk-flags'], UInt32)
+
+    def test_dbus_errors_do_not_expose_secrets(self):
+        dbus = Mock(DBusException=RuntimeError)
+        dbus.SystemBus.side_effect = RuntimeError('PSK: secret123')
+        with patch.dict(sys.modules, {'dbus': dbus}), self.assertRaises(ValueError) as raised:
+            helper.wifi_dbus('read', WifiTest.CLIENT)
+        self.assertNotIn('secret123', str(raised.exception))
 
 
 class TailscaleTest(unittest.TestCase):

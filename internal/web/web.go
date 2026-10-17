@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"mime"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -85,6 +86,11 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
+			if host, _, err := net.SplitHostPort(local.String()); err == nil {
+				state.ViaWifi = service.WifiUsesAddress(ctx, state.Device, host)
+			}
+		}
 		writeJSON(w, http.StatusOK, state)
 	})
 	mux.HandleFunc("POST /api/wifi", func(w http.ResponseWriter, r *http.Request) {
@@ -100,6 +106,7 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		}
 		respond(w, service.SetWifi(r.Context(), *request.Enabled))
 	})
+	wifiRoutes(mux, service)
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
@@ -174,6 +181,91 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		files.ServeHTTP(w, r)
 	})
 	return localWrites(requireJSON(mux))
+}
+
+func wifiRoutes(mux *http.ServeMux, service *board.Service) {
+	mux.HandleFunc("GET /api/wifi/networks", func(w http.ResponseWriter, r *http.Request) {
+		networks, err := service.WifiNetworks(r.Context(), r.URL.Query().Get("rescan") == "1")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"networks": networks})
+	})
+	mux.HandleFunc("POST /api/wifi/connect", func(w http.ResponseWriter, r *http.Request) {
+		var request board.WifiConnectRequest
+		if !decode(w, r, &request) {
+			return
+		}
+		respond(w, service.ConnectWifi(r.Context(), request))
+	})
+	mux.HandleFunc("POST /api/wifi/activate", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ID string `json:"id"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		respond(w, service.ActivateWifi(r.Context(), request.ID))
+	})
+	mux.HandleFunc("POST /api/wifi/disconnect", func(w http.ResponseWriter, r *http.Request) {
+		var request struct{}
+		if !decode(w, r, &request) {
+			return
+		}
+		respond(w, service.DisconnectWifi(r.Context()))
+	})
+	mux.HandleFunc("POST /api/wifi/forget", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ID string `json:"id"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		respond(w, service.ForgetWifi(r.Context(), request.ID))
+	})
+	mux.HandleFunc("POST /api/wifi/autoconnect", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			ID      string `json:"id"`
+			Enabled *bool  `json:"enabled"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		if request.Enabled == nil {
+			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 布尔值"))
+			return
+		}
+		respond(w, service.SetWifiAutoconnect(r.Context(), request.ID, *request.Enabled))
+	})
+	mux.HandleFunc("POST /api/wifi/hotspot", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			SSID      string `json:"ssid"`
+			Password  string `json:"password"`
+			Channel   *int   `json:"channel"`
+			Autostart *bool  `json:"autostart"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		if request.Channel == nil || request.Autostart == nil {
+			writeError(w, http.StatusBadRequest, errors.New("需要 channel 整数和 autostart 布尔值"))
+			return
+		}
+		respond(w, service.SetWifiHotspot(r.Context(), board.WifiHotspotRequest{
+			SSID: request.SSID, Password: request.Password, Channel: *request.Channel, Autostart: *request.Autostart,
+		}))
+	})
+	mux.HandleFunc("POST /api/wifi/mode", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Mode  string `json:"mode"`
+			Force bool   `json:"force"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		respond(w, service.SetWifiMode(r.Context(), request.Mode, request.Force))
+	})
 }
 
 // requireJSON rejects cross-site form posts: the API has no authentication on
