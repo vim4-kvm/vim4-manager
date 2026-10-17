@@ -71,20 +71,26 @@ NanoKVM/JetKVM 首次连接存储可将 NCM 换成存储，会短暂重连 USB�
 助手逐级禁止符号链接，并拒绝硬链接、特殊文件、越界路径和小于 512 字节的镜像。
 
 API 没有认证，面向可信局域网。POST 只接受 application/json，跨站表单无法触发切换。
+所有路由校验 Host，带 Origin 的写请求须同源；Tailscale 来源禁止写入。
+默认接受板子 IP、本机名及其 `.local` 名、localhost 和当前 MagicDNS 名；其他入口用
+`-allowed-hosts name1,name2` 显式配置。这些检查不替代认证，局域网调用者仍能修改设置。
 
 ## Tailscale 组网
 
 管理器统一管理整机 `tailscaled`，独立于当前 KVM 应用。助手提供
 `tailscale-status`、`tailscale-install`、`tailscale-uninstall`、`tailscale-up`、
 `tailscale-down`、`tailscale-login URL` 和 `tailscale-logout`。
-安装使用官方签名 APT 源，只刷新该源；安装、卸载在后台执行，不阻塞 KVM 切换。
+安装使用官方签名 APT 源，只刷新该源；安装、卸载在独立 systemd 任务执行，
+管理器重启不终止任务，与管理器更新共用包操作锁，不阻塞 KVM 切换。
 
 `GET /api/tailscale` 返回守护进程、组网及最近任务状态；`POST /api/tailscale`
-接受 `{action,controlURL}`，action 为 `install|uninstall|up|down|login|logout`。
+接受 `{action,controlURL,confirmed,previousControlURL}`，action 为 `install|uninstall|up|down|login|logout`。
 只有 login 接受并要求 controlURL，可用官方服务器或 Headscale；返回 `{authURL}`。
 其他操作返回 `{ok:true}`，安装、卸载的最终结果通过 GET 的 `job` 查询。
 
-连接和登录固定传入 `--accept-dns=false`，不默认接受路由或启用出口节点。
+登录传入 `--accept-dns=false`；重连仅恢复 WantRunning，保留 Headscale 和其他设置。
+断开、退出和卸载须 confirmed:true；切换控制服务器还须确认当前 previousControlURL。
+状态由只读 LocalAPI 读取并缓存三秒，不返回对端公网端点；重复登录仅保留一个受管任务。
 API 无认证，面向可信局域网；接入 tailnet 后，tailnet 内设备在访问策略允许时
 也可访问管理面板 80 和 KVM 界面 8080 端口。状态字段、登录流程及验证见
 [Tailscale 说明](docs/tailscale.md)。

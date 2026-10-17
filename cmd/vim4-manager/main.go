@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 
 func main() {
 	listen := flag.String("listen", ":80", "HTTP listen address")
+	allowedHosts := flag.String("allowed-hosts", "", "Additional trusted HTTP hostnames, comma-separated")
 	flag.Parse()
 	assets, err := fs.Sub(vim4manager.Assets, "web/dist")
 	if err != nil {
@@ -30,7 +32,7 @@ func main() {
 	history := &board.History{Root: "/", Capacity: 180}
 	updater := &board.Updater{Client: &http.Client{}, Dir: board.UpdateDir}
 	service := &board.Service{Run: board.Exec, Root: "/", History: history, Events: &board.Events{Capacity: 60}, Updater: updater}
-	server := &http.Server{Addr: *listen, Handler: web.Handler(service, assets), ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Addr: *listen, Handler: web.CheckHost(service, web.Handler(service, assets), strings.Split(*allowedHosts, ",")), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go history.Run(ctx, 5*time.Second)

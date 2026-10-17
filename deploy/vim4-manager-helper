@@ -4,6 +4,7 @@ import fcntl
 import errno
 from contextlib import ExitStack, contextmanager
 import hashlib
+import http.client
 import ipaddress
 import json
 import os
@@ -11,12 +12,14 @@ import pwd
 import re
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.request
+import urllib.parse
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -67,6 +70,65 @@ TAILSCALE_KEYRING = Path('/usr/share/keyrings/tailscale-archive-keyring.gpg')
 TAILSCALE_SOURCES = Path('/etc/apt/sources.list.d/tailscale.list')
 TAILSCALE_REPOSITORY = 'https://pkgs.tailscale.com/stable/ubuntu'
 TAILSCALE_NETWORKS = (ipaddress.ip_network('100.64.0.0/10'), ipaddress.ip_network('fd7a:115c:a1e0::/48'))
+TAILSCALE_JOB = Path('/run/vim4-manager-tailscale-job.json')
+TAILSCALE_PACKAGE_UNIT = 'vim4-manager-tailscale-package.service'
+TAILSCALE_LOGIN_UNIT = 'vim4-manager-tailscale-login.service'
+
+
+def tailscale_auth_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if url and (parsed.scheme not in ('http', 'https') or not parsed.hostname or
+                parsed.username is not None or any(c.isspace() for c in url)):
+        raise ValueError('invalid Tailscale authorization URL')
+    return url
+
+
+def tailscale_local_api(method, path, data):
+    # Keep mutations in the root helper; the manager needs only read access.
+    connection = http.client.HTTPConnection('local-tailscaled.sock', timeout=20)
+    connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    connection.sock.settimeout(20)
+    try:
+        connection.sock.connect('/var/run/tailscale/tailscaled.sock')
+        connection.request(method, '/localapi/v0/' + path, json.dumps(data),
+                           {'Content-Type': 'application/json'})
+        response = connection.getresponse()
+        body = response.read(1 << 20)
+        if response.status != 200:
+            raise ValueError(f'Tailscale local API failed ({response.status})')
+        return json.loads(body)
+    finally:
+        connection.close()
+
+
+def tailscale_write_job(action, running, error=''):
+    temporary = TAILSCALE_JOB.with_suffix('.tmp')
+    temporary.write_text(json.dumps({'action': action, 'running': running, 'error': error}))
+    temporary.chmod(0o644)
+    temporary.replace(TAILSCALE_JOB)
+
+
+def tailscale_package(action):
+    error = ''
+    try:
+        (tailscale_install if action == 'install' else tailscale_uninstall)()
+    except BaseException as failure:
+        error = str(failure) or 'Package operation interrupted'
+        raise
+    finally:
+        tailscale_write_job(action, False, error)
+
+
+def tailscale_start_package(action):
+    # A separate service cgroup survives manager updates and browser disconnects.
+    tailscale_write_job(action, True)
+    try:
+        tailscale_run('systemd-run', '--unit=' + TAILSCALE_PACKAGE_UNIT, '--collect',
+                      '--property=RuntimeMaxSec=15min', '/usr/libexec/vim4-manager-helper',
+                      'tailscale-package', action)
+    except BaseException as failure:
+        tailscale_write_job(action, False, str(failure))
+        raise
 
 
 def tailscale_installed():
@@ -97,7 +159,7 @@ def tailscale_status():
     peer = status.get('Peer') or {}
     self = status.get('Self') or {}
     state.update(running=True, backendState=status.get('BackendState', ''),
-                 authURL=status.get('AuthURL') or '', hostName=self.get('HostName', ''),
+                 authURL=tailscale_auth_url(status.get('AuthURL') or ''), hostName=self.get('HostName', ''),
                  dnsName=(self.get('DNSName') or '').rstrip('.'),
                  ips=status.get('TailscaleIPs') or self.get('TailscaleIPs') or [],
                  tailnet=(status.get('CurrentTailnet') or {}).get('Name', ''),
@@ -186,14 +248,17 @@ def tailscale_uninstall():
         path.unlink(missing_ok=True)
 
 
-def tailscale_login(url):
+def tailscale_login(url, previous=''):
     tailscale_run('systemctl', 'enable', '--now', 'tailscaled.service', timeout=20)
-    # Ubuntu chooses the control server at login. Authorization can take minutes;
-    # do not leave the helper's pipes or session attached to that process.
-    subprocess.Popen(['tailscale', 'login', '--login-server=' + url,
-                      '--accept-dns=false', '--timeout=10m'],
-                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
+    current = tailscale_status()
+    if (current['backendState'] in ('Running', 'Stopped', 'Starting', 'NeedsMachineAuth') and
+            current['controlURL'] != url and previous != current['controlURL']):
+        raise ValueError('请确认切换控制服务器，并重新提交当前 controlURL')
+    # A fixed unit bounds login to one process, including retries after a timeout.
+    tailscale_run('systemctl', 'stop', TAILSCALE_LOGIN_UNIT, check=False)
+    tailscale_run('systemd-run', '--unit=' + TAILSCALE_LOGIN_UNIT, '--collect',
+                  '--property=RuntimeMaxSec=10min', 'tailscale', 'login', '--login-server=' + url,
+                  '--accept-dns=false', '--timeout=10m')
     deadline = time.monotonic() + 30
     while (remaining := deadline - time.monotonic()) > 0:
         try:
@@ -206,7 +271,7 @@ def tailscale_login(url):
                 result = tailscale_run('tailscale', 'status', '--json', timeout=min(2, remaining), check=False)
                 status = json.loads(result.stdout or '{}')
                 if control == url and (status.get('AuthURL') or status.get('BackendState') == 'Running'):
-                    return {'authURL': status.get('AuthURL') or ''}
+                    return {'authURL': tailscale_auth_url(status.get('AuthURL') or '')}
         except subprocess.TimeoutExpired:
             pass
         time.sleep(min(0.5, max(0, deadline - time.monotonic())))
@@ -214,7 +279,13 @@ def tailscale_login(url):
 
 
 def tailscale_command(argv):
+    previous = ''
     match argv:
+        case ['tailscale-package', action] if action in ('install', 'uninstall'):
+            tailscale_package(action)
+            return {}
+        case ['tailscale-login', url, previous] if TAILSCALE_URL.fullmatch(url) and TAILSCALE_URL.fullmatch(previous):
+            action = 'login'
         case ['tailscale-login', url] if TAILSCALE_URL.fullmatch(url):
             action = 'login'
         case ['tailscale-ping', ip]:
@@ -223,22 +294,27 @@ def tailscale_command(argv):
                                'tailscale-up', 'tailscale-down', 'tailscale-logout'):
             action = name.removeprefix('tailscale-')
         case _:
-            raise ValueError('usage: tailscale-status|install|uninstall|up|down|logout | tailscale-login http(s)://host[:port] | tailscale-ping IP')
+            raise ValueError('usage: tailscale-status|install|uninstall|up|down|logout | tailscale-login URL [PREVIOUS_URL] | tailscale-ping IP')
     if action not in ('status', 'install', 'uninstall') and not tailscale_installed():
         raise ValueError('tailscale is not installed')
     if action == 'status':
         return tailscale_status()
     if action == 'ping':
         return tailscale_ping(ip)
-    if action == 'install':
-        tailscale_install()
-    elif action == 'uninstall':
-        tailscale_uninstall()
+    if TAILSCALE_JOB.exists():
+        job = json.loads(TAILSCALE_JOB.read_text())
+        if job.get('running') and tailscale_run('systemctl', 'is-active', '--quiet',
+                                               TAILSCALE_PACKAGE_UNIT, check=False).returncode == 0:
+            raise ValueError('Another tailscale package operation is in progress')
+    if action != 'login':
+        tailscale_run('systemctl', 'stop', TAILSCALE_LOGIN_UNIT, check=False)
+    if action in ('install', 'uninstall'):
+        tailscale_start_package(action)
     elif action == 'login':
-        return tailscale_login(url)
+        return tailscale_login(url, previous)
     elif action == 'up':
         tailscale_run('systemctl', 'enable', '--now', 'tailscaled.service', timeout=20)
-        tailscale_run('tailscale', 'up', '--accept-dns=false', '--timeout=20s')
+        tailscale_local_api('PATCH', 'prefs', {'WantRunning': True, 'WantRunningSet': True})
     else:
         tailscale_run('tailscale', action)
     return {}
@@ -1206,7 +1282,7 @@ def main(argv):
                              'wifi on|off | media-status | media-list | media-mount APP IMAGE CDROM READONLY | '
                              'media-eject TOKEN | edid-status | edid-select ID | update PACKAGE SHA256 VERSION | '
                              'tailscale-status|tailscale-install|tailscale-uninstall|tailscale-up|tailscale-down|'
-                             'tailscale-logout | tailscale-login http(s)://host[:port] | tailscale-ping IP')
+                             'tailscale-logout | tailscale-login URL [PREVIOUS_URL] | tailscale-ping IP')
 
 
 @contextmanager
@@ -1218,8 +1294,21 @@ def operation_lock(argv):
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'
     fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
+        # The package worker may start before the launching helper releases its
+        # Tailscale lock. Other writers still fail immediately.
+        fcntl.flock(fd, fcntl.LOCK_EX | (0 if action == 'tailscale-package' else fcntl.LOCK_NB))
+        if action in ('update', 'tailscale-package'):
+            package_fd = os.open('/run/lock/vim4-manager-packages.lock',
+                                 os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            try:
+                # Fail before touching APT rather than spending the worker's
+                # runtime budget waiting and then interrupting a transaction.
+                fcntl.flock(package_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                yield
+            finally:
+                os.close(package_fd)
+        else:
+            yield
     finally:
         os.close(fd)
 
@@ -1236,11 +1325,16 @@ if __name__ == '__main__':
             main(sys.argv[1:])
     except BlockingIOError:
         action = sys.argv[1] if len(sys.argv) > 1 else ''
-        busy = ('另一个数据盘操作正在进行，请稍后重试' if action.startswith('disk-') else
+        busy = ('Another package operation is in progress' if action in ('update', 'tailscale-package') else
+                '另一个数据盘操作正在进行，请稍后重试' if action.startswith('disk-') else
                 'Another tailscale operation is in progress' if action.startswith('tailscale-') else
                 'Another switch is in progress')
+        if action == 'tailscale-package':
+            tailscale_write_job(sys.argv[2], False, busy)
         print(busy, file=sys.stderr)
         sys.exit(75)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
+        if len(sys.argv) > 2 and sys.argv[1] == 'tailscale-package':
+            tailscale_write_job(sys.argv[2], False, str(error))
         print(error, file=sys.stderr)
         sys.exit(1)

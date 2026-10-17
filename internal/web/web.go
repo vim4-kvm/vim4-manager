@@ -173,7 +173,7 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		}
 		files.ServeHTTP(w, r)
 	})
-	return requireJSON(mux)
+	return localWrites(requireJSON(mux))
 }
 
 // requireJSON rejects cross-site form posts: the API has no authentication on

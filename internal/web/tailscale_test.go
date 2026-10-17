@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -32,6 +35,13 @@ func TestTailscaleGETAndLogin(t *testing.T) {
 		}
 		return `{"authURL":"https://head.example/register/1"}`, nil
 	}}
+	service.TailscaleHTTP = &http.Client{Transport: statusTransport(func(r *http.Request) (*http.Response, error) {
+		data := `{"ControlURL":"https://head.example"}`
+		if strings.HasSuffix(r.URL.Path, "/status") {
+			data = `{"BackendState":"NeedsLogin","AuthURL":"https://head.example/register/1","Peer":{"a":{"Online":true},"b":{"Online":true}}}`
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(data)), Header: make(http.Header)}, nil
+	})}
 	handler := Handler(service, fstest.MapFS{})
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/tailscale", nil))
@@ -174,40 +184,26 @@ func TestTailscalePOSTValidation(t *testing.T) {
 	}
 }
 
-func TestTailscaleBackgroundJobAndConflict(t *testing.T) {
-	started, release, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	service := &board.Service{Run: func(_ context.Context, _ string, args ...string) (string, error) {
-		if args[2] == "tailscale-status" {
-			return `{"installed":false,"ips":[]}`, nil
-		}
-		close(started)
-		<-release
-		close(returned)
-		return "{}", nil
-	}}
+func TestTailscaleDisconnectRequiresConfirmation(t *testing.T) {
+	calls := 0
+	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) { calls++; return "{}", nil }}
 	handler := Handler(service, fstest.MapFS{})
-	post := func(action string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest("POST", "/api/tailscale", strings.NewReader(`{"action":"`+action+`"}`))
+	for _, confirmed := range []bool{false, true} {
+		body := fmt.Sprintf(`{"action":"down","confirmed":%t}`, confirmed)
+		r := httptest.NewRequest("POST", "/api/tailscale", strings.NewReader(body))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-		return w
+		want := 400
+		if confirmed {
+			want = 200
+		}
+		if w.Code != want {
+			t.Fatalf("confirmed=%t: %d %s", confirmed, w.Code, w.Body.String())
+		}
 	}
-	w := post("install")
-	<-started
-	defer func() { close(release); <-returned }()
-	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"ok":true}` {
-		t.Fatalf("install: %d %s", w.Code, w.Body.String())
-	}
-	if w = post("down"); w.Code != 409 {
-		t.Fatalf("conflict: %d %s", w.Code, w.Body.String())
-	}
-	w = httptest.NewRecorder()
-	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/tailscale", nil))
-	var state board.TailscaleState
-	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil || w.Code != 200 ||
-		state.Job == nil || state.Job.Action != "install" || !state.Job.Running || state.Job.Error != "" {
-		t.Fatalf("job: %d %s, %v", w.Code, w.Body.String(), err)
+	if calls != 1 {
+		t.Fatalf("helper calls: %d", calls)
 	}
 }
 
@@ -219,7 +215,7 @@ func TestTailscaleErrorsUseExistingResponseCodes(t *testing.T) {
 	for _, test := range []struct {
 		method, body string
 		code         int
-	}{{"GET", "", 500}, {"POST", `{"action":"down"}`, 400},
+	}{{"POST", `{"action":"down","confirmed":true}`, 400},
 		{"POST", `{"action":"login","controlURL":"https://head.example"}`, 400}} {
 		r := httptest.NewRequest(test.method, "/api/tailscale", strings.NewReader(test.body))
 		r.Header.Set("Content-Type", "application/json")

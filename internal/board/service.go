@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,6 +34,10 @@ type Service struct {
 	tailscaleJob      *TailscaleJob
 	tailscalePingOnce sync.Once
 	tailscalePings    chan struct{}
+	TailscaleHTTP     *http.Client
+	tailscaleReadMu   sync.Mutex
+	tailscaleReadAt   time.Time
+	tailscaleState    TailscaleState
 
 	pkgMu    sync.Mutex
 	pkgMtime time.Time

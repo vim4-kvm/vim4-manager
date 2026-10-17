@@ -102,7 +102,7 @@ try {
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "100.64.0.2");
 
   await page.getByRole("button", { name: "测试到 macbook 的连接" }).click();
-  await page.getByText("直连 192.168.1.5:41641，1.1 ms").waitFor();
+  await page.getByText("直连，1.1 ms").waitFor();
   await page.getByRole("button", { name: "测试到 phone 的连接" }).click();
   await page.getByText(/经 DERP 中继 hkg，50 ms，丢失 1\/4/).waitFor();
   await page.getByRole("button", { name: "显示 1 台离线设备" }).click();
@@ -114,14 +114,29 @@ try {
 
   const toggle = page.getByRole("switch", { name: "Tailscale 连接" });
   await toggle.click();
+  assert.equal(writes.at(-1).action, "login", "disconnect must await confirmation");
+  await page.getByRole("alertdialog").getByRole("button", { name: "取消" }).click();
+  assert.equal(await toggle.getAttribute("aria-checked"), "true");
+  await toggle.click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "断开", exact: true }).click();
   await status.getByText("已断开").waitFor();
+  assert.equal(writes.at(-1).confirmed, true);
   assert.equal(await toggle.getAttribute("aria-checked"), "false");
   await toggle.click();
   await status.getByText("已连接").waitFor();
 
+  await page.getByRole("button", { name: "切换控制服务器" }).click();
+  await page.getByRole("textbox", { name: "控制服务器地址" }).fill("https://new.example");
+  await page.getByRole("button", { name: "获取登录链接" }).click();
+  await page.getByRole("alertdialog", { name: "切换控制服务器" }).waitFor();
+  assert.equal(writes.at(-1).action, "up", "server change must await confirmation");
+  await page.getByRole("alertdialog").getByRole("button", { name: "确认切换" }).click();
+  await page.waitForFunction(() => !document.querySelector('[aria-busy="true"]'));
+  assert.deepEqual(writes.at(-1), { action: "login", controlURL: "https://new.example", previousControlURL: "https://hs.example.com:8443", confirmed: true });
+
   await page.getByRole("button", { name: "退出登录" }).click();
   await page.getByRole("button", { name: "取消" }).click();
-  assert.equal(writes.at(-1).action, "up", "cancelling must not log out");
+  assert.equal(writes.at(-1).action, "login", "cancelling must not log out");
   await page.getByRole("button", { name: "退出登录" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "退出登录" }).click();
   await status.getByText("未登录").waitFor();
@@ -131,13 +146,24 @@ try {
   await page.getByText("操作失败").waitFor();
   failWrite = false;
 
+  state = { installed: true, running: true, backendState: "NeedsLogin", authURL: "javascript:alert(1)" };
+  await page.reload();
+  await status.getByText("未登录").waitFor();
+  assert.equal(await page.getByRole("link", { name: "打开登录页面" }).count(), 0);
+  await page.getByRole("button", { name: "获取登录链接" }).waitFor();
+
+  state = { ...online, writable: false };
+  await page.getByText(/当前通过 Tailscale 访问，只能查看状态/).waitFor();
+  assert(await toggle.isDisabled());
+  assert(await page.getByRole("button", { name: "测试到 macbook 的连接" }).isDisabled());
+
   state = { installed: true, job: { action: "uninstall", running: true } };
   await status.getByText("正在卸载 Tailscale…").waitFor();
   assert.equal(await page.getByRole("button", { name: "卸载" }).count(), 0);
   state = { installed: false, job: { action: "install", running: false, error: "无法下载软件源密钥" } };
   await page.getByText("无法下载软件源密钥").waitFor();
 
-  state = online;
+  state = { ...online, authURL: "javascript:alert(1)" };
   for (const colorScheme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme });
     await page.setViewportSize({ width: 375, height: 812 });
@@ -149,7 +175,7 @@ try {
     await page.screenshot({ path: `/tmp/manager-tailscale-${colorScheme}.png`, fullPage: true });
   }
   console.log(
-    "Tailscale UI checks passed: install, custom control server, login link, connect toggle, logout confirmation, failure, background job, access URLs, copy, device list, offline collapse, ping direct/DERP/timeout, mobile light/dark.",
+    "Tailscale UI checks passed: install, Headscale, safe login links, disconnect and server-switch confirmation, remote read-only state, logout confirmation, failure, background job, access URLs, copy, device list, ping direct/DERP/timeout, mobile light/dark.",
   );
 } finally {
   await browser.close();

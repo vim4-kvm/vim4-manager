@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"runtime"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -12,52 +15,47 @@ import (
 	"time"
 )
 
-func TestTailscaleStateAndReadErrors(t *testing.T) {
-	s := &Service{Run: func(_ context.Context, name string, args ...string) (string, error) {
-		if name != "sudo" || !slices.Equal(args, []string{"-n", Helper, "tailscale-status"}) {
-			t.Fatalf("unexpected command: %s %v", name, args)
-		}
-		return `{"installed":true,"running":true,"backendState":"NeedsLogin","authURL":"https://head.example/register/1","hostName":"vim4","dnsName":"vim4.example","ips":["100.64.0.1"],"tailnet":"example","controlURL":"https://head.example","version":"1.90.1","peers":3,"peersOnline":2}`, nil
-	}}
-	state, err := s.Tailscale(context.Background())
-	if err != nil || !state.Installed || !state.Running || state.BackendState != "NeedsLogin" ||
-		state.AuthURL != "https://head.example/register/1" || state.DNSName != "vim4.example" ||
-		state.ControlURL != "https://head.example" || state.Peers != 3 || state.PeersOnline != 2 ||
-		!slices.Equal(state.IPs, []string{"100.64.0.1"}) || state.Devices == nil || state.Job != nil {
-		t.Fatalf("state: %+v, %v", state, err)
-	}
-	for _, test := range []struct {
-		output string
-		err    error
-	}{{"", errors.New("helper unavailable")}, {"not json", nil}} {
-		s.Run = func(context.Context, string, ...string) (string, error) { return test.output, test.err }
-		if _, err := s.Tailscale(context.Background()); err == nil {
-			t.Fatal("failed read reported as valid state")
-		}
-	}
+type tailscaleTransport func(*http.Request) (*http.Response, error)
+
+func (transport tailscaleTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	return transport(r)
 }
 
-func TestTailscaleDevicesAndEmptyDefaults(t *testing.T) {
-	for _, devices := range []string{"null", "[]", `[{"id":"node-id","hostName":"laptop","dnsName":"laptop.example","os":"linux","ips":["100.64.0.2"],"online":true,"lastSeen":"2026-10-16T12:34:56Z","curAddr":"192.0.2.2:41641","relay":"lax","exitNode":true,"active":true}]`} {
-		s := &Service{Run: func(context.Context, string, ...string) (string, error) {
-			return `{"devices":` + devices + `}`, nil
-		}}
-		state, err := s.Tailscale(context.Background())
-		if err != nil || state.Devices == nil {
-			t.Fatalf("devices %s: %+v, %v", devices, state, err)
+func TestTailscaleLocalStatusCacheAndPrivacy(t *testing.T) {
+	calls := 0
+	malformed := false
+	s := &Service{Run: func(context.Context, string, ...string) (string, error) {
+		t.Fatal("status spawned a process")
+		return "", nil
+	}}
+	s.TailscaleHTTP = &http.Client{Transport: tailscaleTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		data := `{"ControlURL":"https://head.example"}`
+		if strings.HasSuffix(r.URL.Path, "/status") {
+			data = `{"BackendState":"Running","Version":"1.104.1","Self":{"HostName":"vim4","DNSName":"vim4.example.","TailscaleIPs":["100.64.0.1"]},"Peer":{"a":{"ID":"a","HostName":"offline","Online":false},"b":{"ID":"b","HostName":"laptop","Online":true,"TailscaleIPs":["100.64.0.2"],"CurAddr":"203.0.113.10:41641","LastSeen":"0001-01-01T00:00:00Z"}}}`
 		}
-		if len(state.Devices) > 0 {
-			d := state.Devices[0]
-			if d.ID != "node-id" || d.HostName != "laptop" || d.DNSName != "laptop.example" || d.OS != "linux" ||
-				!slices.Equal(d.IPs, []string{"100.64.0.2"}) || !d.Online || d.LastSeen != "2026-10-16T12:34:56Z" ||
-				d.CurAddr != "192.0.2.2:41641" || d.Relay != "lax" || !d.ExitNode || !d.Active {
-				t.Fatalf("device: %+v", d)
-			}
+		if malformed {
+			data = "invalid json"
 		}
-		encoded, _ := json.Marshal(state)
-		if strings.Contains(string(encoded), `"devices":null`) {
-			t.Fatalf("null devices: %s", encoded)
-		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(data)), Header: make(http.Header)}, nil
+	})}
+	state, err := s.Tailscale(context.Background())
+	if err != nil || !state.Installed || state.ControlURL != "https://head.example" || state.Peers != 2 || state.PeersOnline != 1 || state.DNSName != "vim4.example" || state.Devices[0].HostName != "laptop" {
+		t.Fatalf("state: %+v %v", state, err)
+	}
+	encoded, _ := json.Marshal(state)
+	if strings.Contains(string(encoded), "203.0.113.10") || strings.Contains(string(encoded), "curAddr") {
+		t.Fatalf("exposed endpoint: %s", encoded)
+	}
+	state.Devices[0].IPs[0] = "changed"
+	next, err := s.Tailscale(context.Background())
+	if err != nil || calls != 2 || next.Devices[0].IPs[0] != "100.64.0.2" {
+		t.Fatalf("cache: %+v calls=%d err=%v", next, calls, err)
+	}
+	malformed = true
+	s.tailscaleReadAt = time.Time{}
+	if _, err := s.Tailscale(context.Background()); err == nil {
+		t.Fatal("invalid LocalAPI JSON accepted")
 	}
 }
 
@@ -85,7 +83,7 @@ func TestTailscalePingIPValidation(t *testing.T) {
 			return `{"reachable":true,"path":"direct","via":"192.0.2.2:41641","latencyMs":[1.25,2],"lost":2,"sent":4}`, nil
 		}
 		result, err := s.TailscalePing(context.Background(), ip)
-		if err != nil || !result.Reachable || result.Path != "direct" || result.Via != "192.0.2.2:41641" ||
+		if err != nil || !result.Reachable || result.Path != "direct" || result.Via != "" ||
 			!slices.Equal(result.LatencyMs, []float64{1.25, 2}) || result.Lost != 2 || result.Sent != 4 {
 			t.Fatalf("ping %s: %+v, %v", ip, result, err)
 		}
@@ -182,7 +180,7 @@ func TestTailscaleRejectsActionsAndURLsBeforeHelper(t *testing.T) {
 		{"login", "https://user@head.example"}, {"login", "https://head.example;reboot"},
 		{"login", "https://head.example\n"}, {"login", "https://head.example:123456"},
 	} {
-		if _, err := s.TailscaleAction(context.Background(), test.action, test.url); err == nil {
+		if _, err := s.TailscaleAction(context.Background(), test.action, test.url, ""); err == nil {
 			t.Errorf("accepted %+v", test)
 		}
 	}
@@ -211,7 +209,7 @@ func TestTailscaleSynchronousActionsDoNotTakeSwitchLock(t *testing.T) {
 			}
 			return `{"authURL":"https://head.example/register/node"}`, nil
 		}
-		got, err := s.TailscaleAction(context.Background(), action, url)
+		got, err := s.TailscaleAction(context.Background(), action, url, "")
 		if err != nil || (action == "login" && got != "https://head.example/register/node") {
 			t.Fatalf("%s: %q, %v", action, got, err)
 		}
@@ -224,91 +222,47 @@ func TestTailscaleSynchronousActionsDoNotTakeSwitchLock(t *testing.T) {
 	}
 }
 
-func TestTailscalePackageJobSurvivesRequestAndAllowsStatusAndSwitch(t *testing.T) {
-	for _, action := range []string{"install", "uninstall"} {
-		t.Run(action, func(t *testing.T) {
-			started, release := make(chan context.Context, 1), make(chan struct{})
-			failure := error(nil)
-			if action == "uninstall" {
-				failure = errors.New("apt failed")
-			}
-			s := &Service{Events: &Events{Capacity: 10}, Run: func(ctx context.Context, _ string, args ...string) (string, error) {
-				switch args[2] {
-				case "tailscale-" + action:
-					started <- ctx
-					<-release
-					return "{}", failure
-				case "tailscale-status":
-					return `{"installed":false,"ips":[]}`, nil
-				case "select":
-					return "", nil
-				default:
-					return "", errors.New("unexpected command")
-				}
-			}}
-			parent, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			if _, err := s.TailscaleAction(parent, action, ""); err != nil {
-				t.Fatal(err)
-			}
-			jobCtx := <-started
-			cancel()
-			defer close(release)
-			if jobCtx.Err() != nil {
-				t.Fatal("job canceled with request")
-			}
-			deadline, ok := jobCtx.Deadline()
-			if !ok || time.Until(deadline) > 15*time.Minute || time.Until(deadline) < 14*time.Minute {
-				t.Fatal("background job has wrong timeout")
-			}
-			for _, other := range []string{"install", "uninstall", "up", "down", "login", "logout"} {
-				url := ""
-				if other == "login" {
-					url = "https://head.example"
-				}
-				if _, err := s.TailscaleAction(context.Background(), other, url); !errors.Is(err, ErrBusy) {
-					t.Fatalf("concurrent %s: %v", other, err)
-				}
-			}
-			state, err := s.Tailscale(context.Background())
-			if err != nil || state.Job == nil || !state.Job.Running || state.Job.Action != action {
-				t.Fatalf("in-flight status: %+v, %v", state, err)
-			}
-			if err := s.Select(context.Background(), "nanokvm"); err != nil {
-				t.Fatalf("Tailscale job blocked KVM switch: %v", err)
-			}
-			// Release the runner deterministically; yield only to observe the final
-			// job publication after Run returns, without timing the package command.
-			release <- struct{}{}
-			limit := time.After(5 * time.Second)
-			for {
-				state, err = s.Tailscale(context.Background())
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !state.Job.Running {
-					break
-				}
-				select {
-				case <-limit:
-					t.Fatal("job did not finish")
-				default:
-					runtime.Gosched()
-				}
-			}
-			if (state.Job.Error != "") != (failure != nil) {
-				t.Fatalf("job outcome: %+v", state.Job)
-			}
-			// Returned status is a snapshot, not shared mutable job state.
-			state.Job.Error = "changed by caller"
-			next, _ := s.Tailscale(context.Background())
-			if next.Job.Error == "changed by caller" {
-				t.Fatal("status exposes shared job pointer")
-			}
-			if events := s.Events.List(); len(events) != 2 || (events[0].Tone == "critical") != (failure != nil) {
-				t.Fatalf("job history: %+v", events)
-			}
-		})
+func TestTailscalePackageJobSurvivesManagerRestart(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "run"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "run/vim4-manager-tailscale-job.json")
+	run := func(_ context.Context, name string, args ...string) (string, error) {
+		if name == "systemctl" {
+			return "active", nil
+		}
+		if args[2] == "tailscale-install" {
+			return "{}", os.WriteFile(path, []byte(`{"action":"install","running":true,"error":""}`), 0644)
+		}
+		if args[2] == "select" {
+			return "", nil
+		}
+		t.Fatalf("unexpected command: %s %v", name, args)
+		return "", nil
+	}
+	s := &Service{Root: root, Run: run}
+	if _, err := s.TailscaleAction(context.Background(), "install", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The new service has no in-memory task; the worker still owns the operation.
+	restarted := &Service{Root: root, Run: run}
+	if _, err := restarted.TailscaleAction(context.Background(), "down", "", ""); !errors.Is(err, ErrBusy) {
+		t.Fatalf("overlap after restart: %v", err)
+	}
+	if err := restarted.Select(context.Background(), "nanokvm"); err != nil {
+		t.Fatalf("switch blocked: %v", err)
+	}
+	job := restarted.tailscalePackageJob(context.Background())
+	if job == nil || !job.Running || job.Action != "install" {
+		t.Fatalf("job: %+v", job)
+	}
+	if err := os.WriteFile(path, []byte(`{"action":"install","running":false,"error":"apt failed"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	job = restarted.tailscalePackageJob(context.Background())
+	if job.Running || job.Error != "apt failed" {
+		t.Fatalf("outcome: %+v", job)
 	}
 }
 
@@ -316,7 +270,7 @@ func TestTailscaleLoginFailureRecordsJobAndAllowsRetry(t *testing.T) {
 	s := &Service{Events: &Events{Capacity: 10}}
 	for _, output := range []string{"invalid json", `{"authURL":""}`} {
 		s.Run = func(context.Context, string, ...string) (string, error) { return output, nil }
-		_, err := s.TailscaleAction(context.Background(), "login", "https://head.example")
+		_, err := s.TailscaleAction(context.Background(), "login", "https://head.example", "")
 		if (err != nil) != (output == "invalid json") {
 			t.Fatalf("output %q: %v", output, err)
 		}
@@ -327,7 +281,7 @@ func TestTailscaleLoginFailureRecordsJobAndAllowsRetry(t *testing.T) {
 	s.Run = func(context.Context, string, ...string) (string, error) {
 		return "", errors.New("sudo: daemon unavailable")
 	}
-	if _, err := s.TailscaleAction(context.Background(), "up", ""); err == nil || !strings.Contains(err.Error(), "daemon unavailable") {
+	if _, err := s.TailscaleAction(context.Background(), "up", "", ""); err == nil || !strings.Contains(err.Error(), "daemon unavailable") {
 		t.Fatalf("runner failure: %v", err)
 	}
 }

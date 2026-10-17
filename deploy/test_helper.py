@@ -19,6 +19,10 @@ loader.exec_module(helper)
 
 
 class TailscaleTest(unittest.TestCase):
+    def setUp(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.enterContext(patch.object(helper, 'TAILSCALE_JOB', root / 'job.json'))
+
     def test_rejects_invalid_arguments_before_running_commands(self):
         invalid_urls = ['', 'ftp://head.example', 'https://head.example/', 'https://head.example/path',
                         'https://user@head.example', 'https://head.example?x=1', 'https://head.example#x',
@@ -51,13 +55,11 @@ class TailscaleTest(unittest.TestCase):
             self.assertEqual(state['ips'], [])
             self.assertEqual(state['devices'], [])
             self.assertEqual(state['controlURL'], helper.TAILSCALE_CONTROL)
-            with patch.object(helper, 'tailscale_install') as install, \
-                 patch.object(helper, 'tailscale_uninstall') as uninstall, \
+            with patch.object(helper, 'tailscale_start_package') as launch, \
                  patch('sys.stdout', new_callable=io.StringIO):
                 helper.main(['tailscale-install'])
                 helper.main(['tailscale-uninstall'])
-            install.assert_called_once()
-            uninstall.assert_called_once()
+            self.assertEqual([call.args for call in launch.call_args_list], [('install',), ('uninstall',)])
 
     def test_status_parses_auth_url_peers_and_headscale_control(self):
         status = {'BackendState': 'NeedsLogin', 'AuthURL': 'https://head.example/register/node',
@@ -175,32 +177,34 @@ class TailscaleTest(unittest.TestCase):
             self.assertEqual(state['peers'], 0)
             self.assertEqual(state['devices'], [])
 
-    def test_login_is_detached_and_uses_daemon_auth_url(self):
+    def test_login_is_supervised_and_uses_daemon_auth_url(self):
         for status, url in (({'AuthURL': 'https://head.example/register/node'}, 'https://head.example/register/node'),
                             ({'BackendState': 'Running'}, '')):
             def run(*args, **kwargs):
                 data = status if args[1] == 'status' else {'ControlURL': 'http://head.example:8080'}
                 return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
             with self.subTest(status=status), patch.object(helper, 'tailscale_installed', return_value=True), \
-                 patch.object(helper, 'tailscale_run', side_effect=run), \
+                 patch.object(helper, 'tailscale_run', side_effect=run) as commands, \
                  patch.object(helper.subprocess, 'Popen') as popen, patch('sys.stdout', new_callable=io.StringIO) as output:
                 helper.main(['tailscale-login', 'http://head.example:8080'])
                 self.assertEqual(json.loads(output.getvalue()), {'authURL': url})
-                popen.assert_called_once_with(['tailscale', 'login', '--login-server=http://head.example:8080',
-                                              '--accept-dns=false', '--timeout=10m'],
-                                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                             stderr=subprocess.DEVNULL, start_new_session=True)
+                popen.assert_not_called()
+                launches = [call.args for call in commands.call_args_list if call.args[0] == 'systemd-run']
+                self.assertEqual(len(launches), 1)
+                self.assertIn('--unit=' + helper.TAILSCALE_LOGIN_UNIT, launches[0])
+                self.assertIn('--property=RuntimeMaxSec=10min', launches[0])
 
     def test_login_waits_for_control_server_change(self):
         statuses = iter([{'BackendState': 'Running'}, {'AuthURL': 'https://head.example/register/node'}])
         controls = iter([helper.TAILSCALE_CONTROL, 'https://head.example'])
         def run(*args, **kwargs):
-            if args[0] == 'systemctl':
+            if args[0] in ('systemctl', 'systemd-run'):
                 return subprocess.CompletedProcess(args, 0, '', '')
             data = next(statuses) if args[1] == 'status' else {'ControlURL': next(controls)}
             return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
         with patch.object(helper, 'tailscale_run', side_effect=run), \
-             patch.object(helper.subprocess, 'Popen'), patch.object(helper.time, 'sleep'):
+             patch.object(helper, 'tailscale_status', return_value={'backendState': 'NeedsLogin', 'controlURL': helper.TAILSCALE_CONTROL}), \
+             patch.object(helper.time, 'sleep'):
             result = helper.tailscale_login('https://head.example')
         self.assertEqual(result, {'authURL': 'https://head.example/register/node'})
 
@@ -251,14 +255,60 @@ class TailscaleTest(unittest.TestCase):
 
     def test_up_enables_daemon_and_down_preserves_it(self):
         with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_local_api', return_value={}) as local_api, \
              patch.object(helper, 'tailscale_run') as run:
             helper.tailscale_command(['tailscale-up'])
-            self.assertEqual([call.args for call in run.call_args_list], [
-                ('systemctl', 'enable', '--now', 'tailscaled.service'),
-                ('tailscale', 'up', '--accept-dns=false', '--timeout=20s')])
+            self.assertEqual(run.call_args.args, ('systemctl', 'enable', '--now', 'tailscaled.service'))
+            local_api.assert_called_once_with('PATCH', 'prefs', {'WantRunning': True, 'WantRunningSet': True})
             run.reset_mock()
             helper.tailscale_command(['tailscale-down'])
-            run.assert_called_once_with('tailscale', 'down')
+            self.assertEqual(run.call_args.args, ('tailscale', 'down'))
+
+    def test_switch_requires_the_current_server_confirmation(self):
+        current = {'backendState': 'Running', 'controlURL': 'https://old.example'}
+        def run(*args, **kwargs):
+            data = {'AuthURL': 'https://new.example/register/node'} if args[1] == 'status' else {'ControlURL': 'https://new.example'}
+            return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+        with patch.object(helper, 'tailscale_status', return_value=current), \
+             patch.object(helper, 'tailscale_run', side_effect=run) as commands:
+            for previous in ('', 'https://stale.example'):
+                with self.assertRaisesRegex(ValueError, '确认'):
+                    helper.tailscale_login('https://new.example', previous)
+            self.assertFalse(any(call.args[0] == 'systemd-run' for call in commands.call_args_list))
+            result = helper.tailscale_login('https://new.example', 'https://old.example')
+            self.assertEqual(result['authURL'], 'https://new.example/register/node')
+
+    def test_package_worker_publishes_outcome_and_has_separate_lifecycle(self):
+        with patch.object(helper, 'tailscale_run') as run:
+            helper.tailscale_start_package('install')
+        self.assertTrue(json.loads(helper.TAILSCALE_JOB.read_text())['running'])
+        self.assertEqual(run.call_args.args[0], 'systemd-run')
+        self.assertIn('--property=RuntimeMaxSec=15min', run.call_args.args)
+        self.assertEqual(run.call_args.args[-2:], ('tailscale-package', 'install'))
+        with patch.object(helper, 'tailscale_install', side_effect=ValueError('apt failed')):
+            with self.assertRaisesRegex(ValueError, 'apt failed'):
+                helper.tailscale_package('install')
+        job = json.loads(helper.TAILSCALE_JOB.read_text())
+        self.assertFalse(job['running'])
+        self.assertEqual(job['error'], 'apt failed')
+
+    def test_update_and_tailscale_packages_share_a_lock_without_blocking_switches(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        real_open = helper.os.open
+        def lock_open(path, flags, mode):
+            return real_open(root / Path(path).name, flags, mode)
+        with patch.object(helper.os, 'open', side_effect=lock_open):
+            with helper.operation_lock(['tailscale-package', 'install']):
+                with self.assertRaises(BlockingIOError):
+                    with helper.operation_lock(['update', 'vim4-manager']):
+                        self.fail('concurrent package transaction acquired lock')
+                with helper.operation_lock(['select', 'nanokvm']):
+                    pass
+
+    def test_auth_links_reject_unsafe_schemes_and_userinfo(self):
+        for url in ('javascript:alert(1)', 'data:text/html,hello', '//head.example/a', 'https://user@head.example/a', 'https://head.example/\n'):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                helper.tailscale_auth_url(url)
 
 
 class HelperTest(unittest.TestCase):

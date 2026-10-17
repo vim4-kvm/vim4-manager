@@ -9,7 +9,6 @@ export interface TailscaleDevice {
   ips: string[];
   online: boolean;
   lastSeen: string;
-  curAddr: string;
   relay: string;
   exitNode: boolean;
   active: boolean;
@@ -81,7 +80,7 @@ function pingSummary(result: PingResult) {
   const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
   const latency = `${avg < 10 ? avg.toFixed(1) : Math.round(avg)} ms`;
   const loss = result.lost ? `，丢失 ${result.lost}/${result.sent}` : "";
-  if (result.path === "direct") return { tone: "good", text: `直连 ${result.via}，${latency}${loss}` };
+  if (result.path === "direct") return { tone: "good", text: `直连，${latency}${loss}` };
   if (result.path === "peer-relay") return { tone: "warning", text: `经节点中继，${latency}${loss}` };
   return {
     tone: "warning",
@@ -89,7 +88,7 @@ function pingSummary(result: PingResult) {
   };
 }
 
-function DeviceRow({ device }: { device: TailscaleDevice }) {
+function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: boolean }) {
   const [ping, setPing] = useState<PingState>();
   const ip = device.ips.find((a) => !a.includes(":")) ?? device.ips[0];
   async function test() {
@@ -139,7 +138,7 @@ function DeviceRow({ device }: { device: TailscaleDevice }) {
             type="button"
             className="button small"
             aria-label={`测试到 ${device.hostName} 的连接`}
-            disabled={ping?.pending}
+            disabled={ping?.pending || !writable}
             onClick={() => void test()}
           >
             测试连接
@@ -150,7 +149,7 @@ function DeviceRow({ device }: { device: TailscaleDevice }) {
   );
 }
 
-export function TailscaleDevices({ devices }: { devices: TailscaleDevice[] }) {
+export function TailscaleDevices({ devices, writable }: { devices: TailscaleDevice[]; writable: boolean }) {
   const [showOffline, setShowOffline] = useState(false);
   const online = devices.filter((d) => d.online);
   const offline = devices.filter((d) => !d.online);
@@ -169,7 +168,7 @@ export function TailscaleDevices({ devices }: { devices: TailscaleDevice[] }) {
           {online.length > 0 ? (
             <ul className="ts-device-list" aria-label="在线设备">
               {online.map((d) => (
-                <DeviceRow key={d.id} device={d} />
+                <DeviceRow key={d.id} device={d} writable={writable} />
               ))}
             </ul>
           ) : (
@@ -188,7 +187,7 @@ export function TailscaleDevices({ devices }: { devices: TailscaleDevice[] }) {
           {showOffline && (
             <ul className="ts-device-list" aria-label="离线设备">
               {offline.map((d) => (
-                <DeviceRow key={d.id} device={d} />
+                <DeviceRow key={d.id} device={d} writable={writable} />
               ))}
             </ul>
           )}

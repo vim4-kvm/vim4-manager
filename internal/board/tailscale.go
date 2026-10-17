@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type TailscaleState struct {
 	Peers        int               `json:"peers"`
 	PeersOnline  int               `json:"peersOnline"`
 	Devices      []TailscaleDevice `json:"devices"`
+	Writable     bool              `json:"writable"`
 	Job          *TailscaleJob     `json:"job,omitempty"`
 }
 
@@ -37,7 +39,6 @@ type TailscaleDevice struct {
 	IPs      []string `json:"ips"`
 	Online   bool     `json:"online"`
 	LastSeen string   `json:"lastSeen"`
-	CurAddr  string   `json:"curAddr"`
 	Relay    string   `json:"relay"`
 	ExitNode bool     `json:"exitNode"`
 	Active   bool     `json:"active"`
@@ -56,6 +57,11 @@ type TailscalePingResult struct {
 var tailscaleNetworks = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
 	netip.MustParsePrefix("fd7a:115c:a1e0::/48"),
+}
+
+func IsTailscaleAddress(address netip.Addr) bool {
+	address = address.Unmap()
+	return tailscaleNetworks[0].Contains(address) || tailscaleNetworks[1].Contains(address)
 }
 
 // TailscalePing probes a current peer without changing job state or recording events.
@@ -83,6 +89,9 @@ func (s *Service) TailscalePing(ctx context.Context, ip string) (TailscalePingRe
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		return result, fmt.Errorf("Tailscale 连接测试结果无效：%w", err)
 	}
+	if result.Path != "derp" {
+		result.Via = ""
+	}
 	return result, nil
 }
 
@@ -94,16 +103,9 @@ type TailscaleJob struct {
 }
 
 func (s *Service) Tailscale(ctx context.Context) (TailscaleState, error) {
-	state := TailscaleState{IPs: []string{}, Devices: []TailscaleDevice{}}
-	output, err := s.Run(ctx, "sudo", "-n", Helper, "tailscale-status")
+	state, err := s.cachedTailscale(ctx)
 	if err != nil {
-		return state, fmt.Errorf("无法读取 Tailscale：%w", err)
-	}
-	if err := json.Unmarshal([]byte(output), &state); err != nil {
-		return state, fmt.Errorf("Tailscale 状态无效：%w", err)
-	}
-	if state.Devices == nil {
-		state.Devices = []TailscaleDevice{}
+		return state, err
 	}
 	s.tailscaleMu.Lock()
 	defer s.tailscaleMu.Unlock()
@@ -111,7 +113,18 @@ func (s *Service) Tailscale(ctx context.Context) (TailscaleState, error) {
 		job := *s.tailscaleJob
 		state.Job = &job
 	}
+	if job := s.tailscalePackageJob(ctx); job != nil && (job.Running || state.Job == nil || state.Job.Action == job.Action) {
+		state.Job = job
+	}
 	return state, nil
+}
+
+func validTailscaleAuthURL(value string) bool {
+	if value == "" {
+		return true
+	}
+	u, err := url.Parse(value)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != "" && u.User == nil && !strings.ContainsAny(value, " \t\r\n")
 }
 
 // Keep the control-server allowlist identical to the root helper's validation.
@@ -119,13 +132,13 @@ var tailscaleControlURL = regexp.MustCompile(`^https?://[A-Za-z0-9.-]+(?::[0-9]{
 
 // TailscaleAction starts package work in the background, or waits at most one
 // minute for other actions. Login returns the daemon's browser authorization URL.
-func (s *Service) TailscaleAction(ctx context.Context, action, controlURL string) (string, error) {
+func (s *Service) TailscaleAction(ctx context.Context, action, controlURL, previousControlURL string) (string, error) {
 	var label string
 	switch action {
 	case "install":
-		label = "安装 Tailscale"
+		label = "提交 Tailscale 安装任务"
 	case "uninstall":
-		label = "卸载 Tailscale"
+		label = "提交 Tailscale 卸载任务"
 	case "up":
 		label = "连接 Tailscale"
 	case "down":
@@ -143,33 +156,34 @@ func (s *Service) TailscaleAction(ctx context.Context, action, controlURL string
 	if action != "login" && controlURL != "" {
 		return "", fmt.Errorf("控制服务器只能在登录时指定")
 	}
+	if previousControlURL != "" && (action != "login" || !tailscaleControlURL.MatchString(previousControlURL)) {
+		return "", fmt.Errorf("确认的控制服务器地址无效")
+	}
 
 	s.tailscaleMu.Lock()
 	if s.tailscaleJob != nil && s.tailscaleJob.Running {
 		s.tailscaleMu.Unlock()
 		return "", ErrBusy
 	}
+	if job := s.tailscalePackageJob(ctx); job != nil && job.Running {
+		s.tailscaleMu.Unlock()
+		return "", ErrBusy
+	}
 	s.tailscaleJob = &TailscaleJob{Action: action, Running: true}
 	s.tailscaleMu.Unlock()
 
-	if action == "install" || action == "uninstall" {
-		// Package installation must finish even when the initiating request ends.
-		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Minute)
-		go func() {
-			defer cancel()
-			_, _ = s.runTailscaleAction(ctx, action, controlURL, label)
-		}()
-		return "", nil
-	}
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	return s.runTailscaleAction(ctx, action, controlURL, label)
+	return s.runTailscaleAction(ctx, action, controlURL, previousControlURL, label)
 }
 
-func (s *Service) runTailscaleAction(ctx context.Context, action, controlURL, label string) (string, error) {
+func (s *Service) runTailscaleAction(ctx context.Context, action, controlURL, previousControlURL, label string) (string, error) {
 	args := []string{"-n", Helper, "tailscale-" + action}
 	if action == "login" {
 		args = append(args, controlURL)
+		if previousControlURL != "" {
+			args = append(args, previousControlURL)
+		}
 	}
 	// This subsystem owns its own job lock; s.helper would serialize KVM switches.
 	output, err := s.Run(ctx, "sudo", args...)
@@ -183,7 +197,13 @@ func (s *Service) runTailscaleAction(ctx context.Context, action, controlURL, la
 		if decodeErr := json.Unmarshal([]byte(output), &result); decodeErr != nil {
 			err = fmt.Errorf("Tailscale 登录结果无效：%w", decodeErr)
 		}
+		if err == nil && !validTailscaleAuthURL(result.AuthURL) {
+			err = fmt.Errorf("Tailscale 登录地址无效")
+		}
 	}
+	s.tailscaleReadMu.Lock()
+	s.tailscaleReadAt = time.Time{}
+	s.tailscaleReadMu.Unlock()
 	err = s.record(err, "%s", label)
 	s.tailscaleMu.Lock()
 	s.tailscaleJob.Running = false

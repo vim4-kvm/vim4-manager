@@ -6,6 +6,7 @@ export const OFFICIAL_CONTROL = "https://controlplane.tailscale.com";
 
 export interface TailscaleState {
   installed: boolean;
+  writable?: boolean;
   running?: boolean;
   backendState?: string;
   authURL?: string;
@@ -57,7 +58,8 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
   const [stale, setStale] = useState(true);
   const [pending, setPending] = useState<Action>();
   const [error, setError] = useState("");
-  const [confirming, setConfirming] = useState<"logout" | "uninstall">();
+  const [confirming, setConfirming] = useState<"down" | "logout" | "uninstall" | "login">();
+  const [changing, setChanging] = useState(false);
   const [custom, setCustom] = useState(false);
   const [control, setControl] = useState("");
   const [authURL, setAuthURL] = useState("");
@@ -88,8 +90,10 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
   const current = state ? phase(state) : undefined;
   const job = state?.job;
   const jobRunning = !!job?.running;
-  const locked = busy || stale || !!pending || jobRunning;
-  const link = state?.authURL || authURL;
+  const writable = state?.writable !== false;
+  const locked = busy || stale || !!pending || jobRunning || !writable;
+  const candidateLink = current === "login" ? state?.authURL || authURL : "";
+  const link = candidateLink && /^https?:\/\/[^\s]+$/i.test(candidateLink) ? candidateLink : "";
 
   useEffect(() => {
     if (current !== "login") setAuthURL("");
@@ -106,12 +110,19 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
   async function act(action: Action) {
     setPending(action);
     setError("");
+    setAuthURL("");
     setConfirming(undefined);
     try {
-      const body: { action: Action; controlURL?: string } = { action };
+      const body: { action: Action; controlURL?: string; previousControlURL?: string; confirmed?: boolean } = { action };
       if (action === "login") body.controlURL = custom ? control.trim() : OFFICIAL_CONTROL;
+      if (action === "down" || action === "logout" || action === "uninstall") body.confirmed = true;
+      if (action === "login" && changing && state?.controlURL !== body.controlURL) {
+        body.previousControlURL = state?.controlURL;
+        body.confirmed = true;
+      }
       const result = await request<{ authURL?: string }>("/api/tailscale", body, AbortSignal.timeout(70000));
       if (action === "login" && result.authURL) setAuthURL(result.authURL);
+      if (action === "login") setChanging(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -160,7 +171,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
                 aria-label="Tailscale 连接"
                 aria-checked={connected}
                 disabled={locked}
-                onClick={() => void act(connected ? "down" : "up")}
+                onClick={() => connected ? setConfirming("down") : void act("up")}
               >
                 <span />
               </button>
@@ -179,7 +190,9 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
           </div>
         )}
 
-        {state && current === "login" && !jobRunning && (
+        {!writable && <p className="tailscale-note">当前通过 Tailscale 访问，只能查看状态。请通过局域网连接修改设置。</p>}
+
+        {state && (current === "login" || changing) && !jobRunning && (
           <div className="tailscale-body">
             <fieldset className="field tailscale-control" disabled={locked}>
               <legend>控制服务器</legend>
@@ -220,7 +233,8 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
                   className="button primary"
                   disabled={locked || (custom && !control.trim()) || !controlValid}
                   aria-busy={pending === "login"}
-                  onClick={() => void act("login")}
+                  onClick={() => changing && state.controlURL !== (custom ? control.trim() : OFFICIAL_CONTROL)
+                    ? setConfirming("login") : void act("login")}
                 >
                   {pending === "login" && <span className="spinner" aria-hidden="true" />}
                   获取登录链接
@@ -276,7 +290,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
           </dl>
         )}
 
-        {connected && state?.devices && <TailscaleDevices devices={state.devices} />}
+        {connected && state?.devices && <TailscaleDevices devices={state.devices} writable={writable} />}
 
         {connected && (
           <p className="tailscale-note">
@@ -286,6 +300,11 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
 
         {state?.installed && !jobRunning && !stale && (
           <div className="tailscale-manage">
+            {(current === "online" || current === "offline" || current === "approval") && (
+              <button className="button small" disabled={locked} onClick={() => setChanging(!changing)}>
+                {changing ? "取消切换" : "切换控制服务器"}
+              </button>
+            )}
             {(current === "online" || current === "offline" || current === "approval") && (
               <button className="button small" disabled={locked} onClick={() => setConfirming("logout")}>
                 退出登录
@@ -298,9 +317,11 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
         )}
 
         {confirming && (
-          <div className="confirm" role="alertdialog" aria-label={confirming === "logout" ? "退出 Tailscale 登录" : "卸载 Tailscale"}>
+          <div className="confirm" role="alertdialog" aria-label={{ down: "断开 Tailscale", login: "切换控制服务器", logout: "退出 Tailscale 登录", uninstall: "卸载 Tailscale" }[confirming]}>
             <span>
-              {confirming === "logout"
+              {confirming === "down" ? "断开后，通过 Tailscale 的远程会话会立即中断，需要通过局域网重新连接。"
+                : confirming === "login" ? `将控制服务器从 ${state?.controlURL} 切换为 ${custom ? control.trim() : OFFICIAL_CONTROL}，需要重新授权设备。`
+                : confirming === "logout"
                 ? "退出后此设备从 tailnet 中移除，通过 Tailscale 地址的会话会断开，需要重新登录授权。"
                 : "卸载会停止 Tailscale 并删除软件包，通过 Tailscale 地址的会话会断开。"}
             </span>
@@ -308,7 +329,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
               取消
             </button>
             <button className="button danger" disabled={locked} onClick={() => void act(confirming)}>
-              {confirming === "logout" ? "退出登录" : "卸载"}
+              {{ down: "断开", login: "确认切换", logout: "退出登录", uninstall: "卸载" }[confirming]}
             </button>
           </div>
         )}
