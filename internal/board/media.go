@@ -10,14 +10,22 @@ import (
 
 // Media describes the shared USB LUN, independent of the selected application.
 type Media struct {
-	Known     bool   `json:"known"`
-	Inserted  bool   `json:"inserted"`
-	Name      string `json:"name"`
-	Token     string `json:"token"`
-	ReadOnly  bool   `json:"readOnly"`
-	CDROM     bool   `json:"cdrom"`
-	Connected bool   `json:"connected"`
-	PiKVM     bool   `json:"pikvm"`
+	Known     bool          `json:"known"`
+	Inserted  bool          `json:"inserted"`
+	Name      string        `json:"name"`
+	Token     string        `json:"token"`
+	ReadOnly  bool          `json:"readOnly"`
+	CDROM     bool          `json:"cdrom"`
+	Connected bool          `json:"connected"`
+	PiKVM     bool          `json:"pikvm"`
+	NASDisk   *NASDiskMedia `json:"nasdisk,omitempty"`
+}
+
+type NASDiskMedia struct {
+	Storage     string `json:"storage"`
+	StorageName string `json:"storageName"`
+	Path        string `json:"path"`
+	Mode        string `json:"mode"`
 }
 
 type MediaImage struct {

@@ -165,7 +165,7 @@ mtools 4.0.43 跨目录移动会丢失小写标记、目标不存在时崩溃，
 ## 网络存储 API
 
 管理器包依赖 `cifs-utils`、`nfs-common`，提供虚拟能力 `vim4-nas-api-1`，供后续
-One-KVM 等包声明依赖。当前只管理单板 NAS 挂载；录制目标和文件夹虚拟 U 盘另行实现。
+One-KVM 等包声明依赖。文件夹虚拟 U 盘见下方「NAS 文件夹 U 盘」；录制目标另行实现。
 最多 8 个存储，创建时从名称加随机后缀生成 `[a-z0-9][a-z0-9-]{0,31}` ID；创建后 ID、类型不可改。
 
 稳定的板上接口：helper 按需创建 root:root 0755 的 `/etc/vim4-kvm/nas/` 和
@@ -222,6 +222,71 @@ manager 仍以 khadas 运行，root helper 执行挂载；service 无需增加 R
 `findmnt /var/lib/vim4-kvm/nas/ID` 和 `systemctl status "$(systemd-escape --path --suffix=mount /var/lib/vim4-kvm/nas/ID)"`
 核对状态；真实 NAS 凭据通过 API 请求体输入，不写进命令行。需另验证 SMB/NFS 挂载、重启自动挂载、
 khadas 写权限、USB LUN 占用拒绝、断网超时/恢复及临时挂载清理。
+
+## NAS 文件夹 U 盘
+
+选择已连接存储中的目录（`/` 表示根目录），以只读或可写模式连接被控电脑。
+守护进程扫描快照，通过 `internal/vfat` 合成 FAT32，再由 FUSE 暴露普通镜像文件。
+同一时间只有一个会话，已有介质时拒绝替换；JetKVM 只允许只读。
+卷标最多 11 个大写字母、数字、空格、下划线或连字符；省略时过滤目录名，结果为空用 `NAS`。
+
+只读模式不创建写入层。可写模式的空闲余量为 `min(NAS 可用空间 − 2 GiB, 64 GiB)`，
+不足 256 MiB 时拒绝；最终容量还包含 FAT 元数据和簇对齐。
+主机写入保存到所选目录的 `.vim4-nasdisk/SESSION/overlay` 和 `.index`，挂载期间不修改原文件。
+扫描排除 `.vim4-nasdisk`；FAT 非法名称、特殊文件、超过 4 GiB−1 的文件等列为跳过项，
+状态最多展示 100 条并保留总数。跳过项不进入 U 盘，也不会因其在卷中不存在而删除。
+
+被控电脑安全弹出或管理器完成现有弹出操作后，守护进程每秒核对 LUN，FUSE Release 也触发检查。
+停止写入后解析最终卷：完整且无警告时自动回写；否则进入 `needs-decision`。
+可以重新挂载同一写入层让电脑修复、显式选择回写可识别内容，或以会话 ID 确认放弃。
+部分解析结果的恢复只导入已识别内容，不据不完整目录列表执行删除。
+只读弹出直接结束。单纯卸载主机卷可能尚未清空 LUN，需要主机真正执行安全弹出。
+
+回写先检查原路径前置条件并保存写入内容，再执行持久化 journal。
+外部修改的原文件保留，主机内容使用带 UTC 时间的冲突副本名；其他项继续执行。
+删除冲突保留 NAS 原项并记录冲突，此时 `copy` 为空（主机已删除该项，没有可导出的内容）。
+被覆盖、删除的原文件进入 `.vim4-nasdisk/trash/SESSION/原相对路径`，不自动清理。
+新内容通过同目录独占临时文件、fsync、rename 发布并设置 mtime。
+恢复按 journal 判断已完成步骤；SIGTERM 在当前步骤完成并保存进度后退出。
+完成后删除写入层、journal 和暂存内容，保留 trash；会话空目录可保留。
+
+重启或崩溃后，已挂载存储下含写入层或 journal 的会话列入 `pending`，可以回写或放弃。
+恢复模式不挂 LUN；之前崩溃遗留的 LUN 必须先弹出。状态扫描有 3 秒预算和条目上限，
+超时返回 `known:false`，不能据空 pending 列表判断没有待恢复数据。
+服务持有 NAS 目录描述符和写入层文件；网络存储 busy 检查还检查正在运行的会话，防止扫描启动窗口内卸载。
+
+| HTTP | 参数与结果 |
+|---|---|
+| `GET /api/nasdisk` | `{known,session,last,pending}`；session 为当前状态，last 为最后结果 |
+| `POST /api/nasdisk/start` | `{storage,path,mode:"ro"或"rw",label?}` → `{ok,id}`，扫描异步进行 |
+| `POST /api/nasdisk/cancel` | `{}`；挂载中拒绝，需先安全弹出 |
+| `POST /api/nasdisk/commit` | `{id,force?:true}`；强制恢复必须显式指定 force |
+| `POST /api/nasdisk/reattach` | `{id}`；仅当前尚未开始回写的会话 |
+| `POST /api/nasdisk/discard` | `{id,confirm:id}` |
+
+session 包含存储、路径、模式、卷标、扫描计数、文件/目录数、容量、已用/写入字节数、
+跳过项、USB configured 状态、计划计数、步骤/字节进度、决策原因和错误。
+状态为 `scanning/attaching/attached/parsing/committing/needs-decision/failed`。
+last 包含结果、计数、冲突副本位置和结束时间；pending 包含存储、路径、写入量、开始时间和 journal 标记。
+接口沿用现有 Host、JSON、同源和禁止 Tailscale 写入边界。
+`media.nasdisk` 提供 `{storage,storageName,path,mode}`，介质名称为 `nas:存储名称/路径`；弹出 API 不变。
+
+板上安装 `/usr/libexec/vim4-nasdisk` 与 root 的 `vim4-nasdisk.service`，依赖 fuse3。
+运行目录 `/run/vim4-nasdisk/` 为 0755，包含 helper 写入的 `session.json`、每秒更新的
+`status.json`、`last.json`、0600 的 `control.sock` 和 FUSE 挂载点 `fs/`。
+镜像名为 `disk-SESSION.img`；socket 接受 JSON `status/commit/discard/reattach/cancel` 请求。
+LUN 连接必须由 helper 的 `nasdisk-lun-attach SESSION` 持共享介质锁调用 `attach_media()`；
+它保留现有端点预算与 UDC 重绑规则。其他固定操作为 `nasdisk-status/start/cancel/commit/reattach/discard`。
+
+限制：FAT32 单文件最大 4 GiB−1；文件时间为 UTC 且 FAT 精度为两秒。
+NAS 侧挂载期间修改 size/mtime 后，源读取返回 EIO，不拼接新旧内容；未进入写入层的旧字节无法凭空恢复，
+回写读取因此失败时保留会话。请避免两端同时编辑。结构校验不能证明主机已刷出全部缓存，仍须安全弹出。
+每个写入块均同步到 NAS，速度受网络往返影响。回写暂存内容和临时文件需要额外空间，空间不足保留会话供恢复。
+NAS 断线期间 I/O 可阻塞至挂载选项的超时；SMB/NFS 恢复、真实 USB eject 和电源中断仍需实板验证。
+
+Go 依赖固定在 `go.mod/go.sum`，同时提交 vendor，Go 构建无需下载模块。
+Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev/fuse`、dosfstools、mtools 的 VM
+运行测试二进制；FUSE 测试覆盖 fsck、主机文件操作、解析、回写与 trash，不使用真实 USB LUN。
 
 ## EDID 兼容性预设
 
