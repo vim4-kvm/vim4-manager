@@ -198,16 +198,22 @@ One-KVM 等包声明依赖。文件夹虚拟 U 盘见下方「NAS 文件夹 U �
 
 SMB share 为共享名，可附子路径 `share/sub/dir`；NFS share 必须为 `/export/path`。
 server 只接受主机名、IPv4、IPv6（裸 IPv6 输入，源地址自动加方括号，不支持 zone ID）。
-共享路径段只接受 ASCII 字母、数字、点、下划线、连字符，用户名/域另允许 `@`；拒绝 `..`、逗号、
-反斜杠、空白及单元文件插值字符。名称可用中文，最长 80 字符，不进入单元选项。
+共享路径段可含中文和空格（NAS 常用），拒绝空段、`.`、`..`、首尾空白、控制字符、反斜杠及 `"*?<>|:%`；
+`%` 会被 systemd 当作插值，`What=` 中空格按原样写入（`\x20` 不会被反转义）。用户名/域同样允许中文和空格，
+拒绝控制字符、首尾空白与 `\/"[]:;|=,+*?<>%`。
 密码禁止 CR/LF/NUL；新 SMB 配置必须提供 password，可为空，编辑或测试已有 ID 时省略则沿用保存值。
 密码只经请求体和 helper stdin 传递，不进入命令行、配置 JSON、日志或返回值。
 
-SMB 固定选项为 `credentials=…,uid=khadas,gid=khadas,forceuid,forcegid,file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino,nofail,_netdev,x-systemd.mount-timeout=30`。
+SMB 固定选项为 `credentials=…,uid=khadas,gid=khadas,forceuid,forcegid,file_mode=0660,dir_mode=0770,soft,echo_interval=10,serverino,iocharset=utf8,nofail,_netdev,x-systemd.mount-timeout=30`；用户名为空时以 `guest` 代替凭据文件。
+板子内核默认 NLS 为 iso8859-1，缺少 `iocharset=utf8` 时中文共享名无法挂载（error 2），中文文件名也会错乱。
+测试挂载不带 `nofail/_netdev/x-systemd.*`：带 `nofail` 时 mount 失败也返回 0，会掩盖真实原因。
 version 默认 auto（不传 vers），其他只允许 3.1.1/3.0/2.1/2.0/1.0；1.0 返回 `insecure:true`。
 NFS 固定 `soft,timeo=150,retrans=3,nofail,_netdev,x-systemd.mount-timeout=30`，版本 auto 或 4.2/4.1/4.0/3，
 非 auto 传 nfsvers。NFS 属主由服务器决定，`ok:true,writable:false` 表示挂载可读但 khadas 不可写。
 soft 挂载在网络故障时可能返回 I/O 错误，调用方需处理失败，不能把挂载存在等同于可写。
+SMB 在 NAS 无响应约 30 秒后报错；NFSv4/TCP 在服务器静默丢包时，实测 `timeo=50,retrans=2` 下写入和 stat 仍阻塞超过 300 秒，
+挂载参数无法给出上限。所有读写 NAS 的程序必须自行设上限（管理器 2–3 秒子进程、One-KVM 录制 1.5 秒等待）；
+NAS 文件夹 U 盘在 NAS 卡住期间，被控电脑的读写也会卡住。
 
 测试临时挂载在 `/run/vim4-manager-nas-test/随机/mount`，挂载、探测、卸载预算分别为 8/3/3 秒，
 正常 15 秒内返回。内核不可中断 I/O 的工作进程可能在返回后等待 NAS 恢复；清理失败会明确返回失败，
