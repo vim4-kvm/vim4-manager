@@ -208,3 +208,30 @@ func TestDiskWriteTimeoutPreservesOrderAndRequiresDecision(t *testing.T) {
 		t.Fatal("explicit recovery did not commit")
 	}
 }
+
+func TestReattachClearsSettledWriteTimeout(t *testing.T) {
+	s := testSession(t)
+	s.disk.writeTimeout.Store(true)
+	if err := s.commit(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if s.state() != "needs-decision" || s.journal != nil {
+		t.Fatalf("timeout did not require a decision: %+v", s.status)
+	}
+	s.disk.slots = make(chan struct{}, maxBackgroundIO)
+	s.disk.slots <- struct{}{}
+	if s.disk.clearWriteTimeout() {
+		t.Fatal("cleared while a timed-out operation was still running")
+	}
+	<-s.disk.slots
+	if !s.disk.clearWriteTimeout() {
+		t.Fatal("settled timeout was not cleared")
+	}
+	s.disk.EnableWrites()
+	if err := s.commit(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if s.journal == nil {
+		t.Fatalf("reattached volume did not commit: %+v", s.status)
+	}
+}

@@ -49,6 +49,17 @@ func (d *Disk) stalled(write bool) diskResult {
 	return diskResult{err: syscall.EIO}
 }
 
+// clearWriteTimeout lets a reattach supersede earlier write timeouts: the host
+// then re-reads the image, so its repaired view is authoritative. A timed-out
+// operation that is still running keeps the flag.
+func (d *Disk) clearWriteTimeout() bool {
+	if len(d.slots) > 0 {
+		return false
+	}
+	d.writeTimeout.Store(false)
+	return true
+}
+
 func (d *Disk) perform(p []byte, write bool, operation func([]byte) (int, error)) diskResult {
 	d.init.Do(func() {
 		d.gate = make(chan struct{}, 1)

@@ -210,6 +210,7 @@ func Run(ctx context.Context, config Config) error {
 				}
 				s.fail(err)
 			case "reattach":
+				s.disk.clearWriteTimeout()
 				if err = s.attach(ctx); err != nil {
 					if errors.Is(err, context.Canceled) {
 						return s.finish("cancelled", nil)
