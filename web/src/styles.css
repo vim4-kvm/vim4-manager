@@ -4199,3 +4199,17 @@ section:has(.wifi-card) + section:has(.tailscale-card) {
 .nasdisk-trash code {
   overflow-wrap: anywhere;
 }
+
+.nasdisk-detail summary {
+  color: var(--ink-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.nasdisk-detail code {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}

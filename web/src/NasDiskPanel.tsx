@@ -575,6 +575,7 @@ function SessionCard({
               "被控电脑可能在写入完成前拔出了 U 盘，文件系统不完整。"}
             修改仍保存在 NAS 的暂存区，尚未写回。
           </p>
+          <Detail text={s.detail} />
           <ul className="nasdisk-choices">
             <li>
               <button className="button primary" disabled={locked} onClick={onReattach}>
@@ -606,6 +607,7 @@ function SessionCard({
             {s.error || "U 盘出错。"}
             {rw && " 未写回的修改仍保存在 NAS 的暂存区。"}
           </p>
+          <Detail text={s.detail} />
           <ul className="nasdisk-choices">
             {rw && (
               <li>
@@ -648,6 +650,16 @@ function SessionCard({
   );
 }
 
+function Detail({ text }: { text?: string }) {
+  if (!text) return null;
+  return (
+    <details className="nasdisk-detail">
+      <summary>技术细节</summary>
+      <code className="mono">{text}</code>
+    </details>
+  );
+}
+
 function LastResult({ last, locked, onEmptyTrash }: { last: NasDiskLast; locked: boolean; onEmptyTrash: (t: { files: number; bytes: number }) => void }) {
   const where = `${last.storageName} › ${displayPath(last.path)}`;
   const text = {
@@ -663,6 +675,7 @@ function LastResult({ last, locked, onEmptyTrash }: { last: NasDiskLast; locked:
         上次 · {when(last.finishedAt)} · {where}
       </span>
       <span>{text}</span>
+      {last.result === "failed" && <Detail text={last.detail} />}
       {last.conflicts.length > 0 && (
         <ul>
           {last.conflicts.map((c) => (

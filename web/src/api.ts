@@ -375,6 +375,7 @@ export interface NasDiskSession {
   progress: { done: number; total: number; bytesDone: number; bytesTotal: number; current: string } | null;
   decision: { reason: string; canForce: boolean } | null;
   error: string;
+  detail?: string;
   startedAt: number;
 }
 
@@ -387,6 +388,7 @@ export interface NasDiskLast {
   summary: NasDiskCounts;
   conflicts: { path: string; copy: string }[];
   error: string;
+  detail?: string;
   finishedAt: number;
   trash?: { bytes: number; files: number } | null;
 }

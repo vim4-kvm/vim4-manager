@@ -113,8 +113,10 @@ try {
   await page.waitForTimeout(100);
   assert.deepEqual(requests.at(-1), { path: "/api/nasdisk/reattach", body: { id: "s1" } });
 
-  disk = { ...disk, session: { ...disk.session, state: "failed", decision: null, error: "读取 NAS 上的文件失败" } };
+  disk = { ...disk, session: { ...disk.session, state: "failed", decision: null, error: "读取 NAS 上的文件失败", detail: "read /工具/a.bin: input/output error" } };
   await page.getByText("未写回的修改仍保存在 NAS 的暂存区").waitFor();
+  await page.getByText("技术细节").click();
+  await page.getByText("read /工具/a.bin: input/output error").waitFor();
   await page.getByRole("button", { name: "重试写回" }).click();
   await page.waitForTimeout(100);
   assert.deepEqual(requests.at(-1), { path: "/api/nasdisk/commit", body: { id: "s1" } });
