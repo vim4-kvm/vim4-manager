@@ -72,6 +72,23 @@ NanoKVM/JetKVM 首次连接存储可将 NCM 换成存储，会短暂重连 USB�
 
 API 没有认证，面向可信局域网。POST 只接受 application/json，跨站表单无法触发切换。
 
+## Tailscale 组网
+
+管理器统一管理整机 `tailscaled`，独立于当前 KVM 应用。助手提供
+`tailscale-status`、`tailscale-install`、`tailscale-uninstall`、`tailscale-up`、
+`tailscale-down`、`tailscale-login URL` 和 `tailscale-logout`。
+安装使用官方签名 APT 源，只刷新该源；安装、卸载在后台执行，不阻塞 KVM 切换。
+
+`GET /api/tailscale` 返回守护进程、组网及最近任务状态；`POST /api/tailscale`
+接受 `{action,controlURL}`，action 为 `install|uninstall|up|down|login|logout`。
+只有 login 接受并要求 controlURL，可用官方服务器或 Headscale；返回 `{authURL}`。
+其他操作返回 `{ok:true}`，安装、卸载的最终结果通过 GET 的 `job` 查询。
+
+连接和登录固定传入 `--accept-dns=false`，不默认接受路由或启用出口节点。
+API 无认证，面向可信局域网；接入 tailnet 后，tailnet 内设备在访问策略允许时
+也可访问管理面板 80 和 KVM 界面 8080 端口。状态字段、登录流程及验证见
+[Tailscale 说明](docs/tailscale.md)。
+
 ## 共享数据盘 API
 
 依赖板级包提供的 `/usr/lib/vim4-kvm/python/vim4media.py`、mtools 和 dosfstools。

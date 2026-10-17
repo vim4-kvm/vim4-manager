@@ -1,0 +1,232 @@
+package web
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"testing/fstest"
+	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/board"
+)
+
+func TestTailscaleGETAndLogin(t *testing.T) {
+	service := &board.Service{Run: func(ctx context.Context, name string, args ...string) (string, error) {
+		if name != "sudo" {
+			t.Fatalf("unexpected command: %s", name)
+		}
+		if slices.Equal(args, []string{"-n", board.Helper, "tailscale-status"}) {
+			deadline, ok := ctx.Deadline()
+			if !ok || time.Until(deadline) > 10*time.Second {
+				t.Fatal("GET has no ten-second bound")
+			}
+			return `{"installed":true,"running":true,"backendState":"NeedsLogin","authURL":"https://head.example/register/1","controlURL":"https://head.example","ips":[],"peers":4,"peersOnline":2}`, nil
+		}
+		if !slices.Equal(args, []string{"-n", board.Helper, "tailscale-login", "https://head.example"}) {
+			t.Fatalf("unexpected arguments: %v", args)
+		}
+		return `{"authURL":"https://head.example/register/1"}`, nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/tailscale", nil))
+	var state map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || state["authURL"] != "https://head.example/register/1" ||
+		state["peersOnline"] != float64(2) || state["job"] != nil || state["dnsName"] != "" {
+		t.Fatalf("status: %d %s", w.Code, w.Body.String())
+	}
+	r := httptest.NewRequest("POST", "/api/tailscale", strings.NewReader(`{"action":"login","controlURL":"https://head.example"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"authURL":"https://head.example/register/1"}` {
+		t.Fatalf("login: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTailscalePingRouteAndValidation(t *testing.T) {
+	calls := 0
+	service := &board.Service{Run: func(ctx context.Context, name string, args ...string) (string, error) {
+		calls++
+		if name != "sudo" || !slices.Equal(args, []string{"-n", board.Helper, "tailscale-ping", "100.64.0.2"}) {
+			t.Fatalf("unexpected command: %s %v", name, args)
+		}
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) > 30*time.Second {
+			t.Fatal("ping route has no thirty-second bound")
+		}
+		return `{"reachable":true,"path":"derp","via":"lax","latencyMs":[15.25],"lost":3,"sent":4}`, nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	for _, test := range []struct {
+		method, body, contentType string
+		code                      int
+	}{
+		{"POST", `{"ip":"100.64.0.2"}`, "application/json", 200},
+		{"POST", `{}`, "application/json", 400},
+		{"POST", `{"ip":"192.168.1.1"}`, "application/json", 400},
+		{"POST", `{"ip":"100.64.0.2;reboot"}`, "application/json", 400},
+		{"POST", `{"ip":false}`, "application/json", 400},
+		{"POST", `{"ip":`, "application/json", 400},
+		{"POST", `{"ip":"` + strings.Repeat("x", 4096) + `"}`, "application/json", 400},
+		{"POST", `{"ip":"100.64.0.2"}`, "text/plain", 415},
+		{"GET", "", "", 404},
+	} {
+		r := httptest.NewRequest(test.method, "/api/tailscale/ping", strings.NewReader(test.body))
+		r.Header.Set("Content-Type", test.contentType)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != test.code {
+			t.Fatalf("%s %s: %d %s", test.method, test.body, w.Code, w.Body.String())
+		}
+		if test.code == 200 {
+			var result board.TailscalePingResult
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || !result.Reachable ||
+				result.Path != "derp" || result.Via != "lax" || !slices.Equal(result.LatencyMs, []float64{15.25}) ||
+				result.Lost != 3 || result.Sent != 4 {
+				t.Fatalf("ping result: %s, %v", w.Body.String(), err)
+			}
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("invalid requests reached helper: %d calls", calls)
+	}
+	service.Run = func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("not a current Tailscale peer")
+	}
+	r := httptest.NewRequest("POST", "/api/tailscale/ping", strings.NewReader(`{"ip":"100.64.0.2"}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "not a current Tailscale peer") {
+		t.Fatalf("peer rejection: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTailscalePingRouteConcurrency(t *testing.T) {
+	started, release := make(chan struct{}, 2), make(chan struct{})
+	var workers sync.WaitGroup
+	defer func() { close(release); workers.Wait() }()
+	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) {
+		started <- struct{}{}
+		<-release
+		return `{"reachable":false,"path":"","via":"","latencyMs":[],"lost":4,"sent":4}`, nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	post := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/tailscale/ping", strings.NewReader(`{"ip":"100.64.0.2"}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	for range 2 {
+		workers.Add(1)
+		go func() { defer workers.Done(); post() }()
+	}
+	for range 2 {
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal("ping did not start")
+		}
+	}
+	if w := post(); w.Code != 409 {
+		t.Fatalf("third concurrent request: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTailscalePOSTValidation(t *testing.T) {
+	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) {
+		t.Fatal("invalid request reached helper")
+		return "", nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	for _, test := range []struct {
+		body, contentType string
+		code              int
+	}{
+		{`{}`, "application/json", 400},
+		{`{"action":"restart"}`, "application/json", 400},
+		{`{"action":"login"}`, "application/json", 400},
+		{`{"action":"login","controlURL":"https://head.example;reboot"}`, "application/json", 400},
+		{`{"action":"up","controlURL":"https://head.example"}`, "application/json", 400},
+		{`{"action":false}`, "application/json", 400},
+		{`{"action":`, "application/json", 400},
+		{`{"action":"` + strings.Repeat("x", 4096) + `"}`, "application/json", 400},
+		{`{"action":"up"}`, "text/plain", 415},
+	} {
+		r := httptest.NewRequest("POST", "/api/tailscale", strings.NewReader(test.body))
+		r.Header.Set("Content-Type", test.contentType)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != test.code {
+			t.Fatalf("%s: %d %s", test.body, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestTailscaleBackgroundJobAndConflict(t *testing.T) {
+	started, release, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	service := &board.Service{Run: func(_ context.Context, _ string, args ...string) (string, error) {
+		if args[2] == "tailscale-status" {
+			return `{"installed":false,"ips":[]}`, nil
+		}
+		close(started)
+		<-release
+		close(returned)
+		return "{}", nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	post := func(action string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/tailscale", strings.NewReader(`{"action":"`+action+`"}`))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w
+	}
+	w := post("install")
+	<-started
+	defer func() { close(release); <-returned }()
+	if w.Code != 200 || strings.TrimSpace(w.Body.String()) != `{"ok":true}` {
+		t.Fatalf("install: %d %s", w.Code, w.Body.String())
+	}
+	if w = post("down"); w.Code != 409 {
+		t.Fatalf("conflict: %d %s", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/tailscale", nil))
+	var state board.TailscaleState
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil || w.Code != 200 ||
+		state.Job == nil || state.Job.Action != "install" || !state.Job.Running || state.Job.Error != "" {
+		t.Fatalf("job: %d %s, %v", w.Code, w.Body.String(), err)
+	}
+}
+
+func TestTailscaleErrorsUseExistingResponseCodes(t *testing.T) {
+	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("helper unavailable")
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	for _, test := range []struct {
+		method, body string
+		code         int
+	}{{"GET", "", 500}, {"POST", `{"action":"down"}`, 400},
+		{"POST", `{"action":"login","controlURL":"https://head.example"}`, 400}} {
+		r := httptest.NewRequest(test.method, "/api/tailscale", strings.NewReader(test.body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != test.code || !strings.Contains(w.Body.String(), "helper unavailable") {
+			t.Fatalf("response: %d %s", w.Code, w.Body.String())
+		}
+	}
+}

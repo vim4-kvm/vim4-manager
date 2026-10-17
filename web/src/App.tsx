@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { TailscalePanel } from "./TailscalePanel";
 import { WifiControl } from "./WifiControl";
 import { EDIDPanel } from "./EDIDPanel";
 import {
@@ -825,7 +826,12 @@ export function App() {
         )}
 
         <div className="page-body" key={page}>
-        {page === "network" && <WifiControl busy={!!busy} />}
+        {page === "network" && (
+          <>
+            <WifiControl busy={!!busy} />
+            <TailscalePanel busy={!!busy} />
+          </>
+        )}
         {page === "updates" && <UpdatesPanel busy={!!busy} run={run} active={status?.active} />}
         {page === "video" && (
           <Section title="EDID" description="被控电脑看到的显示器型号与能力。">

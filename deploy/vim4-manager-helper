@@ -4,6 +4,7 @@ import fcntl
 import errno
 from contextlib import ExitStack, contextmanager
 import hashlib
+import ipaddress
 import json
 import os
 import pwd
@@ -15,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -58,6 +60,188 @@ DISK_STAGING = Path('/var/lib/vim4-manager/disk-staging')
 ALLOCATION_LOCK = '/run/lock/vim4-disk-allocation.lock'
 RESERVE_BYTES = 2 << 30
 SNAPSHOT_ID = re.compile(r'[0-9]{8}T[0-9]{12}Z\.img')
+
+TAILSCALE_CONTROL = 'https://controlplane.tailscale.com'
+TAILSCALE_URL = re.compile(r'https?://[A-Za-z0-9.-]+(?::[0-9]{1,5})?')
+TAILSCALE_KEYRING = Path('/usr/share/keyrings/tailscale-archive-keyring.gpg')
+TAILSCALE_SOURCES = Path('/etc/apt/sources.list.d/tailscale.list')
+TAILSCALE_REPOSITORY = 'https://pkgs.tailscale.com/stable/ubuntu'
+TAILSCALE_NETWORKS = (ipaddress.ip_network('100.64.0.0/10'), ipaddress.ip_network('fd7a:115c:a1e0::/48'))
+
+
+def tailscale_installed():
+    return Path('/usr/bin/tailscale').exists() and Path('/usr/sbin/tailscaled').exists()
+
+
+def tailscale_run(*args, timeout=30, check=True):
+    result = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                            env={**os.environ, 'LC_ALL': 'C', 'DEBIAN_FRONTEND': 'noninteractive'})
+    if check and result.returncode:
+        raise ValueError(f'{args[0]} {args[1]} failed: {result.stderr.strip()[-300:]}')
+    return result
+
+
+def tailscale_status():
+    state = {'installed': tailscale_installed(), 'running': False, 'backendState': '', 'authURL': '',
+             'hostName': '', 'dnsName': '', 'ips': [], 'tailnet': '', 'controlURL': TAILSCALE_CONTROL,
+             'version': '', 'peers': 0, 'peersOnline': 0, 'devices': []}
+    if not state['installed']:
+        return state
+    result = tailscale_run('tailscale', 'status', '--json', timeout=4, check=False)
+    if not result.stdout.strip():
+        if result.returncode:
+            return state
+        raise ValueError('tailscale returned empty state')
+    # NeedsLogin can return a nonzero exit code with valid daemon state.
+    status = json.loads(result.stdout)
+    peer = status.get('Peer') or {}
+    self = status.get('Self') or {}
+    state.update(running=True, backendState=status.get('BackendState', ''),
+                 authURL=status.get('AuthURL') or '', hostName=self.get('HostName', ''),
+                 dnsName=(self.get('DNSName') or '').rstrip('.'),
+                 ips=status.get('TailscaleIPs') or self.get('TailscaleIPs') or [],
+                 tailnet=(status.get('CurrentTailnet') or {}).get('Name', ''),
+                 version=status.get('Version', ''), peers=len(peer),
+                 peersOnline=sum(bool(p.get('Online')) for p in peer.values()))
+    for p in peer.values():
+        last_seen = p.get('LastSeen') or ''
+        if last_seen.startswith('0001-01-01'):
+            last_seen = ''
+        state['devices'].append({
+            'id': p.get('ID') or '', 'hostName': p.get('HostName') or '',
+            'dnsName': (p.get('DNSName') or '').rstrip('.'), 'os': p.get('OS') or '',
+            'ips': p.get('TailscaleIPs') or [], 'online': bool(p.get('Online')),
+            'lastSeen': last_seen, 'curAddr': p.get('CurAddr') or '', 'relay': p.get('Relay') or '',
+            'exitNode': bool(p.get('ExitNode')), 'active': bool(p.get('Active')),
+        })
+    state['devices'].sort(key=lambda device: (not device['online'], device['hostName'].casefold()))
+    prefs = tailscale_run('tailscale', 'debug', 'prefs', timeout=4, check=False)
+    if prefs.returncode == 0:
+        state['controlURL'] = json.loads(prefs.stdout).get('ControlURL') or TAILSCALE_CONTROL
+    return state
+
+
+def tailscale_ping_output(output):
+    result = {'reachable': False, 'path': '', 'via': '', 'latencyMs': [], 'lost': 0, 'sent': 0}
+    for line in output.splitlines():
+        pong = re.fullmatch(r'pong from .+ via (\S+) in ([0-9]+(?:\.[0-9]+)?)ms', line.strip())
+        if pong:
+            via, latency = pong.groups()
+            if via.startswith('DERP(') and via.endswith(')'):
+                path, via = 'derp', via[5:-1]
+            elif via.startswith('peer-relay(') and via.endswith(')'):
+                path, via = 'peer-relay', via[11:-1]
+            else:
+                path = 'direct'
+            result.update(reachable=True, path=path, via=via)
+            result['latencyMs'].append(float(latency))
+        elif 'timed out' in line:
+            result['lost'] += 1
+    result['sent'] = len(result['latencyMs']) + result['lost']
+    return result
+
+
+def tailscale_ping(ip):
+    address = ipaddress.ip_address(ip)
+    if '%' in ip or not any(address in network for network in TAILSCALE_NETWORKS):
+        raise ValueError('ping requires a Tailscale IP address')
+    # Read Peer directly: Self and arbitrary addresses in the tailnet ranges
+    # must never become probe targets, even when called outside the Go API.
+    status = tailscale_run('tailscale', 'status', '--json', timeout=4, check=False)
+    peers = (json.loads(status.stdout).get('Peer') or {}).values()
+    if not any(address == ipaddress.ip_address(peer_ip)
+               for peer in peers for peer_ip in (peer.get('TailscaleIPs') or [])):
+        raise ValueError('ping target is not a current Tailscale peer')
+    result = tailscale_run('tailscale', 'ping', '--until-direct=false', '--c', '4', '--timeout', '3s',
+                          str(address), timeout=20, check=False)
+    return tailscale_ping_output(result.stdout + '\n' + result.stderr)
+
+
+def tailscale_install():
+    if not tailscale_installed():
+        release = ''
+        for line in Path('/etc/os-release').read_text().splitlines():
+            if line.startswith('VERSION_CODENAME='):
+                release = line.split('=', 1)[1].strip('"')
+        if not re.fullmatch(r'[a-z]+', release):
+            raise ValueError('unknown Ubuntu release')
+        with urllib.request.urlopen(f'{TAILSCALE_REPOSITORY}/{release}.noarmor.gpg', timeout=30) as response:
+            key = response.read(65536)
+        TAILSCALE_KEYRING.write_bytes(key)
+        TAILSCALE_KEYRING.chmod(0o644)
+        TAILSCALE_SOURCES.write_text(f'deb [signed-by={TAILSCALE_KEYRING}] '
+                                    f'{TAILSCALE_REPOSITORY} {release} main\n')
+        # Refresh only Tailscale's signed source, leaving other repositories alone.
+        tailscale_run('apt-get', 'update', '-o', f'Dir::Etc::sourcelist={TAILSCALE_SOURCES}',
+                      '-o', 'Dir::Etc::sourceparts=-', '-o', 'APT::Get::List-Cleanup=0', timeout=180)
+        tailscale_run('apt-get', 'install', '-y', '--no-install-recommends', 'tailscale', timeout=600)
+    tailscale_run('systemctl', 'enable', '--now', 'tailscaled.service')
+
+
+def tailscale_uninstall():
+    # Also recover partially installed packages whose executables are missing.
+    tailscale_run('systemctl', 'disable', '--now', 'tailscaled.service', check=False)
+    tailscale_run('apt-get', 'remove', '-y', 'tailscale', timeout=300)
+    for path in (TAILSCALE_SOURCES, TAILSCALE_KEYRING):
+        path.unlink(missing_ok=True)
+
+
+def tailscale_login(url):
+    tailscale_run('systemctl', 'enable', '--now', 'tailscaled.service', timeout=20)
+    # Ubuntu chooses the control server at login. Authorization can take minutes;
+    # do not leave the helper's pipes or session attached to that process.
+    subprocess.Popen(['tailscale', 'login', '--login-server=' + url,
+                      '--accept-dns=false', '--timeout=10m'],
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+    deadline = time.monotonic() + 30
+    while (remaining := deadline - time.monotonic()) > 0:
+        try:
+            # The detached login may not have applied its preferences yet.
+            # Read preferences first so an old server's state cannot complete login.
+            prefs = tailscale_run('tailscale', 'debug', 'prefs', timeout=min(2, remaining), check=False)
+            control = (json.loads(prefs.stdout).get('ControlURL') or TAILSCALE_CONTROL) if prefs.returncode == 0 else ''
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                result = tailscale_run('tailscale', 'status', '--json', timeout=min(2, remaining), check=False)
+                status = json.loads(result.stdout or '{}')
+                if control == url and (status.get('AuthURL') or status.get('BackendState') == 'Running'):
+                    return {'authURL': status.get('AuthURL') or ''}
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+    raise ValueError('tailscale did not provide an authorization URL within 30 seconds')
+
+
+def tailscale_command(argv):
+    match argv:
+        case ['tailscale-login', url] if TAILSCALE_URL.fullmatch(url):
+            action = 'login'
+        case ['tailscale-ping', ip]:
+            action = 'ping'
+        case [name] if name in ('tailscale-status', 'tailscale-install', 'tailscale-uninstall',
+                               'tailscale-up', 'tailscale-down', 'tailscale-logout'):
+            action = name.removeprefix('tailscale-')
+        case _:
+            raise ValueError('usage: tailscale-status|install|uninstall|up|down|logout | tailscale-login http(s)://host[:port] | tailscale-ping IP')
+    if action not in ('status', 'install', 'uninstall') and not tailscale_installed():
+        raise ValueError('tailscale is not installed')
+    if action == 'status':
+        return tailscale_status()
+    if action == 'ping':
+        return tailscale_ping(ip)
+    if action == 'install':
+        tailscale_install()
+    elif action == 'uninstall':
+        tailscale_uninstall()
+    elif action == 'login':
+        return tailscale_login(url)
+    elif action == 'up':
+        tailscale_run('systemctl', 'enable', '--now', 'tailscaled.service', timeout=20)
+        tailscale_run('tailscale', 'up', '--accept-dns=false', '--timeout=20s')
+    else:
+        tailscale_run('tailscale', action)
+    return {}
 
 
 def disk_name(name):
@@ -979,6 +1163,9 @@ def update(package, checksum, version):
 
 
 def main(argv):
+    if argv and argv[0].startswith('tailscale-'):
+        print(json.dumps(tailscale_command(argv)))
+        return
     if argv and argv[0].startswith('disk-'):
         result = disk_command(argv)
         if argv[0] not in ('disk-get', 'disk-image'):
@@ -1017,7 +1204,24 @@ def main(argv):
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
                              'hdr-curve|hdr-preview WHITE PEAK | fan-curve LOW MID HIGH | fan-restore | '
                              'wifi on|off | media-status | media-list | media-mount APP IMAGE CDROM READONLY | '
-                             'media-eject TOKEN | edid-status | edid-select ID | update PACKAGE SHA256 VERSION')
+                             'media-eject TOKEN | edid-status | edid-select ID | update PACKAGE SHA256 VERSION | '
+                             'tailscale-status|tailscale-install|tailscale-uninstall|tailscale-up|tailscale-down|'
+                             'tailscale-logout | tailscale-login http(s)://host[:port] | tailscale-ping IP')
+
+
+@contextmanager
+def operation_lock(argv):
+    action = argv[0] if argv else ''
+    if action.startswith('disk-') or action in ('media-list', 'media-status', 'tailscale-status', 'tailscale-ping'):
+        yield
+        return
+    path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'
+    fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        yield
+    finally:
+        os.close(fd)
 
 
 def interrupted(signum, frame):
@@ -1028,13 +1232,13 @@ def interrupted(signum, frame):
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, interrupted)
     try:
-        if len(sys.argv) < 2 or not (sys.argv[1].startswith('disk-') or
-                                     sys.argv[1] in ('media-list', 'media-status')):
-            lock = os.open('/run/lock/vim4-manager.lock', os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        main(sys.argv[1:])
+        with operation_lock(sys.argv[1:]):
+            main(sys.argv[1:])
     except BlockingIOError:
-        busy = '另一个数据盘操作正在进行，请稍后重试' if sys.argv[1:2] and sys.argv[1].startswith('disk-') else 'Another switch is in progress'
+        action = sys.argv[1] if len(sys.argv) > 1 else ''
+        busy = ('另一个数据盘操作正在进行，请稍后重试' if action.startswith('disk-') else
+                'Another tailscale operation is in progress' if action.startswith('tailscale-') else
+                'Another switch is in progress')
         print(busy, file=sys.stderr)
         sys.exit(75)
     except (ValueError, OSError, subprocess.SubprocessError) as error:

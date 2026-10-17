@@ -16,7 +16,7 @@ import (
 // Helper is the root helper invoked through a sudoers rule.
 const Helper = "/usr/libexec/vim4-manager-helper"
 
-// ErrBusy means another switch or restart is still running.
+// ErrBusy means another operation in the same subsystem is still running.
 var ErrBusy = errors.New("另一项操作正在进行")
 
 // Service answers dashboard queries and serializes privileged operations.
@@ -28,6 +28,11 @@ type Service struct {
 	Events  *Events
 	Updater *Updater
 	mu      sync.Mutex
+
+	tailscaleMu       sync.Mutex
+	tailscaleJob      *TailscaleJob
+	tailscalePingOnce sync.Once
+	tailscalePings    chan struct{}
 
 	pkgMu    sync.Mutex
 	pkgMtime time.Time

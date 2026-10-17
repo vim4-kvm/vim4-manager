@@ -1,4 +1,6 @@
 import hashlib
+import io
+import json
 import importlib.machinery
 import importlib.util
 from pathlib import Path
@@ -14,6 +16,249 @@ loader = importlib.machinery.SourceFileLoader('helper', str(Path(__file__).with_
 spec = importlib.util.spec_from_loader(loader.name, loader)
 helper = importlib.util.module_from_spec(spec)
 loader.exec_module(helper)
+
+
+class TailscaleTest(unittest.TestCase):
+    def test_rejects_invalid_arguments_before_running_commands(self):
+        invalid_urls = ['', 'ftp://head.example', 'https://head.example/', 'https://head.example/path',
+                        'https://user@head.example', 'https://head.example?x=1', 'https://head.example#x',
+                        'https://head.example:123456', 'https://head.example;reboot',
+                        'https://head.example\n', 'https://head.example$(reboot)', '--login-server=x']
+        with patch.object(helper, 'tailscale_run') as run, patch.object(helper, 'tailscale_installed') as installed:
+            for url in invalid_urls:
+                with self.subTest(url=url), self.assertRaises(ValueError):
+                    helper.main(['tailscale-login', url])
+            for argv in (['tailscale-login'], ['tailscale-up', 'extra'], ['tailscale-set'],
+                         ['tailscale-ping'], ['tailscale-ping', '100.64.0.2', 'extra'],
+                         ['tailscale-login', 'https://head.example', '--accept-routes']):
+                with self.subTest(argv=argv), self.assertRaises(ValueError):
+                    helper.main(argv)
+        installed.assert_not_called()
+        run.assert_not_called()
+
+    def test_uninstalled_actions_are_rejected_but_status_and_cleanup_work(self):
+        with patch.object(helper, 'tailscale_installed', return_value=False), \
+             patch.object(helper, 'tailscale_run') as run:
+            for action in ('up', 'down', 'login', 'logout', 'ping'):
+                args = ['tailscale-' + action] + (['https://head.example'] if action == 'login' else
+                                                ['100.64.0.2'] if action == 'ping' else [])
+                with self.subTest(action=action), self.assertRaisesRegex(ValueError, 'not installed'):
+                    helper.main(args)
+            run.assert_not_called()
+            state = helper.tailscale_status()
+            self.assertFalse(state['installed'])
+            self.assertFalse(state['running'])
+            self.assertEqual(state['ips'], [])
+            self.assertEqual(state['devices'], [])
+            self.assertEqual(state['controlURL'], helper.TAILSCALE_CONTROL)
+            with patch.object(helper, 'tailscale_install') as install, \
+                 patch.object(helper, 'tailscale_uninstall') as uninstall, \
+                 patch('sys.stdout', new_callable=io.StringIO):
+                helper.main(['tailscale-install'])
+                helper.main(['tailscale-uninstall'])
+            install.assert_called_once()
+            uninstall.assert_called_once()
+
+    def test_status_parses_auth_url_peers_and_headscale_control(self):
+        status = {'BackendState': 'NeedsLogin', 'AuthURL': 'https://head.example/register/node',
+                  'Version': '1.90.1', 'Self': {'HostName': 'vim4', 'DNSName': 'vim4.example.',
+                  'TailscaleIPs': ['100.64.0.1', 'fd00::1']}, 'CurrentTailnet': {'Name': 'example'},
+                  'Peer': {'a': {'Online': True}, 'b': {'Online': False}, 'c': {'Online': True}}}
+        def run(*args, **kwargs):
+            data = status if args[1] == 'status' else {'ControlURL': 'http://head.example:8080'}
+            # A valid NeedsLogin JSON response can have a failing exit status.
+            return subprocess.CompletedProcess(args, 1 if args[1] == 'status' else 0, json.dumps(data), '')
+        with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_run', side_effect=run):
+            state = helper.tailscale_status()
+        self.assertEqual(state, {'installed': True, 'running': True, 'backendState': 'NeedsLogin',
+                                'authURL': status['AuthURL'], 'hostName': 'vim4', 'dnsName': 'vim4.example',
+                                'ips': ['100.64.0.1', 'fd00::1'], 'tailnet': 'example',
+                                'controlURL': 'http://head.example:8080', 'version': '1.90.1',
+                                'peers': 3, 'peersOnline': 2,
+                                'devices': [{'id': '', 'hostName': '', 'dnsName': '', 'os': '', 'ips': [],
+                                             'online': online, 'lastSeen': '', 'curAddr': '', 'relay': '',
+                                             'exitNode': False, 'active': False} for online in (True, True, False)]})
+
+    def test_status_devices_fields_sorting_and_zero_last_seen(self):
+        full_peer = {'ID': 'node-id', 'HostName': 'zulu', 'DNSName': 'zulu.example.', 'OS': 'linux',
+                     'TailscaleIPs': ['100.64.0.2', 'fd7a:115c:a1e0::2'], 'Online': True,
+                     'LastSeen': '2026-10-16T12:34:56.123Z', 'CurAddr': '[2001:db8::2]:41641',
+                     'Relay': 'lax', 'ExitNode': True, 'Active': True}
+        peers = {'public-key': full_peer,
+                 'b': {'ID': 'offline-z', 'HostName': 'zulu', 'Online': False},
+                 'c': {'ID': 'online-a', 'HostName': 'alpha', 'Online': True,
+                       'LastSeen': '0001-01-01T00:00:00Z'},
+                 'd': {'ID': 'offline-a', 'HostName': 'alpha', 'Online': False,
+                       'LastSeen': '0001-01-01T00:00:00.000000000Z'}}
+        def run(*args, **kwargs):
+            data = {'Peer': peers, 'Self': {'ID': 'self'}} if args[1] == 'status' else {}
+            return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+        with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_run', side_effect=run):
+            state = helper.tailscale_status()
+        self.assertEqual((state['peers'], state['peersOnline']), (4, 2))
+        devices = state['devices']
+        self.assertEqual([d['id'] for d in devices], ['online-a', 'node-id', 'offline-a', 'offline-z'])
+        self.assertEqual(devices[1], {'id': 'node-id', 'hostName': 'zulu', 'dnsName': 'zulu.example',
+                                     'os': 'linux', 'ips': full_peer['TailscaleIPs'], 'online': True,
+                                     'lastSeen': full_peer['LastSeen'], 'curAddr': full_peer['CurAddr'],
+                                     'relay': 'lax', 'exitNode': True, 'active': True})
+        self.assertEqual([d['lastSeen'] for d in (devices[0], *devices[2:])], ['', '', ''])
+
+    def test_ping_parses_paths_losses_and_nonzero_exit(self):
+        direct = 'pong from laptop (100.64.0.2) via 192.0.2.2:41641 in 1.25ms'
+        derp = 'pong from laptop (100.64.0.2) via DERP(lax) in 45ms'
+        relay = 'pong from laptop (100.64.0.2) via peer-relay(100.64.0.3:40000) in 8.5ms'
+        timeout = 'ping "100.64.0.2" timed out'
+        cases = [(direct, 'direct', '192.0.2.2:41641', [1.25], 0),
+                 (derp, 'derp', 'lax', [45.0], 0),
+                 (relay, 'peer-relay', '100.64.0.3:40000', [8.5], 0),
+                 ('\n'.join([timeout] * 4), '', '', [], 4),
+                 ('\n'.join([timeout, derp, relay, direct, timeout]),
+                  'direct', '192.0.2.2:41641', [45.0, 8.5, 1.25], 2)]
+        for output, path, via, latencies, lost in cases:
+            with self.subTest(path=path, lost=lost), \
+                 patch.object(helper, 'tailscale_installed', return_value=True), \
+                 patch.object(helper, 'tailscale_run', side_effect=[
+                     subprocess.CompletedProcess([], 0, json.dumps({'Peer': {
+                         'key': {'TailscaleIPs': ['100.64.0.2']}}}), ''),
+                     subprocess.CompletedProcess([], 1, output, 'diagnostic')]) as run, \
+                 patch('sys.stdout', new_callable=io.StringIO) as stdout:
+                helper.main(['tailscale-ping', '100.64.0.2'])
+                self.assertEqual(json.loads(stdout.getvalue()), {
+                    'reachable': bool(latencies), 'path': path, 'via': via,
+                    'latencyMs': latencies, 'lost': lost, 'sent': len(latencies) + lost})
+                self.assertEqual(run.call_args_list[0].args, ('tailscale', 'status', '--json'))
+                run.assert_called_with('tailscale', 'ping', '--until-direct=false', '--c', '4',
+                                       '--timeout', '3s', '100.64.0.2', timeout=20, check=False)
+
+    def test_ping_rejects_invalid_or_non_tailnet_addresses_before_commands(self):
+        for ip in ('', 'example.com', '192.168.1.1', '100.63.255.255', '100.128.0.0',
+                   'fd7a:115c:a1df::1', 'fd7a:115c:a1e1::1', '::ffff:100.64.0.2',
+                   'fd7a:115c:a1e0::2%eth0', '100.064.0.2', '100.64.0.2/32',
+                   ' 100.64.0.2', '100.64.0.2\n', '100.64.0.2;reboot', '$(reboot)', '--help'):
+            with self.subTest(ip=ip), patch.object(helper, 'tailscale_installed', return_value=True), \
+                 patch.object(helper, 'tailscale_run') as run, self.assertRaises(ValueError):
+                helper.tailscale_command(['tailscale-ping', ip])
+            run.assert_not_called()
+
+    def test_ping_requires_peer_membership_and_normalizes_ipv6(self):
+        peer_ip = 'fd7a:115c:a1e0::2'
+        status = {'Self': {'TailscaleIPs': ['100.64.0.1']},
+                  'Peer': {'key': {'TailscaleIPs': ['100.64.0.2', peer_ip]}}}
+        with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_run', return_value=subprocess.CompletedProcess(
+                 [], 0, json.dumps(status), '')) as run:
+            for ip in ('100.64.0.1', '100.64.0.3', 'fd7a:115c:a1e0::3'):
+                with self.subTest(ip=ip), self.assertRaisesRegex(ValueError, 'not a current'):
+                    helper.tailscale_command(['tailscale-ping', ip])
+            self.assertTrue(all(call.args == ('tailscale', 'status', '--json') for call in run.call_args_list))
+            run.reset_mock()
+            run.side_effect = [subprocess.CompletedProcess([], 0, json.dumps(status), ''),
+                               subprocess.CompletedProcess([], 0, '', '')]
+            self.assertEqual(helper.tailscale_command(['tailscale-ping', 'fd7a:115c:a1e0:0:0:0:0:2'])['sent'], 0)
+            self.assertEqual(run.call_args.args[-1], peer_ip)
+
+    def test_stopped_daemon_and_default_control(self):
+        with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_run', return_value=subprocess.CompletedProcess([], 1, '', 'stopped')):
+            state = helper.tailscale_status()
+            self.assertTrue(state['installed'])
+            self.assertFalse(state['running'])
+            self.assertEqual(state['devices'], [])
+        with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_run', return_value=subprocess.CompletedProcess([], 0, '{}', '')):
+            state = helper.tailscale_status()
+            self.assertTrue(state['running'])
+            self.assertEqual(state['controlURL'], helper.TAILSCALE_CONTROL)
+            self.assertEqual(state['peers'], 0)
+            self.assertEqual(state['devices'], [])
+
+    def test_login_is_detached_and_uses_daemon_auth_url(self):
+        for status, url in (({'AuthURL': 'https://head.example/register/node'}, 'https://head.example/register/node'),
+                            ({'BackendState': 'Running'}, '')):
+            def run(*args, **kwargs):
+                data = status if args[1] == 'status' else {'ControlURL': 'http://head.example:8080'}
+                return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+            with self.subTest(status=status), patch.object(helper, 'tailscale_installed', return_value=True), \
+                 patch.object(helper, 'tailscale_run', side_effect=run), \
+                 patch.object(helper.subprocess, 'Popen') as popen, patch('sys.stdout', new_callable=io.StringIO) as output:
+                helper.main(['tailscale-login', 'http://head.example:8080'])
+                self.assertEqual(json.loads(output.getvalue()), {'authURL': url})
+                popen.assert_called_once_with(['tailscale', 'login', '--login-server=http://head.example:8080',
+                                              '--accept-dns=false', '--timeout=10m'],
+                                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                             stderr=subprocess.DEVNULL, start_new_session=True)
+
+    def test_login_waits_for_control_server_change(self):
+        statuses = iter([{'BackendState': 'Running'}, {'AuthURL': 'https://head.example/register/node'}])
+        controls = iter([helper.TAILSCALE_CONTROL, 'https://head.example'])
+        def run(*args, **kwargs):
+            if args[0] == 'systemctl':
+                return subprocess.CompletedProcess(args, 0, '', '')
+            data = next(statuses) if args[1] == 'status' else {'ControlURL': next(controls)}
+            return subprocess.CompletedProcess(args, 0, json.dumps(data), '')
+        with patch.object(helper, 'tailscale_run', side_effect=run), \
+             patch.object(helper.subprocess, 'Popen'), patch.object(helper.time, 'sleep'):
+            result = helper.tailscale_login('https://head.example')
+        self.assertEqual(result, {'authURL': 'https://head.example/register/node'})
+
+    def test_login_poll_is_bounded(self):
+        now = [0.0]
+        with patch.object(helper, 'tailscale_run', return_value=subprocess.CompletedProcess([], 1, '', '')), \
+             patch.object(helper.subprocess, 'Popen'), \
+             patch.object(helper.time, 'monotonic', side_effect=lambda: now[0]), \
+             patch.object(helper.time, 'sleep', side_effect=lambda duration: now.__setitem__(0, now[0] + duration)):
+            with self.assertRaisesRegex(ValueError, '30 seconds'):
+                helper.tailscale_login('https://head.example')
+        self.assertEqual(now[0], 30)
+
+    def test_tailscale_lock_does_not_block_switch_or_status_and_is_released(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        real_open = helper.os.open
+        paths = set()
+        def lock_open(path, flags, mode):
+            paths.add(path)
+            return real_open(root / Path(path).name, flags, mode)
+        with patch.object(helper.os, 'open', side_effect=lock_open):
+            with helper.operation_lock(['tailscale-install']):
+                with helper.operation_lock(['select', 'nanokvm']), helper.operation_lock(['tailscale-status']):
+                    with helper.operation_lock(['tailscale-ping', '100.64.0.2']):
+                        pass
+                with self.assertRaises(BlockingIOError):
+                    with helper.operation_lock(['tailscale-down']):
+                        self.fail('concurrent Tailscale writer acquired lock')
+            with helper.operation_lock(['tailscale-up']):
+                pass
+        self.assertEqual(paths, {'/run/lock/vim4-manager.lock', '/run/lock/vim4-manager-tailscale.lock'})
+
+    def test_install_uses_signed_source_and_refreshes_only_tailscale(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        keyring, source = root / 'key.gpg', root / 'tailscale.list'
+        with patch.object(helper, 'TAILSCALE_KEYRING', keyring), patch.object(helper, 'TAILSCALE_SOURCES', source), \
+             patch.object(helper, 'tailscale_installed', return_value=False), \
+             patch.object(Path, 'read_text', return_value='VERSION_CODENAME="jammy"\n'), \
+             patch.object(helper.urllib.request, 'urlopen', return_value=io.BytesIO(b'signed-key')) as fetch, \
+             patch.object(helper, 'tailscale_run') as run:
+            helper.tailscale_install()
+        fetch.assert_called_once_with(helper.TAILSCALE_REPOSITORY + '/jammy.noarmor.gpg', timeout=30)
+        self.assertEqual(keyring.read_bytes(), b'signed-key')
+        self.assertIn(f'[signed-by={keyring}]', source.read_text())
+        self.assertIn(f'Dir::Etc::sourcelist={source}', run.call_args_list[0].args)
+        self.assertIn('Dir::Etc::sourceparts=-', run.call_args_list[0].args)
+        self.assertEqual(run.call_args.args, ('systemctl', 'enable', '--now', 'tailscaled.service'))
+
+    def test_up_enables_daemon_and_down_preserves_it(self):
+        with patch.object(helper, 'tailscale_installed', return_value=True), \
+             patch.object(helper, 'tailscale_run') as run:
+            helper.tailscale_command(['tailscale-up'])
+            self.assertEqual([call.args for call in run.call_args_list], [
+                ('systemctl', 'enable', '--now', 'tailscaled.service'),
+                ('tailscale', 'up', '--accept-dns=false', '--timeout=20s')])
+            run.reset_mock()
+            helper.tailscale_command(['tailscale-down'])
+            run.assert_called_once_with('tailscale', 'down')
 
 
 class HelperTest(unittest.TestCase):
