@@ -371,7 +371,7 @@ func executeStep(r *os.Root, session, id string, index int, s *journalStep, save
 	}
 	switch s.Op {
 	case vfat.Mkdir:
-		e := r.Mkdir(s.Path, 0770)
+		e := r.Mkdir(s.Path, 0755)
 		if errors.Is(e, os.ErrExist) {
 			info, se := r.Stat(s.Path)
 			if se == nil && info.IsDir() {
@@ -381,9 +381,13 @@ func executeStep(r *os.Root, session, id string, index int, s *journalStep, save
 		if e != nil {
 			return e
 		}
+		// The service umask keeps session data private; published folders use NAS defaults.
+		if e = r.Chmod(s.Path, 0755); e != nil {
+			return e
+		}
 		return syncParents(r, s.Path)
 	case vfat.Rename:
-		if e := r.MkdirAll(path.Dir(s.Path), 0770); e != nil {
+		if e := r.MkdirAll(path.Dir(s.Path), 0755); e != nil {
 			return e
 		}
 		from, e := r.Lstat(s.From)
@@ -437,8 +441,12 @@ func executeStep(r *os.Root, session, id string, index int, s *journalStep, save
 			if e := r.Remove(tmp); e != nil && !errors.Is(e, os.ErrNotExist) {
 				return e
 			}
-			f, e := r.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0660)
+			f, e := r.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
 			if e != nil {
+				return e
+			}
+			if e = f.Chmod(0644); e != nil {
+				f.Close()
 				return e
 			}
 			fd, e := unix.Open(path.Join(session, s.Payload), unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)

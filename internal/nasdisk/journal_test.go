@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -115,5 +116,27 @@ func TestWriteRecoveryAndDestinationProtection(t *testing.T) {
 	other := &Journal{Version: 1, ID: "other", Steps: []journalStep{{Op: vfat.Write, Path: "file", Payload: "payload", Size: 11}}}
 	if err = other.Execute(context.Background(), root, session, nil); err == nil {
 		t.Fatal("overwrote unexpected destination")
+	}
+}
+
+func TestPublishedEntriesIgnorePrivateUmask(t *testing.T) {
+	old := syscall.Umask(0077)
+	defer syscall.Umask(old)
+	root, session := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(session, "payload"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	j := &Journal{Version: 1, ID: "s", Steps: []journalStep{
+		{Op: vfat.Mkdir, Path: "dir"},
+		{Op: vfat.Write, Path: "dir/file", Payload: "payload", Size: 1, Mtime: time.Unix(1700000000, 0)},
+	}}
+	if err := j.Execute(context.Background(), root, session, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]os.FileMode{"dir": 0755, "dir/file": 0644} {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil || info.Mode().Perm() != want {
+			t.Fatalf("%s: %v %v", name, info.Mode(), err)
+		}
 	}
 }
