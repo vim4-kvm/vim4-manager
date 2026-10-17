@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -274,5 +276,134 @@ func TestPartialRecoveryDoesNotDeleteUnparsedFiles(t *testing.T) {
 		if err != nil || string(data) != "original" {
 			t.Fatalf("%s: %q %v", name, data, err)
 		}
+	}
+}
+
+func TestSnapshotOverlayRecoveryAndCleanup(t *testing.T) {
+	for _, version := range []vfat.LayoutVersion{0, vfat.LayoutLegacy, vfat.LayoutAligned} {
+		t.Run(fmt.Sprint(version), func(t *testing.T) {
+			root := canonicalTemp(t)
+			if err := os.WriteFile(filepath.Join(root, "file"), []byte("original"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			source, err := OpenSource(root, vfat.Tree{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer source.Close()
+			tree, err := source.Scan(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := Config{ID: "session", Root: root, Mode: "rw", StartedAt: 1700000000}
+			opts := vfat.Options{LayoutVersion: version, Size: 64 << 30, Time: time.Unix(config.StartedAt, 0).UTC()}
+			if version == 0 {
+				opts.LayoutVersion = vfat.LayoutLegacy
+			}
+			layout, err := vfat.Build(tree, opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			private, directory, err := privateDirectory(root, config.ID, true, source.root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer private.Close()
+			saved := snapshot{Config: config, Tree: tree, Options: opts}
+			// An old snapshot has no version field at all, rather than an
+			// explicit zero. Preserve that wire format in this regression.
+			saved.Options.LayoutVersion = version
+			data, err := json.Marshal(saved)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = os.WriteFile(filepath.Join(directory, "snapshot.json"), data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			overlay, err := vfat.OpenFileOverlay(vfat.NewVolume(layout, source), filepath.Join(directory, "overlay"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = overlay.WriteAt([]byte("host new"), layout.Geometry.ClusterOffset(layout.Entries[1].FirstCluster)); err != nil {
+				t.Fatal(err)
+			}
+			dirty := overlay.DirtyClusters()
+			if err = overlay.Close(); err != nil {
+				t.Fatal(err)
+			}
+			config.Recover = "commit"
+			s := &session{status: Status{Config: config}, image: "/not-a-lun", runtimeDir: t.TempDir()}
+			defer func() {
+				if s.disk != nil {
+					s.disk.Overlay.Close()
+				}
+				if s.private != nil {
+					s.private.Close()
+				}
+				if s.source != nil {
+					s.source.Close()
+				}
+			}()
+			if err = s.initialize(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if s.layout.ID != layout.ID || s.layout.Geometry != layout.Geometry || !reflect.DeepEqual(s.disk.Overlay.DirtyClusters(), dirty) {
+				t.Fatal("recovery changed the layout or dirty clusters")
+			}
+			if err = s.commit(context.Background(), false); err != nil {
+				t.Fatal(err)
+			}
+			if s.journal == nil || s.journal.Done != len(s.journal.Steps) {
+				t.Fatal("recovered overlay did not commit")
+			}
+			if err = s.finish("committed", nil); err != nil {
+				t.Fatal(err)
+			}
+			for name, want := range map[string]string{"file": "host new", PrivateName + "/trash/session/file": "original"} {
+				got, err := os.ReadFile(filepath.Join(root, name))
+				if err != nil || string(got) != want {
+					t.Fatalf("%s: %q %v", name, got, err)
+				}
+			}
+			if _, err = os.Stat(filepath.Join(root, PrivateName, config.ID)); !os.IsNotExist(err) {
+				t.Fatalf("session directory remains: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewSessionPersistsLayoutVersionAndDiscardRemovesDirectory(t *testing.T) {
+	root := canonicalTemp(t)
+	s := &session{status: Status{Config: Config{ID: "new", Root: root, Mode: "rw", StartedAt: 1700000000}}, image: "/not-a-lun", runtimeDir: t.TempDir()}
+	defer func() {
+		if s.disk != nil {
+			s.disk.Overlay.Close()
+		}
+		if s.private != nil {
+			s.private.Close()
+		}
+		if s.source != nil {
+			s.source.Close()
+		}
+	}()
+	if err := s.initialize(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(s.directory, "snapshot.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved snapshot
+	if err = json.Unmarshal(data, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.Options.LayoutVersion != vfat.LayoutAligned {
+		t.Fatal("new snapshot omitted layout version")
+	}
+	if err = s.finish("discarded", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(root, PrivateName, "new")); !os.IsNotExist(err) {
+		t.Fatalf("session directory remains: %v", err)
 	}
 }

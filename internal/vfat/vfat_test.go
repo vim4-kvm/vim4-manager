@@ -183,7 +183,7 @@ func TestGeometryAndFAT(t *testing.T) {
 			t.Fatal("reserved FAT entries")
 		}
 	}
-	tree := Tree{[]Node{{Name: "large", Size: 130 * 512, SourceID: "x"}}}
+	tree := Tree{[]Node{{Name: "large", Size: 130 * 4096, SourceID: "x"}}}
 	l, err := Build(tree, Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +198,7 @@ func TestGeometryAndFAT(t *testing.T) {
 		}
 	}
 	var b [12]byte
-	_, err = NewVolume(l, nil).ReadAt(b[:], 32*512+126*4)
+	_, err = NewVolume(l, nil).ReadAt(b[:], int64(l.Geometry.ReservedSectors)*512+126*4)
 	if err != nil || le.Uint32(b[8:]) != 129 {
 		t.Fatalf("cross FAT sector: %x %v", b, err)
 	}

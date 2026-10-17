@@ -14,7 +14,17 @@ import (
 const sectorSize = 512
 const maxSectors = uint64(0xffffffff)
 
+type LayoutVersion uint32
+
+const (
+	// LayoutLegacy reproduces the original 32-reserved-sector layout, including
+	// its cluster-size selection. Use only to reopen existing overlays.
+	LayoutLegacy  LayoutVersion = 1
+	LayoutAligned LayoutVersion = 2
+)
+
 type Options struct {
+	LayoutVersion     LayoutVersion `json:",omitempty"` // Zero selects LayoutAligned; persist an explicit version for recovery.
 	Label             string
 	Size              int64
 	WritableBytes     int64
@@ -69,7 +79,8 @@ type allocation struct {
 }
 
 // RecommendedClusterSize follows Microsoft's FAT32 format table; tiny volumes
-// use 512 bytes and Build enlarges them to the minimum FAT32 cluster count.
+// use 512 bytes. Build applies a 4 KiB floor for aligned layouts and enlarges
+// volumes to the minimum FAT32 cluster count.
 func RecommendedClusterSize(size int64) int {
 	sectors := (size + 511) / 512
 	switch {
@@ -87,6 +98,12 @@ func RecommendedClusterSize(size int64) int {
 }
 
 func Build(tree Tree, opts Options) (*Layout, error) {
+	if opts.LayoutVersion == 0 {
+		opts.LayoutVersion = LayoutAligned
+	}
+	if opts.LayoutVersion != LayoutLegacy && opts.LayoutVersion != LayoutAligned {
+		return nil, fmt.Errorf("unsupported layout version %d", opts.LayoutVersion)
+	}
 	if opts.Size < 0 || opts.WritableBytes < 0 || uint64(opts.Size) > maxSectors*512 {
 		return nil, fmt.Errorf("invalid volume size (maximum 2 TiB minus one sector)")
 	}
@@ -204,9 +221,15 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 			return nil, fmt.Errorf("volume too large")
 		}
 		cs = RecommendedClusterSize(max(opts.Size, size+opts.WritableBytes))
+		if opts.LayoutVersion == LayoutAligned {
+			cs = max(4096, cs)
+		}
 	}
 	if cs < 512 || cs > 32768 || cs&(cs-1) != 0 {
 		return nil, fmt.Errorf("cluster size must be a power of two from 512 to 32768")
+	}
+	if opts.LayoutVersion == LayoutAligned && cs < 4096 {
+		return nil, fmt.Errorf("aligned layouts require clusters of at least 4096 bytes")
 	}
 	var used uint64
 	var directoryBytes int64
@@ -233,22 +256,52 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 		}
 	}
 	clusters := max(uint64(65525), used+(uint64(opts.WritableBytes)+uint64(cs)-1)/uint64(cs))
-	sectors := uint64(32) + 2*(((clusters+2)*4+511)/512) + clusters*uint64(cs/512)
+	spc := uint64(cs / sectorSize)
+	metadataSectors := func(count uint64) uint64 {
+		fat := ((count+2)*4 + 511) / 512
+		if opts.LayoutVersion == LayoutAligned {
+			fat = roundSectors(fat, 8)
+			return roundSectors(32+2*fat, spc)
+		}
+		return 32 + 2*fat
+	}
+	sectors := metadataSectors(clusters) + clusters*spc
 	if opts.Size > 0 {
-		sectors = max(uint64((opts.Size+511)/512), uint64(32)+2*(((uint64(65525)+2)*4+511)/512)+65525*uint64(cs/512))
+		sectors = max(uint64((opts.Size+511)/512), metadataSectors(65525)+65525*spc)
 	}
 	if sectors > maxSectors {
 		return nil, fmt.Errorf("volume exceeds FAT32 sector limit")
 	}
 	// Solve geometry without alternating FAT-size fixed points at sector boundaries.
 	fat := (sectors - 32 + uint64(cs/512)*2 + uint64(128*cs/512+2) - 1) / uint64(128*cs/512+2)
-	clusters = (sectors - 32 - 2*fat) / uint64(cs/512)
+	reserved := uint64(32)
+	if opts.LayoutVersion == LayoutAligned {
+		// Find the smallest FAT (in 4 KiB units) that can address every data
+		// cluster. Data start is monotone even as reserved-sector padding varies.
+		low, high := uint64(1), roundSectors(fat, 8)/8
+		for low < high {
+			mid := (low + high) / 2
+			data := roundSectors(32+2*mid*8, spc)
+			if mid*8*128 >= (sectors-data)/spc+2 {
+				high = mid
+			} else {
+				low = mid + 1
+			}
+		}
+		fat = low * 8
+		reserved = roundSectors(32+2*fat, spc) - 2*fat
+	}
+	clusters = (sectors - reserved - 2*fat) / spc
 	if clusters < 65525 || clusters > 0x0fffffee || clusters < used {
 		return nil, fmt.Errorf("volume cannot hold snapshot with FAT32 geometry")
 	}
-	l.Geometry = Geometry{int64(sectors * 512), cs, 32, uint32(fat), 2, uint32(clusters), 2}
-	if opts.ClusterSize == 0 && RecommendedClusterSize(l.Geometry.Size) != cs {
-		opts.ClusterSize = RecommendedClusterSize(l.Geometry.Size)
+	l.Geometry = Geometry{int64(sectors * 512), cs, uint32(reserved), uint32(fat), 2, uint32(clusters), 2}
+	recommended := RecommendedClusterSize(l.Geometry.Size)
+	if opts.LayoutVersion == LayoutAligned {
+		recommended = max(4096, recommended)
+	}
+	if opts.ClusterSize == 0 && recommended != cs {
+		opts.ClusterSize = recommended
 		return Build(tree, opts)
 	}
 	parents := map[*Entry]*Entry{}
@@ -299,6 +352,10 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 	return l, nil
 }
 
+func roundSectors(sectors, alignment uint64) uint64 {
+	return (sectors + alignment - 1) / alignment * alignment
+}
+
 func (l *Layout) makeBoot(label string, serial, used uint32) {
 	g := l.Geometry
 	b := l.boot[:]
@@ -306,7 +363,7 @@ func (l *Layout) makeBoot(label string, serial, used uint32) {
 	copy(b[3:], "VIM4VFAT")
 	le.PutUint16(b[11:], 512)
 	b[13] = byte(g.ClusterSize / 512)
-	le.PutUint16(b[14:], 32)
+	le.PutUint16(b[14:], uint16(g.ReservedSectors))
 	b[16] = 2
 	b[21] = 0xf8
 	le.PutUint16(b[24:], 63)
@@ -388,7 +445,7 @@ func (v *Volume) ReadAt(p []byte, off int64) (int, error) {
 		sector := off / 512
 		within := int(off % 512)
 		take := min(len(p), 512-within)
-		if sector < 32 {
+		if sector < int64(g.ReservedSectors) {
 			switch sector {
 			case 0, 6:
 				b = v.Layout.boot
@@ -396,7 +453,7 @@ func (v *Volume) ReadAt(p []byte, off int64) (int, error) {
 				b = v.Layout.fsinfo
 			}
 		} else if off < g.DataOffset() {
-			fatSector := (sector - 32) % int64(g.FATSectors)
+			fatSector := (sector - int64(g.ReservedSectors)) % int64(g.FATSectors)
 			for i := 0; i < 128; i++ {
 				le.PutUint32(b[i*4:], v.Layout.fatEntry(uint32(fatSector*128+int64(i))))
 			}

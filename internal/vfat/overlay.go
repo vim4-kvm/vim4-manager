@@ -294,6 +294,8 @@ func (o *overlay) WrittenBytes() int64 { o.mu.Lock(); defer o.mu.Unlock(); retur
 
 // DirtyClusters is conservative: every data cluster touched by a dirty overlay
 // block is included, even if only another byte in that block was written.
+// LayoutAligned keeps each data block within one cluster; LayoutLegacy may
+// include untouched neighboring clusters because of its size or alignment.
 func (o *overlay) DirtyClusters() []ClusterRange {
 	o.mu.Lock()
 	defer o.mu.Unlock()

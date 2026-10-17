@@ -5,4 +5,7 @@
 // BuildPlan. Plans describe operations; they never modify the source directory.
 // All FAT timestamps are UTC, rounded down to two seconds. Callers must keep the
 // snapshot and Source stable for the entire session, and stop writes before Parse.
+// New layouts align both FATs to 4 KiB and the data area to the cluster size
+// (at least 4 KiB). Persist Options.LayoutVersion explicitly; LayoutLegacy
+// reproduces old geometry and overlay IDs for recovery.
 package vfat

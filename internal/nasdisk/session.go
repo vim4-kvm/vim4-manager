@@ -281,6 +281,11 @@ func (s *session) initialize(ctx context.Context) error {
 		if e = json.Unmarshal(b, &saved); e != nil {
 			return e
 		}
+		// Snapshots written before layout versioning must retain their exact
+		// geometry and ID, which are bound into the overlay index header.
+		if saved.Options.LayoutVersion == 0 {
+			saved.Options.LayoutVersion = vfat.LayoutLegacy
+		}
 		if saved.Config.ID != c.ID || saved.Config.Root != c.Root {
 			return fmt.Errorf("snapshot identity mismatch")
 		}
@@ -311,7 +316,7 @@ func (s *session) initialize(ctx context.Context) error {
 		}
 		saved.Tree = tree
 		saved.Config = c
-		saved.Options = vfat.Options{Label: c.Label, Time: time.Unix(c.StartedAt, 0).UTC(), ExcludeName: PrivateName}
+		saved.Options = vfat.Options{LayoutVersion: vfat.LayoutAligned, Label: c.Label, Time: time.Unix(c.StartedAt, 0).UTC(), ExcludeName: PrivateName}
 		if c.Mode == "rw" {
 			var stat unix.Statfs_t
 			if e = unix.Fstatfs(int(source.root.Fd()), &stat); e != nil {
@@ -572,6 +577,19 @@ func (s *session) finish(result string, cause error) error {
 				if e = s.private.Sync(); e != nil {
 					return e
 				}
+			}
+			// s.directory may be /proc/self/fd/N. Remove the session through
+			// its pinned parent, then make the directory removal durable.
+			parentFD, e := unix.Openat(int(s.private.Fd()), "..", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+			if e != nil {
+				return e
+			}
+			defer unix.Close(parentFD)
+			if e = unix.Unlinkat(parentFD, s.status.ID, unix.AT_REMOVEDIR); e != nil {
+				return e
+			}
+			if e = unix.Fsync(parentFD); e != nil {
+				return e
 			}
 		}
 	}
