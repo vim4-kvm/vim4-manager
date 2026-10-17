@@ -242,6 +242,10 @@ khadas 写权限、USB LUN 占用拒绝、断网超时/恢复及临时挂载清�
 守护进程扫描快照，通过 `internal/vfat` 合成 FAT32，再由 FUSE 暴露普通镜像文件。
 同一时间只有一个会话，已有介质时拒绝替换；JetKVM 只允许只读。
 卷标最多 11 个大写字母、数字、空格、下划线或连字符；省略时过滤目录名，结果为空用 `NAS`。
+FAT 时间是不带时区的本地时间，时区取自发起挂载的浏览器：前端传
+`utcOffsetMinutes=-new Date().getTimezoneOffset()`，范围为整数 −720…840；
+缺省使用板子当前本地时区偏移。会话固定该偏移，不随夏令时或另一浏览器改变；
+偏移持久化到会话配置和 snapshot，恢复回写也使用原偏移。旧会话缺省为 0（UTC），保持原行为。
 
 只读模式不创建写入层。可写模式的空闲余量为 `min(NAS 可用空间 − 2 GiB, 64 GiB)`，
 不足 256 MiB 时拒绝；最终容量还包含 FAT 元数据和簇对齐。
@@ -279,7 +283,7 @@ khadas 写权限、USB LUN 占用拒绝、断网超时/恢复及临时挂载清�
 | HTTP | 参数与结果 |
 |---|---|
 | `GET /api/nasdisk` | `{known,session,last,pending}`；session 为当前状态，last 为最后结果 |
-| `POST /api/nasdisk/start` | `{storage,path,mode:"ro"或"rw",label?}` → `{ok,id}`，扫描异步进行 |
+| `POST /api/nasdisk/start` | `{storage,path,mode:"ro"或"rw",label?,utcOffsetMinutes?}` → `{ok,id}`，扫描异步进行 |
 | `POST /api/nasdisk/cancel` | `{}`；scanning/attaching 可取消，attached 需先安全弹出 |
 | `POST /api/nasdisk/commit` | `{id,force?:true}`；强制恢复必须显式指定 force |
 | `POST /api/nasdisk/reattach` | `{id}`；仅当前尚未开始回写的会话 |
@@ -288,12 +292,16 @@ khadas 写权限、USB LUN 占用拒绝、断网超时/恢复及临时挂载清�
 
 session 包含存储、路径、模式、卷标、扫描计数、文件/目录数、容量、已用/写入字节数、
 跳过项、USB configured 状态、计划计数、步骤/字节进度、决策原因和错误。
+`session.utcOffsetMinutes` 为固定时区偏移；`decision.reason` 和 failed 的 `error` 为中文可读原因，
+`session.detail` 保留原始错误或 FAT 警告（通常为英文，供前端折叠排查），恢复正常状态后清空。
+源读取失败会携带所选目录内以 `/` 开头的文件路径，如「读取 NAS 上的 /工具/random.bin 失败：文件在 U 盘挂载期间被改动，或 NAS 暂时无法访问」。
 状态为 `scanning/attaching/attached/parsing/committing/needs-decision/failed`。
 last 包含 storage ID、path、结果、计数、冲突副本位置、结束时间和 `trash:null或{bytes,files}`。
+`last.detail` 和 `last.utcOffsetMinutes` 分别保留失败原文和会话偏移。
 trash 为该文件夹 `.vim4-nasdisk/trash` 中全部历史会话的普通文件逻辑字节数与文件数；
 未挂载、旧记录缺 storage/path、读取失败或超过 3 秒预算时为 null。
 清空仅作用于 last 指向的文件夹，逐级 O_NOFOLLOW、不跟随符号链接、不进入其他挂载，3 秒预算；
-超时可已删除部分内容，重新读取状态后重试。pending 包含存储、路径、写入量、开始时间和 journal 标记。
+超时可已删除部分内容，重新读取状态后重试。pending 包含存储、路径、写入量、开始时间、`utcOffsetMinutes` 和 journal 标记。
 接口沿用现有 Host、JSON、同源和禁止 Tailscale 写入边界。
 `media.nasdisk` 提供 `{storage,storageName,path,mode}`，介质名称为 `nas:存储名称/路径`；弹出 API 不变。
 
@@ -310,9 +318,23 @@ FUSE 请求解析失败一律回复错误；Android GKI 的 `FUSE_CANONICAL_PATH
 LUN 连接必须由 helper 的 `nasdisk-lun-attach SESSION` 持共享介质锁调用 `attach_media()`；
 它保留现有端点预算与 UDC 重绑规则。其他固定操作为 `nasdisk-status/start/cancel/commit/reattach/discard/trash-empty`。
 
-限制：FAT32 单文件最大 4 GiB−1；文件时间为 UTC 且 FAT 精度为两秒。
-NAS 侧挂载期间修改 size/mtime 后，源读取返回 EIO，不拼接新旧内容；未进入写入层的旧字节无法凭空恢复，
+限制：FAT32 单文件最大 4 GiB−1；文件时间使用会话固定时区偏移，FAT 精度为两秒。
+源读取前后均核对 size、纳秒 mtime 与普通文件类型；首次不一致丢弃本次读取，关闭描述符后
+异步等待 1.1 秒，再 openat+fstat 复核一次。等待期间该文件返回 EIO，不持锁阻塞其他文件；
+复核符合快照后允许后续读取，复核仍不一致才永久拒读。open/stat 的暂时错误返回 EIO，但不永久判定修改。
+每次不一致和 open 失败在 journal 记录 SourceID、读前/读后阶段、期望/实际 size、mtime 纳秒、mode、errno；
+复核结果也记录。可用 `journalctl -u vim4-nasdisk.service` 排查。读取始终不接受已知不一致的数据，
+但属性检查不能识别保持相同 size/mtime/类型的内容替换，不能替代两端互斥编辑。
+未进入写入层的旧字节无法凭空恢复，
 回写读取因此失败时保留会话。请避免两端同时编辑。结构校验不能证明主机已刷出全部缓存，仍须安全弹出。
+SMB 的 `actimeo` 默认属性缓存为 1 秒；1.1 秒复核仅针对这一默认值，显式增大 `actimeo` 不在此保证内。
+Linux CIFS 的 `cifs_inode_needs_reval` 按缓存期限、缓存权限等决定属性复核，因此 rename/utimens 后的
+扫描与随后 open/fstat 有可能观察到不同时刻的属性（推断，不是本次实测根因）。
+旧布局现场记录只能证明 EIO 与快照属性不符后永久拒读的路径相容；事后 stat 相同无法确定当时差异。
+尚无证据证明 serverino 复用、Samba close 更新写时间或 utimens 缓存中的哪一项触发了现场问题。
+源校验不比较 inode/serverino，编号复用本身不会直接触发拒读，除非它间接影响了所见属性。
+OrbStack vim4-build 无 cifs-utils/Samba，回归使用本地目录复现临时名写入、fsync、rename、设置 mtime 后立即扫描读取，
+并用受控 mtime 变化覆盖瞬时不一致恢复、真实修改永久 EIO；不能当作 SMB 断线重连验证。
 每个写入块均同步到 NAS，速度受网络往返影响。回写暂存内容和临时文件需要额外空间，空间不足保留会话供恢复。
 NAS 断线期间 I/O 可阻塞至挂载选项的超时；SMB/NFS 恢复、真实 USB eject 和电源中断仍需实板验证。
 

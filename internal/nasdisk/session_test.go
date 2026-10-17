@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -116,6 +119,9 @@ func TestUnsafeVolumeRequiresDecisionAndCanBeRepaired(t *testing.T) {
 	if s.state() != "needs-decision" || s.status.Decision.CanForce {
 		t.Fatalf("decision %+v", s.status.Decision)
 	}
+	if !strings.Contains(s.status.Decision.Reason, "文件系统解析失败") || !strings.Contains(s.status.Detail, "inconsistent FAT32") {
+		t.Fatalf("unreadable parse decision: %+v detail=%s", s.status.Decision, s.status.Detail)
+	}
 	// Reattach enables the same overlay; simulate the host repairing the BPB.
 	s.disk.EnableWrites()
 	if _, err := s.disk.WriteAt([]byte{0x55, 0xaa}, 510); err != nil {
@@ -126,6 +132,9 @@ func TestUnsafeVolumeRequiresDecisionAndCanBeRepaired(t *testing.T) {
 	}
 	if s.journal == nil {
 		t.Fatal("repaired volume did not commit")
+	}
+	if s.status.Detail != "" || s.status.Decision != nil {
+		t.Fatal("successful retry retained stale diagnostic state")
 	}
 }
 
@@ -279,9 +288,104 @@ func TestPartialRecoveryDoesNotDeleteUnparsedFiles(t *testing.T) {
 	}
 }
 
+type brokenVolume struct{ err error }
+
+func (r brokenVolume) ReadAt([]byte, int64) (int, error) { return 0, r.err }
+
+func TestParseIOFailureHasReadableDecisionAndRawDetail(t *testing.T) {
+	s := testSession(t)
+	s.disk.Reader = brokenVolume{err: syscall.EIO}
+	if err := s.commit(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if s.status.State != "needs-decision" || !strings.Contains(s.status.Decision.Reason, "读取 U 盘数据失败") || s.status.Detail != syscall.EIO.Error() {
+		t.Fatalf("status %+v", s.status)
+	}
+}
+
+func TestWritebackReadFailureRetainsPathAndSession(t *testing.T) {
+	s := testSession(t)
+	s.runtimeDir = t.TempDir()
+	result, err := vfat.Parse(context.Background(), s.disk.Reader, vfat.ReaderOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := RecoveryPlan(s.tree, s.layout, result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := s.layout.Entries[1].Node.Mtime.Add(time.Second)
+	if err = os.Chtimes(filepath.Join(s.status.Root, "file"), changed, changed); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Prepare(context.Background(), s.status.Root, s.directory, s.status.ID, plan, result)
+	var readFailure *payloadReadError
+	if !errors.As(err, &readFailure) || readFailure.Path != "/file" || !errors.Is(err, syscall.EIO) {
+		t.Fatalf("writeback lost file or cause: %v", err)
+	}
+	s.fail(err)
+	wantError, wantDetail := s.status.Error, s.status.Detail
+	if s.status.Error != "读取 NAS 上的 /file 失败：文件在 U 盘挂载期间被改动，或 NAS 暂时无法访问" || !strings.Contains(s.status.Detail, "input/output error") {
+		t.Fatalf("status %+v", s.status)
+	}
+	if err = s.finish("failed", err); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(s.runtimePath("last.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last Last
+	if err = json.Unmarshal(data, &last); err != nil {
+		t.Fatal(err)
+	}
+	if last.Error != wantError || last.Detail != wantDetail {
+		t.Fatalf("last lost failure detail: %+v", last)
+	}
+	data, err = os.ReadFile(filepath.Join(s.status.Root, "file"))
+	if err != nil || string(data) != "original" {
+		t.Fatalf("failed staging changed NAS: %q %v", data, err)
+	}
+}
+
+func TestSessionFailureMessagesAtStatusBoundary(t *testing.T) {
+	for _, test := range []struct {
+		cause   error
+		message string
+	}{
+		{syscall.ENOSPC, "空间不足"},
+		{syscall.EDQUOT, "空间不足"},
+		{syscall.EACCES, "权限"},
+		{syscall.EROFS, "只读"},
+		{context.DeadlineExceeded, "NAS 无响应"},
+		{syscall.ETIMEDOUT, "NAS 无响应"},
+		{syscall.EHOSTDOWN, "NAS 无响应"},
+		{errors.New("unexpected overlay failure"), "回写失败：write journal: unexpected overlay failure"},
+	} {
+		s := &session{}
+		cause := fmt.Errorf("write journal: %w", test.cause)
+		s.fail(cause)
+		data, err := json.Marshal(s.status)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var status Status
+		if err = json.Unmarshal(data, &status); err != nil {
+			t.Fatal(err)
+		}
+		if status.State != "failed" || !strings.Contains(status.Error, test.message) || status.Detail != cause.Error() {
+			t.Fatalf("cause %v: %+v", cause, status)
+		}
+	}
+}
+
 func TestSnapshotOverlayRecoveryAndCleanup(t *testing.T) {
-	for _, version := range []vfat.LayoutVersion{0, vfat.LayoutLegacy, vfat.LayoutAligned} {
-		t.Run(fmt.Sprint(version), func(t *testing.T) {
+	for _, test := range []struct {
+		version vfat.LayoutVersion
+		offset  int
+	}{{0, 0}, {vfat.LayoutLegacy, 0}, {vfat.LayoutAligned, 0}, {vfat.LayoutAligned, 480}} {
+		t.Run(fmt.Sprintf("%d/%d", test.version, test.offset), func(t *testing.T) {
+			version := test.version
 			root := canonicalTemp(t)
 			if err := os.WriteFile(filepath.Join(root, "file"), []byte("original"), 0600); err != nil {
 				t.Fatal(err)
@@ -295,8 +399,8 @@ func TestSnapshotOverlayRecoveryAndCleanup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			config := Config{ID: "session", Root: root, Mode: "rw", StartedAt: 1700000000}
-			opts := vfat.Options{LayoutVersion: version, Size: 64 << 30, Time: time.Unix(config.StartedAt, 0).UTC()}
+			config := Config{ID: "session", Root: root, Mode: "rw", StartedAt: 1700000000, UTCOffsetMinutes: test.offset}
+			opts := vfat.Options{LayoutVersion: version, Size: 64 << 30, Time: time.Unix(config.StartedAt, 0).UTC(), UTCOffsetMinutes: test.offset}
 			if version == 0 {
 				opts.LayoutVersion = vfat.LayoutLegacy
 			}
@@ -317,6 +421,9 @@ func TestSnapshotOverlayRecoveryAndCleanup(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if test.offset == 0 {
+				data = []byte(strings.ReplaceAll(string(data), `,"utcOffsetMinutes":0`, ""))
+			}
 			if err = os.WriteFile(filepath.Join(directory, "snapshot.json"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -332,6 +439,7 @@ func TestSnapshotOverlayRecoveryAndCleanup(t *testing.T) {
 				t.Fatal(err)
 			}
 			config.Recover = "commit"
+			config.UTCOffsetMinutes = -420
 			s := &session{status: Status{Config: config}, image: "/not-a-lun", runtimeDir: t.TempDir()}
 			defer func() {
 				if s.disk != nil {
@@ -349,6 +457,9 @@ func TestSnapshotOverlayRecoveryAndCleanup(t *testing.T) {
 			}
 			if s.layout.ID != layout.ID || s.layout.Geometry != layout.Geometry || !reflect.DeepEqual(s.disk.Overlay.DirtyClusters(), dirty) {
 				t.Fatal("recovery changed the layout or dirty clusters")
+			}
+			if s.status.UTCOffsetMinutes != test.offset {
+				t.Fatal("recovery used caller timezone rather than the persisted offset")
 			}
 			if err = s.commit(context.Background(), false); err != nil {
 				t.Fatal(err)

@@ -3,13 +3,16 @@ package nasdisk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"sort"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 	"golang.org/x/sys/unix"
@@ -20,10 +23,15 @@ const PrivateName = ".vim4-nasdisk"
 // Source keeps the NAS directory open, also preventing a normal NAS unmount
 // while the LUN itself refers to a different (FUSE) filesystem.
 type Source struct {
-	root    *os.File
-	nodes   map[vfat.SourceID]vfat.Node
-	mu      sync.Mutex
-	changed map[vfat.SourceID]bool
+	root       *os.File
+	nodes      map[vfat.SourceID]vfat.Node
+	mu         sync.Mutex
+	changed    map[vfat.SourceID]bool
+	rechecking map[vfat.SourceID]bool
+	closed     bool
+	cancel     context.CancelFunc
+	ctx        context.Context
+	rechecks   sync.WaitGroup
 }
 
 func relative(p string) ([]string, error) {
@@ -68,7 +76,8 @@ func OpenSource(root string, tree vfat.Tree) (*Source, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Source{root: directory, nodes: map[vfat.SourceID]vfat.Node{}, changed: map[vfat.SourceID]bool{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &Source{root: directory, nodes: map[vfat.SourceID]vfat.Node{}, changed: map[vfat.SourceID]bool{}, rechecking: map[vfat.SourceID]bool{}, ctx: ctx, cancel: cancel}
 	s.loadTree(tree)
 	return s, nil
 }
@@ -96,40 +105,113 @@ func openDirectory(name string) (*os.File, error) {
 	return openBelow(root, strings.TrimPrefix(name, "/"), unix.O_RDONLY|unix.O_DIRECTORY)
 }
 
-func (s *Source) Close() error { return s.root.Close() }
+func (s *Source) Close() error {
+	s.mu.Lock()
+	s.closed = true
+	s.cancel()
+	s.mu.Unlock()
+	s.rechecks.Wait()
+	return s.root.Close()
+}
 
 func (s *Source) ReadAt(id vfat.SourceID, p []byte, off int64) (int, error) {
 	s.mu.Lock()
-	bad := s.changed[id]
+	bad := s.changed[id] || s.rechecking[id] || s.closed
 	s.mu.Unlock()
 	node, ok := s.nodes[id]
 	if bad || !ok || node.Dir {
-		return 0, syscall.EIO
+		return 0, &sourceReadError{Path: "/" + string(id), Err: syscall.EIO}
 	}
 	f, err := openBelow(s.root, string(id), unix.O_RDONLY)
 	if err != nil {
-		return 0, syscall.EIO
+		s.logInvalid(node, nil, "before-read/open", err)
+		return 0, &sourceReadError{Path: "/" + string(id), Err: err}
 	}
 	defer f.Close()
-	valid := func() bool {
-		info, e := f.Stat()
-		return e == nil && info.Mode().IsRegular() && info.Size() == node.Size && info.ModTime().Equal(node.Mtime)
-	}
-	if !valid() {
-		s.invalidate(id)
-		return 0, syscall.EIO
+	info, statErr := f.Stat()
+	if !matchesSnapshot(node, info, statErr) {
+		f.Close()
+		s.invalidate(node, info, "before-read", statErr)
+		return 0, &sourceReadError{Path: "/" + string(id), Err: syscall.EIO}
 	}
 	n, err := f.ReadAt(p, off)
 	// Validate after reading too: never publish bytes from a concurrently changed file.
-	if !valid() {
+	info, statErr = f.Stat()
+	if !matchesSnapshot(node, info, statErr) {
 		clear(p)
-		s.invalidate(id)
-		return 0, syscall.EIO
+		f.Close()
+		s.invalidate(node, info, "after-read", statErr)
+		return 0, &sourceReadError{Path: "/" + string(id), Err: syscall.EIO}
+	}
+	s.mu.Lock()
+	bad = s.changed[id] || s.rechecking[id]
+	s.mu.Unlock()
+	if bad {
+		clear(p)
+		return 0, &sourceReadError{Path: "/" + string(id), Err: syscall.EIO}
+	}
+	if err != nil && err != io.EOF {
+		s.logInvalid(node, info, "read", err)
+		return n, &sourceReadError{Path: "/" + string(id), Err: err}
 	}
 	return n, err
 }
 
-func (s *Source) invalidate(id vfat.SourceID) { s.mu.Lock(); s.changed[id] = true; s.mu.Unlock() }
+func matchesSnapshot(node vfat.Node, info os.FileInfo, err error) bool {
+	return err == nil && info != nil && info.Mode().IsRegular() && info.Size() == node.Size && info.ModTime().Equal(node.Mtime)
+}
+
+func (s *Source) logInvalid(node vfat.Node, info os.FileInfo, phase string, err error) {
+	actual := "unavailable"
+	if info != nil {
+		actual = fmt.Sprintf("size=%d mtime_ns=%d mode=%s", info.Size(), info.ModTime().UnixNano(), info.Mode())
+	}
+	var errno syscall.Errno
+	errors.As(err, &errno)
+	if err == nil {
+		err = fmt.Errorf("snapshot metadata mismatch")
+	}
+	log.Printf("nasdisk source invalid: SourceID=%q phase=%s expected={size=%d mtime_ns=%d mode=%s} actual={%s} errno=%d error=%v", node.SourceID, phase, node.Size, node.Mtime.UnixNano(), node.Mode, actual, errno, err)
+}
+
+func (s *Source) invalidate(node vfat.Node, info os.FileInfo, phase string, err error) {
+	s.logInvalid(node, info, phase, err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.changed[node.SourceID] || s.rechecking[node.SourceID] {
+		return
+	}
+	s.rechecking[node.SourceID] = true
+	s.rechecks.Add(1)
+	go s.recheck(node, phase)
+}
+
+func (s *Source) recheck(node vfat.Node, phase string) {
+	defer s.rechecks.Done()
+	timer := time.NewTimer(1100 * time.Millisecond)
+	defer timer.Stop()
+	select {
+	case <-s.ctx.Done():
+		return
+	case <-timer.C:
+	}
+	var info os.FileInfo
+	file, err := openBelow(s.root, string(node.SourceID), unix.O_RDONLY)
+	if err == nil {
+		info, err = file.Stat()
+		file.Close()
+	}
+	valid := matchesSnapshot(node, info, err)
+	if !valid {
+		s.logInvalid(node, info, phase+"/recheck", err)
+	} else {
+		log.Printf("nasdisk source recheck passed: SourceID=%q phase=%s", node.SourceID, phase)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.changed[node.SourceID] = err == nil && !valid
+	delete(s.rechecking, node.SourceID)
+}
 
 // Scan traverses directory descriptors, rejecting symlink replacement at every
 // descent. Its progress callback runs synchronously and may cancel the scan.

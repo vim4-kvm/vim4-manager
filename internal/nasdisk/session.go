@@ -23,16 +23,17 @@ const Runtime = "/run/vim4-nasdisk"
 const LUN = "/sys/kernel/config/usb_gadget/kvm/functions/mass_storage.disk0/lun.0/file"
 
 type Config struct {
-	ID          string `json:"id"`
-	Storage     string `json:"storage"`
-	StorageName string `json:"storageName"`
-	Path        string `json:"path"`
-	Mode        string `json:"mode"`
-	Label       string `json:"label"`
-	Root        string `json:"root"`
-	StartedAt   int64  `json:"startedAt"`
-	Recover     string `json:"recover,omitempty"`
-	Force       bool   `json:"force,omitempty"`
+	ID               string `json:"id"`
+	Storage          string `json:"storage"`
+	StorageName      string `json:"storageName"`
+	Path             string `json:"path"`
+	Mode             string `json:"mode"`
+	Label            string `json:"label"`
+	Root             string `json:"root"`
+	StartedAt        int64  `json:"startedAt"`
+	Recover          string `json:"recover,omitempty"`
+	Force            bool   `json:"force,omitempty"`
+	UTCOffsetMinutes int    `json:"utcOffsetMinutes"`
 }
 type Decision struct {
 	Reason   string `json:"reason"`
@@ -66,19 +67,22 @@ type Status struct {
 	Progress      *Progress `json:"progress"`
 	Decision      *Decision `json:"decision"`
 	Error         string    `json:"error"`
+	Detail        string    `json:"detail"`
 }
 type Last struct {
-	ID          string     `json:"id"`
-	Storage     string     `json:"storage"`
-	StorageName string     `json:"storageName"`
-	Path        string     `json:"path"`
-	Mode        string     `json:"mode"`
-	Result      string     `json:"result"`
-	Summary     Counts     `json:"summary"`
-	Conflicts   []Conflict `json:"conflicts"`
-	Error       string     `json:"error"`
-	FinishedAt  int64      `json:"finishedAt"`
-	Trash       *Trash     `json:"trash"`
+	ID               string     `json:"id"`
+	Storage          string     `json:"storage"`
+	StorageName      string     `json:"storageName"`
+	Path             string     `json:"path"`
+	Mode             string     `json:"mode"`
+	Result           string     `json:"result"`
+	Summary          Counts     `json:"summary"`
+	Conflicts        []Conflict `json:"conflicts"`
+	Error            string     `json:"error"`
+	Detail           string     `json:"detail"`
+	UTCOffsetMinutes int        `json:"utcOffsetMinutes"`
+	FinishedAt       int64      `json:"finishedAt"`
+	Trash            *Trash     `json:"trash"`
 }
 type Trash struct {
 	Bytes int64 `json:"bytes"`
@@ -115,7 +119,7 @@ type session struct {
 }
 
 func Run(ctx context.Context, config Config) error {
-	if config.ID == "" || strings.ContainsAny(config.ID, "/\\.") || config.Mode != "ro" && config.Mode != "rw" {
+	if config.ID == "" || strings.ContainsAny(config.ID, "/\\.") || config.Mode != "ro" && config.Mode != "rw" || config.UTCOffsetMinutes < -720 || config.UTCOffsetMinutes > 840 {
 		return fmt.Errorf("invalid session configuration")
 	}
 	ctx, cancel := context.WithCancel(ctx)
@@ -250,12 +254,16 @@ func (s *session) setState(state string) {
 	s.mu.Lock()
 	s.status.State = state
 	s.status.Error = ""
+	s.status.Detail = ""
+	s.status.Decision = nil
 	s.mu.Unlock()
 }
 func (s *session) fail(err error) {
 	s.mu.Lock()
 	s.status.State = "failed"
-	s.status.Error = err.Error()
+	s.status.Error = failureMessage(err)
+	s.status.Detail = err.Error()
+	s.status.Decision = nil
 	s.mu.Unlock()
 }
 
@@ -289,6 +297,9 @@ func (s *session) initialize(ctx context.Context) error {
 		if saved.Config.ID != c.ID || saved.Config.Root != c.Root {
 			return fmt.Errorf("snapshot identity mismatch")
 		}
+		s.mu.Lock()
+		s.status.UTCOffsetMinutes = saved.Config.UTCOffsetMinutes
+		s.mu.Unlock()
 		if c.Recover == "discard" {
 			return nil
 		}
@@ -316,7 +327,7 @@ func (s *session) initialize(ctx context.Context) error {
 		}
 		saved.Tree = tree
 		saved.Config = c
-		saved.Options = vfat.Options{LayoutVersion: vfat.LayoutAligned, Label: c.Label, Time: time.Unix(c.StartedAt, 0).UTC(), ExcludeName: PrivateName}
+		saved.Options = vfat.Options{LayoutVersion: vfat.LayoutAligned, Label: c.Label, Time: time.Unix(c.StartedAt, 0).UTC(), ExcludeName: PrivateName, UTCOffsetMinutes: c.UTCOffsetMinutes}
 		if c.Mode == "rw" {
 			var stat unix.Statfs_t
 			if e = unix.Fstatfs(int(source.root.Fd()), &stat); e != nil {
@@ -425,7 +436,8 @@ func (s *session) checkEjected(ctx context.Context) error {
 	b, e := os.ReadFile(LUN)
 	if e != nil {
 		s.mu.Lock()
-		s.status.Error = e.Error()
+		s.status.Error = failureMessage(e)
+		s.status.Detail = e.Error()
 		s.mu.Unlock()
 		return nil
 	}
@@ -456,19 +468,24 @@ func (s *session) commit(ctx context.Context, force bool) error {
 		if e := s.disk.Freeze(); e != nil {
 			return e
 		}
-		result, e := vfat.Parse(ctx, s.disk.Reader, vfat.ReaderOptions{})
+		result, e := vfat.Parse(ctx, s.disk.Reader, vfat.ReaderOptions{UTCOffsetMinutes: s.status.UTCOffsetMinutes})
 		s.result = result
 		canForce := result != nil && result.Geometry == s.layout.Geometry && len(result.Nodes) > 0
 		if (e != nil || !result.Safe || len(result.Warnings) > 0) && (!force || !canForce) {
 			reason := "文件系统需要检查"
+			detail := "FAT32 validation did not complete"
 			if e != nil {
-				reason = e.Error()
+				reason = failureMessage(e)
+				detail = e.Error()
 			} else if len(result.Warnings) > 0 {
-				reason = strings.Join(result.Warnings, "; ")
+				reason = "U 盘文件系统存在警告，可能未安全弹出；请重新挂载到电脑检查，或选择恢复可识别内容"
+				detail = strings.Join(result.Warnings, "; ")
 			}
 			s.mu.Lock()
 			s.status.State = "needs-decision"
 			s.status.Decision = &Decision{reason, canForce}
+			s.status.Error = ""
+			s.status.Detail = detail
 			s.mu.Unlock()
 			return nil
 		}
@@ -524,9 +541,10 @@ func (s *session) finish(result string, cause error) error {
 			return err
 		}
 	}
-	last := Last{ID: s.status.ID, Storage: s.status.Storage, StorageName: s.status.StorageName, Path: s.status.Path, Mode: s.status.Mode, Result: result, Conflicts: []Conflict{}, FinishedAt: time.Now().Unix()}
+	last := Last{ID: s.status.ID, Storage: s.status.Storage, StorageName: s.status.StorageName, Path: s.status.Path, Mode: s.status.Mode, Result: result, Conflicts: []Conflict{}, FinishedAt: time.Now().Unix(), UTCOffsetMinutes: s.status.UTCOffsetMinutes}
 	if cause != nil {
-		last.Error = cause.Error()
+		last.Error = failureMessage(cause)
+		last.Detail = cause.Error()
 	}
 	if s.status.Plan != nil {
 		last.Summary = *s.status.Plan

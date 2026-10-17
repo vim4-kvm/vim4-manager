@@ -250,10 +250,11 @@ func Prepare(ctx context.Context, root, session, id string, plan *vfat.Plan, res
 				var got int
 				got, e = result.ReadRecoveredFileAt(*s.File, buf[:n], off)
 				if e != nil {
+					e = &payloadReadError{Path: s.File.Path, Err: e}
 					break
 				}
 				if got != n {
-					e = io.ErrUnexpectedEOF
+					e = &payloadReadError{Path: s.File.Path, Err: io.ErrUnexpectedEOF}
 					break
 				}
 				_, e = f.Write(buf[:n])

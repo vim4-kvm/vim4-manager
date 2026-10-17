@@ -29,6 +29,7 @@ type Result struct {
 }
 
 type ReaderOptions struct {
+	UTCOffsetMinutes  int
 	MaxEntries        int   // Default 1,000,000.
 	MaxClusters       int   // Default 16,777,216; bounds chain ownership memory/work.
 	MaxDirectoryBytes int64 // Default 64 MiB across all directories.
@@ -51,11 +52,15 @@ type parser struct {
 	cachedSector   int64
 	cache          [512]byte
 	directoryBytes int64
+	location       *time.Location
 }
 
 func Parse(ctx context.Context, r io.ReaderAt, opts ReaderOptions) (*Result, error) {
 	out := &Result{reader: r}
-	p := &parser{ctx: ctx, r: r, out: out, opts: opts, owners: map[uint32]string{}, cachedSector: -1}
+	if opts.UTCOffsetMinutes < -720 || opts.UTCOffsetMinutes > 840 {
+		return out, fmt.Errorf("invalid UTC offset minutes")
+	}
+	p := &parser{ctx: ctx, r: r, out: out, opts: opts, owners: map[uint32]string{}, cachedSector: -1, location: time.FixedZone("FAT", opts.UTCOffsetMinutes*60)}
 	if p.opts.MaxEntries == 0 {
 		p.opts.MaxEntries = 1000000
 	}
@@ -310,7 +315,7 @@ func (p *parser) visit(n ParsedNode, parent uint32, depth int) error {
 			return p.bad(n.Path, "directory has nonzero size")
 		}
 		path := strings.TrimSuffix(n.Path, "/") + "/" + name
-		children = append(children, ParsedNode{Path: path, Name: name, Dir: dir, Size: size, FirstCluster: first, Mtime: decodeTime(le.Uint16(e[24:]), le.Uint16(e[22:])), Attributes: e[11]})
+		children = append(children, ParsedNode{Path: path, Name: name, Dir: dir, Size: size, FirstCluster: first, Mtime: decodeTime(le.Uint16(e[24:]), le.Uint16(e[22:]), p.location), Attributes: e[11]})
 		if len(children)+len(p.out.Nodes) > p.opts.MaxEntries {
 			return fmt.Errorf("reader entry limit exceeded")
 		}

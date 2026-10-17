@@ -147,27 +147,27 @@ func longEntries(name string, short [11]byte) []byte {
 	return out
 }
 
-func fatTime(t time.Time) (uint16, uint16) {
-	t = t.UTC()
+func fatTime(t time.Time, location *time.Location) (uint16, uint16) {
+	t = t.In(location)
 	if t.Year() < 1980 {
-		t = time.Date(1980, 1, 1, 0, 0, 0, 0, time.UTC)
+		t = time.Date(1980, 1, 1, 0, 0, 0, 0, location)
 	}
 	if t.Year() > 2107 {
-		t = time.Date(2107, 12, 31, 23, 59, 58, 0, time.UTC)
+		t = time.Date(2107, 12, 31, 23, 59, 58, 0, location)
 	}
 	return uint16((t.Year()-1980)<<9 | int(t.Month())<<5 | t.Day()), uint16(t.Hour()<<11 | t.Minute()<<5 | t.Second()/2)
 }
 
-func decodeTime(date, clock uint16) time.Time {
-	return time.Date(1980+int(date>>9), time.Month((date>>5)&15), int(date&31), int(clock>>11), int((clock>>5)&63), int(clock&31)*2, 0, time.UTC)
+func decodeTime(date, clock uint16, location *time.Location) time.Time {
+	return time.Date(1980+int(date>>9), time.Month((date>>5)&15), int(date&31), int(clock>>11), int((clock>>5)&63), int(clock&31)*2, 0, location).UTC()
 }
 
-func shortEntry(name [11]byte, flags, attr byte, first uint32, size int64, t time.Time) []byte {
+func shortEntry(name [11]byte, flags, attr byte, first uint32, size int64, t time.Time, location *time.Location) []byte {
 	b := make([]byte, 32)
 	copy(b, name[:])
 	b[11] = attr
 	b[12] = flags
-	d, c := fatTime(t)
+	d, c := fatTime(t, location)
 	le.PutUint16(b[14:], c)
 	le.PutUint16(b[16:], d)
 	le.PutUint16(b[18:], d)

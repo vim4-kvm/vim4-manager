@@ -25,6 +25,7 @@ const (
 
 type Options struct {
 	LayoutVersion     LayoutVersion `json:",omitempty"` // Zero selects LayoutAligned; persist an explicit version for recovery.
+	UTCOffsetMinutes  int           `json:",omitempty"`
 	Label             string
 	Size              int64
 	WritableBytes     int64
@@ -71,6 +72,7 @@ type Layout struct {
 	intervals []allocation
 	boot      [512]byte
 	fsinfo    [512]byte
+	location  *time.Location
 }
 
 type allocation struct {
@@ -98,6 +100,9 @@ func RecommendedClusterSize(size int64) int {
 }
 
 func Build(tree Tree, opts Options) (*Layout, error) {
+	if opts.UTCOffsetMinutes < -720 || opts.UTCOffsetMinutes > 840 {
+		return nil, fmt.Errorf("invalid UTC offset minutes")
+	}
 	if opts.LayoutVersion == 0 {
 		opts.LayoutVersion = LayoutAligned
 	}
@@ -128,7 +133,7 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 			return nil, fmt.Errorf("invalid volume label")
 		}
 	}
-	l := &Layout{}
+	l := &Layout{location: time.FixedZone("FAT", opts.UTCOffsetMinutes*60)}
 	root := &Entry{Path: "/", Node: Node{Dir: true, Mtime: opts.Time}}
 	l.Entries = append(l.Entries, root)
 	var rawDirectoryBytes int64
@@ -318,14 +323,14 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 		if e == root {
 			var s [11]byte
 			copy(s[:], fmt.Sprintf("%-11s", label))
-			b = append(b, shortEntry(s, 0, 8, 0, 0, opts.Time)...)
+			b = append(b, shortEntry(s, 0, 8, 0, 0, opts.Time, l.location)...)
 		} else {
-			b = append(b, shortEntry(packShort(".", ""), 0, 16, e.FirstCluster, 0, e.Node.Mtime)...)
+			b = append(b, shortEntry(packShort(".", ""), 0, 16, e.FirstCluster, 0, e.Node.Mtime, l.location)...)
 			pc := parents[e].FirstCluster
 			if parents[e] == root {
 				pc = 0
 			}
-			b = append(b, shortEntry(packShort("..", ""), 0, 16, pc, 0, parents[e].Node.Mtime)...)
+			b = append(b, shortEntry(packShort("..", ""), 0, 16, pc, 0, parents[e].Node.Mtime, l.location)...)
 		}
 		for _, c := range e.children {
 			if c.long {
@@ -335,7 +340,7 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 			if c.Node.Dir {
 				attr = 16
 			}
-			b = append(b, shortEntry(c.short, c.flags, attr, c.FirstCluster, c.Node.Size, c.Node.Mtime)...)
+			b = append(b, shortEntry(c.short, c.flags, attr, c.FirstCluster, c.Node.Size, c.Node.Mtime, l.location)...)
 		}
 		b = append(b, make([]byte, 32)...)
 		e.directory = b
@@ -343,6 +348,9 @@ func Build(tree Tree, opts Options) (*Layout, error) {
 	l.makeBoot(label, opts.Serial, uint32(used))
 	h := sha256.New()
 	h.Write(l.boot[:])
+	if opts.UTCOffsetMinutes != 0 {
+		fmt.Fprintf(h, "utcOffsetMinutes=%d", opts.UTCOffsetMinutes)
+	}
 	for _, e := range l.Entries {
 		b, _ := json.Marshal(e)
 		h.Write(b)

@@ -360,11 +360,11 @@ func (b *planBuilder) installFinal() {
 				b.installs = append(b.installs, Step{Op: Mkdir, Path: n.Path, Mtime: n.Mtime})
 				b.plan.Summary.Created++
 			}
-			if e == nil || !sameFATTime(e.Node.Mtime, n.Mtime) || e.Path != n.Path {
+			if e == nil || !sameFATTime(e.Node.Mtime, n.Mtime, b.layout.location) || e.Path != n.Path {
 				b.times = append(b.times, Step{Op: SetTime, Path: n.Path, Original: guard, Mtime: n.Mtime})
 			}
 		} else if e != nil {
-			if !sameFATTime(e.Node.Mtime, n.Mtime) {
+			if !sameFATTime(e.Node.Mtime, n.Mtime, b.layout.location) {
 				b.times = append(b.times, Step{Op: SetTime, Path: n.Path, Original: guard, Mtime: n.Mtime})
 			}
 		} else {
@@ -473,9 +473,9 @@ func (b *planBuilder) preconditions() {
 	b.plan.Summary.PendingConflicts = len(b.plan.Preconditions)
 }
 
-func sameFATTime(a, b time.Time) bool {
-	ad, at := fatTime(a)
-	bd, bt := fatTime(b)
+func sameFATTime(a, b time.Time, location *time.Location) bool {
+	ad, at := fatTime(a, location)
+	bd, bt := fatTime(b, location)
 	return ad == bd && at == bt
 }
 

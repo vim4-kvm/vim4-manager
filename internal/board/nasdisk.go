@@ -9,16 +9,20 @@ import (
 )
 
 type NASDiskRequest struct {
-	ID      string `json:"id,omitempty"`
-	Storage string `json:"storage,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Mode    string `json:"mode,omitempty"`
-	Label   string `json:"label,omitempty"`
-	Force   bool   `json:"force,omitempty"`
-	Confirm string `json:"confirm,omitempty"`
+	ID               string `json:"id,omitempty"`
+	Storage          string `json:"storage,omitempty"`
+	Path             string `json:"path,omitempty"`
+	Mode             string `json:"mode,omitempty"`
+	Label            string `json:"label,omitempty"`
+	Force            bool   `json:"force,omitempty"`
+	Confirm          string `json:"confirm,omitempty"`
+	UTCOffsetMinutes *int   `json:"utcOffsetMinutes,omitempty"`
 }
 
 func (s *Service) NASDiskCommand(ctx context.Context, action string, request *NASDiskRequest) (json.RawMessage, error) {
+	if action == "start" && request != nil && request.UTCOffsetMinutes != nil && (*request.UTCOffsetMinutes < -720 || *request.UTCOffsetMinutes > 840) {
+		return nil, fmt.Errorf("时区偏移必须是 -720 到 840 之间的整数分钟")
+	}
 	switch action {
 	case "status", "start", "cancel", "commit", "reattach", "discard", "trash-empty":
 	default:

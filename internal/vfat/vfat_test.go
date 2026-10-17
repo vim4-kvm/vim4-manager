@@ -105,7 +105,7 @@ func TestNamesAndTimes(t *testing.T) {
 		if f != test.flags || l != test.long {
 			t.Errorf("%s: %q %x %v", test.name, s, f, l)
 		}
-		e := shortEntry(s, f, 32, 3, 1, testTime)
+		e := shortEntry(s, f, 32, 3, 1, testTime, time.UTC)
 		if l {
 			state := lfnState{}
 			b := longEntries(test.name, s)
@@ -138,18 +138,18 @@ func TestNamesAndTimes(t *testing.T) {
 		for i := 0; i < len(raw); i += 32 {
 			state.add(raw[i : i+32])
 		}
-		if got, ok := state.name(shortEntry(s, 0, 32, 0, 0, testTime)); !ok || got != name {
+		if got, ok := state.name(shortEntry(s, 0, 32, 0, 0, testTime, time.UTC)); !ok || got != name {
 			t.Fatalf("LFN length %d", length)
 		}
 	}
 	for _, at := range []time.Time{testTime.Add(time.Second), time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2200, 1, 1, 0, 0, 0, 0, time.UTC)} {
-		d, c := fatTime(at)
-		got := decodeTime(d, c)
+		d, c := fatTime(at, time.UTC)
+		got := decodeTime(d, c, time.UTC)
 		if got.Year() < 1980 || got.Year() > 2107 || got.Second()%2 != 0 {
 			t.Fatal(got)
 		}
 	}
-	if a, b := fatTime(testTime.In(time.FixedZone("offset", 3600))); func() bool { c, d := fatTime(testTime); return a == c && b == d }() == false {
+	if a, b := fatTime(testTime.In(time.FixedZone("offset", 3600)), time.UTC); func() bool { c, d := fatTime(testTime, time.UTC); return a == c && b == d }() == false {
 		t.Fatal("not UTC")
 	}
 }
@@ -212,7 +212,7 @@ func TestRoundTripAndReadSlices(t *testing.T) {
 	}
 	for _, e := range l.Entries {
 		n := nodeAt(t, out, e.Path)
-		if n.Dir != e.Node.Dir || n.Size != e.Node.Size || !slices.Equal(n.Chain, e.Chain) || (e.Path != "/" && !sameFATTime(n.Mtime, e.Node.Mtime)) {
+		if n.Dir != e.Node.Dir || n.Size != e.Node.Size || !slices.Equal(n.Chain, e.Chain) || (e.Path != "/" && !sameFATTime(n.Mtime, e.Node.Mtime, time.UTC)) {
 			t.Fatalf("round trip %s: %+v", e.Path, n)
 		}
 		if !n.Dir {

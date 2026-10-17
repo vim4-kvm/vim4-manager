@@ -67,6 +67,30 @@ class NASDiskTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '确认'):
                 helper.nasdisk_command(['nasdisk-discard', identifier])
 
+    def test_start_persists_explicit_or_local_timezone(self):
+        for supplied in (None, 0, 480, -720, 840):
+            with self.subTest(offset=supplied):
+                request = dict(storage='nas', path='/', mode='ro')
+                if supplied is not None:
+                    request['utcOffsetMinutes'] = supplied
+                with patch.object(helper, 'storage_read_request', return_value=request), patch.object(
+                        helper, 'storage_run'), patch.object(helper, 'media_locks'), patch.object(helper.time, 'localtime') as localtime:
+                    localtime.return_value.tm_gmtoff = -7 * 3600
+                    helper.nasdisk_command(['nasdisk-start'])
+                session = helper.nasdisk_read('session.json')
+                self.assertEqual(session['utcOffsetMinutes'], -420 if supplied is None else supplied)
+
+    def test_start_rejects_invalid_timezone_before_side_effects(self):
+        for offset in (-721, 841, 1.5, '480', True, None):
+            with self.subTest(offset=offset):
+                request = dict(storage='nas', path='/', mode='rw', utcOffsetMinutes=offset)
+                with patch.object(helper, 'storage_read_request', return_value=request), patch.object(
+                        helper, 'storage_run') as run:
+                    with self.assertRaisesRegex(ValueError, '时区偏移'):
+                        helper.nasdisk_command(['nasdisk-start'])
+                    run.assert_not_called()
+                self.assertFalse((helper.NASDISK_RUNTIME / 'session.json').exists())
+
     def test_status_merges_pending_and_timeout_is_unknown(self):
         identifier = 'a' * 32
         status = dict(id=identifier, state='attached')

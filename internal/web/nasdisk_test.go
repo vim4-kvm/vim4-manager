@@ -16,7 +16,8 @@ import (
 func TestNASDiskRoutes(t *testing.T) {
 	for _, test := range []struct{ method, url, body, command string }{
 		{"GET", "/api/nasdisk", "", "nasdisk-status"},
-		{"POST", "/api/nasdisk/start", `{"storage":"nas","path":"/folder","mode":"rw","label":"FILES"}`, "nasdisk-start"},
+		{"POST", "/api/nasdisk/start", `{"storage":"nas","path":"/folder","mode":"rw","label":"FILES","utcOffsetMinutes":480}`, "nasdisk-start"},
+		{"POST", "/api/nasdisk/start", `{"storage":"nas","path":"/","mode":"ro","utcOffsetMinutes":0}`, "nasdisk-start"},
 		{"POST", "/api/nasdisk/cancel", `{}`, "nasdisk-cancel"},
 		{"POST", "/api/nasdisk/commit", `{"id":"session","force":true}`, "nasdisk-commit session force"},
 		{"POST", "/api/nasdisk/reattach", `{"id":"session"}`, "nasdisk-reattach session"},
@@ -85,5 +86,24 @@ func TestNASDiskAccessAndFailure(t *testing.T) {
 		if test.method == "GET" && !strings.Contains(w.Body.String(), `"known":false`) {
 			t.Fatal(w.Body)
 		}
+	}
+}
+
+func TestNASDiskStartRejectsInvalidTimezone(t *testing.T) {
+	for _, offset := range []string{"-721", "841", "1.5", `"480"`, "true"} {
+		t.Run(offset, func(t *testing.T) {
+			called := false
+			service := &board.Service{Stream: func(context.Context, io.Reader, io.Writer, string, ...string) error {
+				called = true
+				return nil
+			}}
+			request := httptest.NewRequest("POST", "/api/nasdisk/start", strings.NewReader(`{"storage":"nas","path":"/","mode":"rw","utcOffsetMinutes":`+offset+`}`))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			Handler(service, fstest.MapFS{}).ServeHTTP(response, request)
+			if response.Code != 400 || called {
+				t.Fatalf("invalid offset reached helper: status=%d called=%v", response.Code, called)
+			}
+		})
 	}
 }

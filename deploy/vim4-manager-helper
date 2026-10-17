@@ -2510,7 +2510,8 @@ def nasdisk_pending():
                     pending.append(dict(id=session.name, storage=config['id'], storageName=config['name'],
                                         path='/' if relative == '.' else '/' + relative,
                                         writtenBytes=max(0, (index.stat().st_size - 512) // 24 * 4096) if index.exists() else 0,
-                                        startedAt=metadata['startedAt'], journal=(session / 'journal').exists()))
+                                        startedAt=metadata['startedAt'], utcOffsetMinutes=metadata.get('utcOffsetMinutes', 0),
+                                        journal=(session / 'journal').exists()))
         return pending
     return storage_bounded(scan, 3)
 
@@ -2630,6 +2631,9 @@ def nasdisk_command(argv):
             return nasdisk_trash_empty(storage_read_request())
         case ['nasdisk-start']:
             request = storage_read_request()
+            utc_offset = request.get('utcOffsetMinutes', time.localtime().tm_gmtoff // 60)
+            if type(utc_offset) is not int or not -720 <= utc_offset <= 840:
+                raise ValueError('时区偏移必须是 -720 到 840 之间的整数分钟')
             config = storage_load(request.get('storage'))
             root = nasdisk_folder(config, request.get('path', '/'))
             mode = request.get('mode')
@@ -2651,7 +2655,8 @@ def nasdisk_command(argv):
                 nasdisk_cleanup_mount()
                 import uuid
                 session = dict(id=uuid.uuid4().hex, storage=config['id'], storageName=config['name'],
-                               path=request.get('path', '/'), mode=mode, label=label, root=root, startedAt=int(time.time()))
+                               path=request.get('path', '/'), mode=mode, label=label, root=root, startedAt=int(time.time()),
+                               utcOffsetMinutes=utc_offset)
                 storage_atomic(NASDISK_RUNTIME / 'session.json', json.dumps(session), 0o600)
                 (NASDISK_RUNTIME / 'control.sock').unlink(missing_ok=True)
                 (NASDISK_RUNTIME / 'status.json').unlink(missing_ok=True)

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestDirectoryEntryAndAllocationLimits(t *testing.T) {
@@ -69,7 +70,7 @@ func TestReaderLFNFallbackAndLimits(t *testing.T) {
 	if short[0] != 5 {
 		t.Fatal("0xe5 not escaped")
 	}
-	e := shortEntry(short, 0, 32, 0, 0, testTime)
+	e := shortEntry(short, 0, 32, 0, 0, testTime, time.UTC)
 	if decodeShort(e) != "σFILE.TXT" {
 		t.Fatal(decodeShort(e))
 	}
