@@ -298,3 +298,48 @@ export interface HotspotConfig {
 
 // Mode changes and connects can block for the helper's 45 s connect and 30 s fallback windows.
 export const wifiWrite = (path: string, body: unknown) => request(`/api/wifi${path}`, body, AbortSignal.timeout(100000));
+
+export type StorageType = "smb" | "nfs";
+
+export interface StorageConfig {
+  id?: string;
+  name: string;
+  type: StorageType;
+  server: string;
+  share: string;
+  domain: string;
+  username: string;
+  version: string;
+  autoMount: boolean;
+}
+
+export interface Storage extends Required<StorageConfig> {
+  mounted: boolean;
+  state: "mounted" | "unmounted" | "mounting" | "error";
+  error: string;
+  path: string;
+  totalBytes: number | null;
+  freeBytes: number | null;
+  stale: boolean;
+  writable: boolean | null;
+  busy: boolean;
+  insecure: boolean;
+}
+
+export interface StorageState {
+  known: boolean;
+  tools: { smb: boolean; nfs: boolean };
+  storages: Storage[];
+}
+
+export interface StorageTest {
+  ok: boolean;
+  totalBytes?: number;
+  freeBytes?: number;
+  writable?: boolean;
+  elapsedMs?: number;
+  error?: string;
+}
+
+export const storageWrite = <T = unknown>(path: string, body: unknown) =>
+  request<T>(`/api/storage${path}`, body, AbortSignal.timeout(60000));

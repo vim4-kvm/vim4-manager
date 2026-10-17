@@ -14,6 +14,7 @@ const GROW_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 32768];
 const LEAVE_UPLOAD = "正在上传，离开会中断上传。确定离开？";
 
 export function bytes(value: number): string {
+  if (value >= 2 ** 40) return `${(value / 2 ** 40).toFixed(1)} TiB`;
   if (value >= 2 ** 30) return `${(value / 2 ** 30).toFixed(1)} GiB`;
   if (value >= 2 ** 20) return `${(value / 2 ** 20).toFixed(1)} MiB`;
   if (value >= 2 ** 10) return `${(value / 2 ** 10).toFixed(0)} KiB`;
