@@ -107,6 +107,10 @@ export interface Hardware {
 }
 
 export interface Status {
+  power?: {
+    vbusPresent: boolean | null;
+    bootContract: { voltageV: number; currentA: number } | null;
+  };
   media?: Media;
   active: string;
   apps: App[];

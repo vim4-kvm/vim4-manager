@@ -78,6 +78,57 @@ TAILSCALE_PACKAGE_UNIT = 'vim4-manager-tailscale-package.service'
 TAILSCALE_LOGIN_UNIT = 'vim4-manager-tailscale-login.service'
 
 
+def boot_power_contract(log):
+    """Only completed bootstrap contracts; never infer consumption from PDOs."""
+    if 'PD bootstrap complete; USB-capable 5V contract established' not in log:
+        return None
+    match = re.search(r'^PD contract at bootstrap: 5000mV (\d+)mA$', log, re.M)
+    if match:
+        current = int(match[1])
+    else:
+        # Older bootstrap logs only the first RDO. Later Source_Capabilities
+        # can change the request without logging its value, so fail closed.
+        if re.search(r'rx hdr [0-9a-f]+ data 1 n ', log):
+            return None
+        match = re.search(r'^Request rdo ([0-9a-f]{8}): tx 0$', log, re.M)
+        if not match:
+            return None
+        rdo = int(match[1], 16)
+        if rdo >> 28 != 1:
+            return None
+        current = ((rdo >> 10) & 0x3ff) * 10
+    if not 0 < current <= 3000:
+        return None
+    return {'voltageV': 5, 'currentA': current / 1000}
+
+
+def power_status():
+    result = {'vbusPresent': None, 'bootContract': None}
+    # Packaged and manual board installs use different fixed locations.
+    binary = next((p for p in ('/usr/sbin/usb-pd-init', '/usr/local/sbin/usb-pd-init')
+                   if Path(p).is_file()), None)
+    if binary:
+        try:
+            data = json.loads(subprocess.check_output([binary, '--status'], text=True,
+                                                      stderr=subprocess.DEVNULL, timeout=2))
+            if type(data.get('vbusPresent')) is bool:
+                result['vbusPresent'] = data['vbusPresent']
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    try:
+        invocation = subprocess.check_output(
+            ['systemctl', 'show', 'vim4-kvm-pd.service', '-p', 'InvocationID', '--value'],
+            text=True, timeout=2).strip()
+        if re.fullmatch(r'[0-9a-f]{32}', invocation):
+            log = subprocess.check_output(
+                ['journalctl', '-b', '_SYSTEMD_INVOCATION_ID=' + invocation,
+                 '--no-pager', '-o', 'cat', '-n', '200'], text=True, timeout=2)
+            result['bootContract'] = boot_power_contract(log)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return result
+
+
 def tailscale_auth_url(url):
     parsed = urllib.parse.urlsplit(url)
     if url and (parsed.scheme not in ('http', 'https') or not parsed.hostname or
@@ -1784,6 +1835,8 @@ def main(argv):
             print(json.dumps(result))
         return
     match argv:
+        case ['power-status']:
+            print(json.dumps(power_status()))
         case ['media-list']:
             print(json.dumps(media_catalog()))
         case ['media-mount', app, identifier, cdrom, readonly] if cdrom in ('true', 'false') and readonly in ('true', 'false'):
@@ -1825,7 +1878,7 @@ def main(argv):
 def operation_lock(argv):
     action = argv[0] if argv else ''
     if action.startswith('disk-') or action in ('media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
-                                               'wifi-status', 'wifi-scan'):
+                                               'wifi-status', 'wifi-scan', 'power-status'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'

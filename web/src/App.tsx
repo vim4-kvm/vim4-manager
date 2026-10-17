@@ -184,6 +184,23 @@ function tempTone(c: number): Tone {
   return c >= 85 ? "critical" : c >= 70 ? "warning" : "good";
 }
 
+function PowerSummary({ power }: { power: Status["power"] }) {
+  const contract = power?.bootContract;
+  return (
+    <Section title="供电" description="USB-C 检测到电压不代表它是整板唯一的供电来源。">
+      <dl className="readouts">
+        <Readout label="USB-C 电压状态"
+          value={power?.vbusPresent === true ? "检测到电压" : power?.vbusPresent === false ? "未检测到电压" : "未知"}
+          detail="电压存在检测，不是电压测量值" />
+        <Readout label="本次开机 PD 协商"
+          value={contract ? `${contract.voltageV} V / ${contract.currentA} A` : "暂无记录"}
+          detail={contract ? `供电额度 ${contract.voltageV * contract.currentA} W · 运行期间可能变化` : "尚无可确认的协商结果"} />
+        <Readout label="实时功耗" value="不可用" detail="当前没有电流与功率测量数据" />
+      </dl>
+    </Section>
+  );
+}
+
 function LinkTiles({ hw }: { hw: Hardware }) {
   const h = hw.hdmi;
   const hdmiValue = h.signal ? `${h.width}×${h.height}` : "无信号";
@@ -847,6 +864,7 @@ export function App() {
               <>
                 <ActiveApp status={status} now={now} />
                 <LinkTiles hw={hw} />
+                <PowerSummary power={status.power} />
                 <Section title="最近 15 分钟" description="每 5 秒采样，管理服务重启后重新开始。">
                   <BoardCharts hw={hw} history={status.history} now={now} />
                 </Section>

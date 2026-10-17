@@ -4,6 +4,12 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
 页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。监听 **80** 端口，KVM 界面仍在 8080。
 
+概览的「供电」显示 USB-C 电压存在状态、本次开机的 PD 协商电压与电流额度。
+实时检测依赖板级 `usb-pd-init --status`，旧版本或读取失败显示未知；
+协商额度取当前 systemd 初始化实例的完成日志，不代表运行期间的实时合约。
+`GET /api/status` 的 `power.vbusPresent` 与 `power.bootContract` 可分别为 null。
+读取最多每 5 秒一次，失败清除旧读数。当前不测实际电流、功耗或 USB-C/VIN 供电分担。
+
 四个界面共用 HDMI 采集、硬件编码器、HID 端点和 8080 端口，同一时间只运行一个。
 PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 再启动另一个，避免端口和编码器仍被旧进程占用。

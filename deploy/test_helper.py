@@ -19,6 +19,31 @@ helper = importlib.util.module_from_spec(spec)
 loader.exec_module(helper)
 
 
+class PowerTest(unittest.TestCase):
+    COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
+
+    def test_bootstrap_requires_completion_and_uses_requested_current(self):
+        log = 'Request rdo 13025896: tx 0\n'
+        self.assertIsNone(helper.boot_power_contract(log))
+        self.assertEqual(helper.boot_power_contract(log + self.COMPLETE),
+                         {'voltageV': 5, 'currentA': 1.5})
+        self.assertIsNone(helper.boot_power_contract(log.replace('tx 0', 'tx -1') + self.COMPLETE))
+
+    def test_legacy_renegotiation_is_not_mistaken_for_initial_request(self):
+        log = 'Request rdo 1304b12c: tx 0\n100 rx hdr 1261 data 1 n 1 : 2e019096\n' + self.COMPLETE
+        self.assertIsNone(helper.boot_power_contract(log))
+        self.assertEqual(helper.boot_power_contract(log + 'PD contract at bootstrap: 5000mV 1500mA\n'),
+                         {'voltageV': 5, 'currentA': 1.5})
+
+    def test_missing_live_probe_does_not_hide_boot_contract(self):
+        with patch.object(helper.Path, 'is_file', return_value=False), patch.object(
+                helper.subprocess, 'check_output', side_effect=[
+                    'a' * 32, 'Request rdo 1304b12c: tx 0\n' + self.COMPLETE]) as run:
+            self.assertEqual(helper.power_status(), {'vbusPresent': None,
+                              'bootContract': {'voltageV': 5, 'currentA': 3}})
+            self.assertIn('_SYSTEMD_INVOCATION_ID=' + 'a' * 32, run.call_args.args[0])
+
+
 class WifiTest(unittest.TestCase):
     CLIENT = '11111111-1111-1111-1111-111111111111'
     HOTSPOT = '22222222-2222-2222-2222-222222222222'

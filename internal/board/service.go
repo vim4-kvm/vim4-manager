@@ -22,13 +22,16 @@ var ErrBusy = errors.New("另一项操作正在进行")
 
 // Service answers dashboard queries and serializes privileged operations.
 type Service struct {
-	Run     Runner
-	Stream  StreamRunner
-	Root    string
-	History *History
-	Events  *Events
-	Updater *Updater
-	mu      sync.Mutex
+	Run        Runner
+	Stream     StreamRunner
+	Root       string
+	History    *History
+	Events     *Events
+	Updater    *Updater
+	mu         sync.Mutex
+	powerMu    sync.Mutex
+	powerAt    time.Time
+	powerState Power
 
 	tailscaleMu       sync.Mutex
 	tailscaleJob      *TailscaleJob
@@ -46,6 +49,7 @@ type Service struct {
 
 // Status is the complete dashboard state.
 type Status struct {
+	Power    Power      `json:"power"`
 	Media    Media      `json:"media"`
 	Active   string     `json:"active"`
 	Apps     []AppState `json:"apps"`
@@ -94,6 +98,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List(), Media: s.media(ctx)}
+	status.Power = s.power(ctx)
 	if s.History != nil {
 		status.History = s.History.Samples()
 	}
