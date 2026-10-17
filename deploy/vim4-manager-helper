@@ -1104,12 +1104,18 @@ def media_status():
     controller = (gadget / 'UDC').read_text().strip() if lun.exists() else ''
     linked = (gadget / 'configs/c.1/mass_storage.disk0').is_symlink()
     configured = controller and (UDC_CLASS / controller / 'state').read_text().strip() == 'configured'
-    return {'known': True, 'inserted': bool(image), 'name': Path(image).name if image else '',
+    result = {'known': True, 'inserted': bool(image), 'name': Path(image).name if image else '',
             'token': hashlib.sha256(image.encode()).hexdigest() if image else '',
             'readOnly': (lun / 'ro').read_text().strip() == '1' if image else False,
             'cdrom': (lun / 'cdrom').read_text().strip() == '1' if image else False,
             'connected': bool(image and configured and linked),
             'pikvm': PIKVM_USB_STATE.exists()}
+    if image.startswith(str(NASDISK_RUNTIME / 'fs') + '/'):
+        session = nasdisk_read('session.json')
+        if session and image == str(NASDISK_RUNTIME / 'fs' / ('disk-' + session['id'] + '.img')):
+            result['nasdisk'] = {key: session[key] for key in ('storage', 'storageName', 'path', 'mode')}
+            result['name'] = 'nas:' + session['storageName'] + '/' + session['path'].lstrip('/')
+    return result
 
 
 def check_pikvm_media(entering=False):
@@ -2142,6 +2148,9 @@ def storage_probe(path):
 
 
 def storage_busy(path):
+    session = nasdisk_read('session.json')
+    if session and NAS_ROOT / session.get('storage', '') == path and nasdisk_active():
+        return True
     prefix = str(path) + '/'
     def inside(value):
         return value == str(path) or value.startswith(prefix)
@@ -2373,7 +2382,209 @@ def storage_command(argv):
             raise ValueError('不支持的网络存储操作')
 
 
+NASDISK_RUNTIME = Path('/run/vim4-nasdisk')
+
+
+def nasdisk_read(name):
+    try:
+        return json.loads((NASDISK_RUNTIME / name).read_text())
+    except FileNotFoundError:
+        return None
+
+
+def nasdisk_session_id(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{32}', value):
+        raise ValueError('会话 ID 无效')
+    return value
+
+
+def nasdisk_folder(config, path):
+    if not isinstance(path, str) or not path.startswith('/') or len(path) > 4096 or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
+        raise ValueError('目录路径无效')
+    parts = path[1:].split('/') if path != '/' else []
+    if len(parts) > 32 or any(p in ('', '.', '..', '.vim4-nasdisk') or len(p) > 255 for p in parts):
+        raise ValueError('目录路径无效')
+    root = NAS_ROOT / config['id']
+    if not storage_mounted(root):
+        raise ValueError('网络存储尚未挂载')
+    def validate():
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in parts:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = child
+        finally:
+            os.close(fd)
+        return str(root.joinpath(*parts))
+    return storage_bounded(validate, 3)
+
+
+def nasdisk_pending():
+    def scan():
+        pending = []
+        remaining = 100000
+        for file in sorted(NAS_CONFIG.glob('*.json')):
+            config = storage_load(file.stem)
+            mount = NAS_ROOT / config['id']
+            if not storage_mounted(mount):
+                continue
+            for directory, dirs, files in os.walk(mount, followlinks=False):
+                remaining -= len(dirs) + len(files) + 1
+                if remaining < 0:
+                    raise ValueError('恢复扫描条目过多')
+                dirs[:] = [d for d in dirs if not (Path(directory) / d).is_symlink()]
+                if '.vim4-nasdisk' not in dirs:
+                    continue
+                dirs.remove('.vim4-nasdisk')
+                private = Path(directory) / '.vim4-nasdisk'
+                for session in private.iterdir():
+                    if session.is_symlink() or not re.fullmatch(r'[a-f0-9]{32}', session.name) or not session.is_dir():
+                        continue
+                    if not (session / 'overlay').exists() and not (session / 'journal').exists():
+                        continue
+                    metadata = json.loads((session / 'snapshot.json').read_text())['Config']
+                    index = session / 'overlay.index'
+                    relative = str(Path(directory).relative_to(mount))
+                    pending.append(dict(id=session.name, storage=config['id'], storageName=config['name'],
+                                        path='/' if relative == '.' else '/' + relative,
+                                        writtenBytes=max(0, (index.stat().st_size - 512) // 24 * 4096) if index.exists() else 0,
+                                        startedAt=metadata['startedAt'], journal=(session / 'journal').exists()))
+        return pending
+    return storage_bounded(scan, 3)
+
+
+def nasdisk_active():
+    return storage_run(['systemctl', 'show', '--property=ActiveState', '--value', 'vim4-nasdisk.service'], 3).strip() in ('active', 'activating', 'deactivating')
+
+
+def nasdisk_cleanup_mount():
+    mount = NASDISK_RUNTIME / 'fs'
+    if os.path.ismount(mount):
+        # A crashed FUSE daemon can leave its mount behind. Normal unmount only;
+        # a still-open LUN must be ejected first, never detached forcibly.
+        storage_run(['fusermount3', '-u', str(mount)], 5)
+
+
+def nasdisk_control(action, identifier='', force=False, confirm=''):
+    import socket
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(5)
+        connection.connect(str(NASDISK_RUNTIME / 'control.sock'))
+        connection.sendall((json.dumps(dict(action=action, id=identifier, force=force, confirm=confirm)) + '\n').encode())
+        with connection.makefile('rb') as stream:
+            result = json.loads(stream.readline(1024 * 1024))
+    if result.get('error'):
+        raise ValueError(result['error'])
+    return result
+
+
+def nasdisk_command(argv):
+    match argv:
+        case ['nasdisk-status']:
+            known = True
+            try:
+                pending = nasdisk_pending()
+            except (ValueError, OSError):
+                pending, known = [], False
+            session = nasdisk_read('status.json') if nasdisk_active() else None
+            if session:
+                pending = [item for item in pending if item['id'] != session['id']]
+            return dict(known=known, session=session, last=nasdisk_read('last.json'), pending=pending)
+        case ['nasdisk-start']:
+            request = storage_read_request()
+            config = storage_load(request.get('storage'))
+            root = nasdisk_folder(config, request.get('path', '/'))
+            mode = request.get('mode')
+            if mode not in ('ro', 'rw'):
+                raise ValueError('请选择只读或可写模式')
+            label = request.get('label', '')
+            if not isinstance(label, str):
+                raise ValueError('卷标无效')
+            label = label.strip()
+            if label and not re.fullmatch(r'[A-Z0-9 _-]{1,11}', label):
+                raise ValueError('卷标最多 11 个大写字母数字空格下划线连字符')
+            if not label:
+                label = re.sub('[^A-Z0-9 _-]', '', Path(root).name.upper())[:11].strip() or 'NAS'
+            with media_locks():
+                if nasdisk_active():
+                    raise ValueError('已有运行中的 NAS U 盘会话')
+                if PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
+                    raise ValueError('已有虚拟磁盘挂载，请先安全弹出')
+                nasdisk_cleanup_mount()
+                import uuid
+                session = dict(id=uuid.uuid4().hex, storage=config['id'], storageName=config['name'],
+                               path=request.get('path', '/'), mode=mode, label=label, root=root, startedAt=int(time.time()))
+                storage_atomic(NASDISK_RUNTIME / 'session.json', json.dumps(session), 0o600)
+                (NASDISK_RUNTIME / 'control.sock').unlink(missing_ok=True)
+                (NASDISK_RUNTIME / 'status.json').unlink(missing_ok=True)
+                storage_run(['systemctl', 'start', 'vim4-nasdisk.service'], 5)
+            return dict(ok=True, id=session['id'])
+        case ['nasdisk-lun-attach', identifier]:
+            if os.environ.get('SUDO_UID', '0') != '0':
+                raise ValueError('此操作仅供 NAS U 盘守护进程调用')
+            nasdisk_session_id(identifier)
+            session = nasdisk_read('session.json')
+            if not session or session['id'] != identifier or not nasdisk_active():
+                raise ValueError('会话已改变')
+            with media_locks():
+                if PIKVM_LUN_FILE.read_text().strip():
+                    raise ValueError('已有虚拟磁盘挂载，请先安全弹出')
+                active = [app for app, unit in APPS.items() if storage_run(['systemctl', 'show', '--property=ActiveState', '--value', unit], 3).strip() == 'active']
+                if len(active) != 1:
+                    raise ValueError('请选择正在运行的 KVM')
+                app = active[0]
+                media_active(app)
+                if app == 'jetkvm' and session['mode'] != 'ro':
+                    raise ValueError('JetKVM 仅支持只读介质')
+                fd = os.open(NASDISK_RUNTIME / 'fs' / ('disk-' + identifier + '.img'),
+                             (os.O_RDONLY if session['mode'] == 'ro' else os.O_RDWR) | os.O_NOFOLLOW)
+                try:
+                    if not stat.S_ISREG(os.fstat(fd).st_mode):
+                        raise ValueError('FUSE 镜像不是普通文件')
+                    attach_media(fd, app, False, session['mode'] == 'ro')
+                finally:
+                    os.close(fd)
+            return dict(ok=True)
+        case ['nasdisk-cancel']:
+            return nasdisk_control('cancel')
+        case ['nasdisk-commit' | 'nasdisk-reattach' | 'nasdisk-discard', identifier, *options]:
+            nasdisk_session_id(identifier)
+            action = argv[0].removeprefix('nasdisk-')
+            if options and (action != 'commit' or options != ['force']):
+                raise ValueError('操作参数无效')
+            confirm = storage_read_request().get('confirm', '') if action == 'discard' else ''
+            if action == 'discard' and confirm != identifier:
+                raise ValueError('请确认完整会话 ID')
+            if nasdisk_active():
+                return nasdisk_control(action, identifier, bool(options), confirm)
+            if action == 'reattach':
+                raise ValueError('恢复会话只能回写或放弃')
+            pending = [item for item in nasdisk_pending() if item['id'] == identifier]
+            if len(pending) != 1:
+                raise ValueError('未找到唯一的待恢复会话')
+            item = pending[0]
+            config = storage_load(item['storage'])
+            root = nasdisk_folder(config, item['path'])
+            saved = json.loads((Path(root) / '.vim4-nasdisk' / identifier / 'snapshot.json').read_text())['Config']
+            saved.update(id=identifier, storage=config['id'], storageName=config['name'], root=root,
+                         path=item['path'], mode='rw', recover=action, force=bool(options))
+            with media_locks():
+                if PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
+                    raise ValueError('已有虚拟磁盘挂载，请先安全弹出')
+                nasdisk_cleanup_mount()
+                storage_atomic(NASDISK_RUNTIME / 'session.json', json.dumps(saved), 0o600)
+                (NASDISK_RUNTIME / 'control.sock').unlink(missing_ok=True)
+                storage_run(['systemctl', 'start', 'vim4-nasdisk.service'], 5)
+            return dict(ok=True)
+        case _:
+            raise ValueError('不支持的 NAS U 盘操作')
+
+
 def main(argv):
+    if argv and argv[0].startswith('nasdisk-'):
+        print(json.dumps(nasdisk_command(argv)))
+        return
     if argv and argv[0].startswith('storage-'):
         print(json.dumps(storage_command(argv)))
         return
@@ -2433,12 +2644,14 @@ def main(argv):
 @contextmanager
 def operation_lock(argv):
     action = argv[0] if argv else ''
-    if action.startswith('disk-') or action in ('storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
+    if action.startswith('disk-') or action in ('nasdisk-status', 'nasdisk-lun-attach', 'storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
                                                'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'
     if action.startswith('storage-'):
+        path = '/run/lock/vim4-manager-storage.lock'
+    if action.startswith('nasdisk-'):
         path = '/run/lock/vim4-manager-storage.lock'
     fd = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
@@ -2474,6 +2687,7 @@ if __name__ == '__main__':
     except BlockingIOError:
         action = sys.argv[1] if len(sys.argv) > 1 else ''
         busy = ('Another package operation is in progress' if action in ('update', 'tailscale-package') else
+                '另一个 NAS U 盘操作正在进行，请稍后重试' if action.startswith('nasdisk-') else
                 '另一个网络存储操作正在进行，请稍后重试' if action.startswith('storage-') else
                 '另一个数据盘操作正在进行，请稍后重试' if action.startswith('disk-') else
                 'Another tailscale operation is in progress' if action.startswith('tailscale-') else

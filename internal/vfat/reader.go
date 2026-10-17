@@ -393,6 +393,25 @@ func (r *Result) ReadFileAt(node ParsedNode, p []byte, off int64) (int, error) {
 	if !r.Safe || r.reader == nil {
 		return 0, fmt.Errorf("result has not passed validation")
 	}
+	return r.readFileAt(node, p, off)
+}
+
+// ReadRecoveredFileAt reads only a file whose complete chain was accepted before
+// Parse stopped. It does not certify the volume or authorize deletion of entries
+// absent from a partial result. Callers must require an explicit recovery choice.
+func (r *Result) ReadRecoveredFileAt(node ParsedNode, p []byte, off int64) (int, error) {
+	if r.reader == nil {
+		return 0, fmt.Errorf("missing volume reader")
+	}
+	for _, accepted := range r.Nodes {
+		if !accepted.Dir && accepted.Path == node.Path {
+			return r.readFileAt(accepted, p, off)
+		}
+	}
+	return 0, fmt.Errorf("file was not recovered")
+}
+
+func (r *Result) readFileAt(node ParsedNode, p []byte, off int64) (int, error) {
 	if node.Dir || off < 0 {
 		return 0, fmt.Errorf("invalid file read")
 	}

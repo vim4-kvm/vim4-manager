@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"syscall"
 )
 
 const overlayBlock = 4096
@@ -19,6 +20,7 @@ type Overlay interface {
 	DirtyClusters() []ClusterRange
 	Sync() error
 	Close() error
+	WrittenBytes() int64
 }
 
 type overlay struct {
@@ -29,6 +31,7 @@ type overlay struct {
 	data, index *os.File
 	closed      bool
 	failed      error
+	written     int64
 }
 
 func NewMemoryOverlay(base *Volume) Overlay {
@@ -44,7 +47,7 @@ func NewMemoryOverlay(base *Volume) Overlay {
 func OpenFileOverlay(base *Volume, path string) (Overlay, error) {
 	o := &overlay{base: base, positions: map[int64]int64{}}
 	var err error
-	o.index, err = os.OpenFile(path+".index", os.O_CREATE|os.O_RDWR, 0600)
+	o.index, err = os.OpenFile(path+".index", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -60,6 +63,9 @@ func OpenFileOverlay(base *Volume, path string) (Overlay, error) {
 	stat, err := o.index.Stat()
 	if err != nil {
 		return nil, err
+	}
+	if !stat.Mode().IsRegular() || stat.Sys().(*syscall.Stat_t).Nlink != 1 {
+		return nil, fmt.Errorf("overlay index is not a regular file")
 	}
 	header := make([]byte, 512)
 	copy(header, "VIM4OVL1")
@@ -105,13 +111,16 @@ func OpenFileOverlay(base *Volume, path string) (Overlay, error) {
 		if !bytes.Equal(header, got) {
 			return nil, fmt.Errorf("overlay version or snapshot geometry mismatch")
 		}
-		o.data, err = os.OpenFile(path, os.O_RDWR, 0600)
+		o.data, err = os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0600)
 		if err != nil {
 			return nil, err
 		}
 		dataStat, err := o.data.Stat()
 		if err != nil {
 			return nil, err
+		}
+		if !dataStat.Mode().IsRegular() || dataStat.Sys().(*syscall.Stat_t).Nlink != 1 {
+			return nil, fmt.Errorf("overlay data is not a regular file")
 		}
 		var rec [24]byte
 		at := int64(512)
@@ -137,6 +146,7 @@ func OpenFileOverlay(base *Volume, path string) (Overlay, error) {
 				return nil, fmt.Errorf("corrupt overlay data")
 			}
 			o.positions[block] = pos
+			o.written += overlayBlock
 			at += 24
 		}
 		if err = o.index.Truncate(at); err != nil {
@@ -241,6 +251,7 @@ func (o *overlay) WriteAt(p []byte, off int64) (int, error) {
 func (o *overlay) storeBlock(block int64, b []byte) error {
 	if o.data == nil {
 		o.blocks[block] = b
+		o.written += overlayBlock
 		return nil
 	}
 	pos := block * overlayBlock
@@ -273,8 +284,13 @@ func (o *overlay) storeBlock(block int64, b []byte) error {
 		return err
 	}
 	o.positions[block] = pos
+	o.written += overlayBlock
 	return nil
 }
+
+// WrittenBytes includes overwritten block versions retained for crash recovery.
+// Opening an existing overlay restores this value from its durable index.
+func (o *overlay) WrittenBytes() int64 { o.mu.Lock(); defer o.mu.Unlock(); return o.written }
 
 // DirtyClusters is conservative: every data cluster touched by a dirty overlay
 // block is included, even if only another byte in that block was written.

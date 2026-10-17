@@ -1,0 +1,15 @@
+[Unit]
+Description=NAS folder USB disk
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/libexec/vim4-nasdisk run
+RuntimeDirectory=vim4-nasdisk
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+Restart=no
+KillMode=mixed
+TimeoutStopSec=300
+UMask=0077
