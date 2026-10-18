@@ -21,13 +21,13 @@ import {
   type Unit,
 } from "./api";
 import { HDRPanel } from "./HDRPanel";
-import { TrendChart, tempDomain, type Point } from "./Charts";
+import { TrendChart, tempDomain, samplingWindow, type Point } from "./Charts";
 import { FanPanel } from "./FanPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { MediaPanel, MediaSummary, MediaWait, needsMediaEject } from "./MediaPanel";
 import { DiskPanel } from "./DiskPanel";
 import { StoragePanel } from "./StoragePanel";
-import { DevelopmentTag } from "./DevelopmentTag";
+import { DevelopmentTag, isDevelopmentVersion } from "./DevelopmentTag";
 import { ThemeSwitch } from "./theme";
 
 const POLL_MS = 3000;
@@ -167,9 +167,11 @@ function AppRow({
   );
 }
 
-function Readout({ label, value, detail, tone }: { label: string; value: ReactNode; detail?: string; tone?: Tone }) {
-  return (
-    <div className="readout">
+function Readout({ label, value, detail, tone, href, destination }: {
+  label: string; value: ReactNode; detail?: string; tone?: Tone; href?: string; destination?: string;
+}) {
+  const content = (
+    <dl>
       <dt>{label}</dt>
       <dd>
         <span className="readout-value">
@@ -178,8 +180,15 @@ function Readout({ label, value, detail, tone }: { label: string; value: ReactNo
         </span>
         {detail && <span className="readout-detail" title={detail}>{detail}</span>}
       </dd>
-    </div>
+    </dl>
   );
+  return href ? (
+    <a className="readout" href={href}>
+      {content}
+      <span className="readout-chevron" aria-hidden="true">›</span>
+      <span className="visually-hidden">，查看{destination}</span>
+    </a>
+  ) : <div className="readout">{content}</div>;
 }
 
 function tempTone(c: number): Tone {
@@ -199,28 +208,29 @@ function LinkTiles({ hw, power, now }: { hw: Hardware; power: Status["power"]; n
     ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
   const usbConfigured = hw.usb === "configured";
   return (
-    <dl className="readouts">
-      <Readout label="HDMI 输入" value={hdmiValue} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
+    <div className="readouts">
+      <Readout label="HDMI 输入" href="#/video" destination="视频输入" value={hdmiValue} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
       <Readout
         label="USB 键鼠"
+        href="#/services" destination="底层服务"
         value={usbConfigured ? "已连接" : hw.usb ? hw.usb : "未知"}
         detail={usbConfigured ? "键盘与鼠标已枚举" : "等待被控机枚举"}
         tone={usbConfigured ? "good" : "warning"}
       />
-      <Readout label="PD 协商"
+      <Readout label="PD 协商" href="#/services" destination="底层服务"
         value={contract ? `${contract.voltageV} V / ${contract.currentA} A` : "暂无记录"}
         detail={contract ? `供电额度 ${contract.voltageV * contract.currentA} W · 本次开机` : "尚无可确认的协商结果"} />
       <Readout label="开机时长" value={duration(hw.uptimeSeconds)} detail={`开机于 ${clockTime(now - hw.uptimeSeconds * 1000, now).slice(0, -3)}`} />
-    </dl>
+    </div>
   );
 }
 
 const WINDOW_MS = 15 * 60 * 1000;
 
 function samplingDescription(history: Sample[]): string {
-  const span = (history.at(-1)?.t ?? 0) - (history[0]?.t ?? 0);
-  return span < 14.5 * 60000
-    ? `每 5 秒采样 · 已采样 ${Math.max(1, Math.floor(span / 60000))} 分钟，管理服务重启后重新开始`
+  const { minutes, partial } = samplingWindow(history[0]?.t, history.at(-1)?.t);
+  return partial
+    ? `每 5 秒采样 · 已采样 ${minutes} 分钟，管理服务重启后重新开始`
     : "每 5 秒采样，管理服务重启后重新开始";
 }
 
@@ -278,15 +288,17 @@ function TrendCard({
   );
 }
 
-function range(values: number[], format: (v: number) => string): string {
+function range(values: number[], format: (v: number) => string, period: string): string {
   if (!values.length) return "正在采样";
-  return `15 分钟 ${format(Math.min(...values))} – ${format(Math.max(...values))}`;
+  return `${period} ${format(Math.min(...values))} – ${format(Math.max(...values))}`;
 }
 
 function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; now: number }) {
   const [hover, setHover] = useState<number>();
   const end = Math.max(now, history.at(-1)?.t ?? 0);
   history = history.filter((s) => s.t >= end - WINDOW_MS);
+  const { minutes, partial } = samplingWindow(history[0]?.t, history.at(-1)?.t);
+  const period = `${partial ? "最近 " : ""}${minutes} 分钟`;
   const series = (pick: (s: Sample) => number): Point[] => history.map((s) => ({ t: s.t, v: pick(s) }));
   const cpu = series((s) => s.cpu);
   const cpuPower = history.flatMap((s) => s.cpuPowerW == null ? [] : [{ t: s.t, v: s.cpuPowerW }]);
@@ -300,7 +312,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const lastTx = tx.length ? tx[tx.length - 1].v : 0;
   const lastRx = rx.length ? rx[rx.length - 1].v : 0;
   const netMax = niceCeil(Math.max(1e6, ...tx.map((p) => p.v), ...rx.map((p) => p.v)));
-  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover, height: 64, sampledFrom: history[0]?.t };
+  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover, height: 64, sampledFrom: history[0]?.t, sampledMinutes: minutes };
   const percentageAxis = (points: Point[]) => {
     const max = Math.max(0, ...points.map((p) => p.v)) * 1.2;
     const upper = [25, 50, 100].find((v) => v >= max) ?? 100;
@@ -311,7 +323,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const hottest = hw.zones.reduce<Zone | undefined>((a, z) => (!a || z.tempC > a.tempC ? z : a), undefined);
   return (
     <div className="trends">
-      <TrendCard title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent)}`}>
+      <TrendCard title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent, period)}`}>
         <TrendChart label="CPU 使用率" points={cpu} {...percentageAxis(cpu)} format={percent} {...shared} />
       </TrendCard>
       <TrendCard
@@ -337,7 +349,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
       <TrendCard
         title="SoC 温度"
         value={celsius(hw.tempC)}
-        detail={hottest && hottest.name !== "soc" ? `最高 ${hottest.name.toUpperCase()} ${celsius(hottest.tempC)}` : range(temp.map((p) => p.v), celsius)}
+        detail={hottest && hottest.name !== "soc" ? `最高 ${hottest.name.toUpperCase()} ${celsius(hottest.tempC)}` : range(temp.map((p) => p.v), celsius, period)}
         tone={tempTone(hw.tempC)}
       >
         {(() => {
@@ -730,11 +742,22 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
   }
   const running = app.unit.active === "active";
   const uptime = since(app.unit, now);
+  const version = status.system.packages.find((pkg) => pkg.name === `vim4-${app.id}`)?.version;
   return (
     <div className="lead">
       <div className="lead-title">
         <h3>{app.name}</h3>
         <StatusDot tone={unitTone(app.unit)} label={uptime ? `${unitLabel(app.unit)} ${uptime}` : unitLabel(app.unit)} />
+        <div className="lead-detail">
+          {version && <>
+            <span className="package-version" title={version}>
+              <span>{isDevelopmentVersion(version) ? version.replace(/\.dev\.\d+\.g[0-9a-f]{7,40}(?:\.dirty)?$/, "") : version}</span>
+              <DevelopmentTag version={version} />
+            </span>
+            <span aria-hidden="true">·</span>
+          </>}
+          <span className="mono">{location.hostname}:{app.port}</span>
+        </div>
       </div>
       <a className="button" href="#/apps">
         更换

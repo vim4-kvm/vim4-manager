@@ -28,6 +28,13 @@ export interface Point {
   v: number;
 }
 
+/** Use the same rounded history duration in captions and accessible summaries. */
+export function samplingWindow(first?: number, last?: number) {
+  const span = (last ?? 0) - (first ?? 0);
+  const partial = span < 14.5 * 60000;
+  return { partial, minutes: partial ? Math.max(1, Math.floor(span / 60000)) : 15 };
+}
+
 /**
  * One series over the trailing window. Charts in the same group share the
  * hovered time so their crosshairs move together.
@@ -48,6 +55,7 @@ export function TrendChart({
   currentAvailable = true,
   height = 112,
   sampledFrom,
+  sampledMinutes = Math.round(windowMs / 60000),
 }: {
   label: string;
   points: Point[];
@@ -67,6 +75,7 @@ export function TrendChart({
   height?: number;
   /** History start, including samples whose value is unavailable for this series. */
   sampledFrom?: number;
+  sampledMinutes?: number;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const gradientId = useId();
@@ -123,7 +132,7 @@ export function TrendChart({
 
   const values = visible.map((p) => p.v);
   const summary = visible.length
-    ? `${label}，最近 ${Math.round(windowMs / 60000)} 分钟：当前 ${currentAvailable ? format(last.v) : "暂无数据"}，最低 ${format(Math.min(...values))}，最高 ${format(Math.max(...values))}`
+    ? `${label}，最近 ${sampledMinutes} 分钟：当前 ${currentAvailable ? format(last.v) : "暂无数据"}，最低 ${format(Math.min(...values))}，最高 ${format(Math.max(...values))}`
     : `${label}：正在采样`;
 
   const minutes = Math.round(windowMs / 60000);

@@ -15,7 +15,8 @@ const status = {
       captureWidth: 3840, captureHeight: 2160, refreshHz: 59.98, colorSpace: "YUV444", hdr: "SDR" },
     hdrCurve: { white: 203, peak: 1000 } },
   system: { links: [{ name: "eth0", up: true, speedMbps: 1000, addrs: ["192.168.50.210"] }],
-    disk: { totalBytes: 30000000000, freeBytes: 15000000000 }, packages: [] },
+    disk: { totalBytes: 30000000000, freeBytes: 15000000000 },
+    packages: [{ name: "vim4-onekvm", version: "2.5.1+vim4.20261018.32.dev.4.gabcdef0.dirty" }] },
   events: [], history: history(3),
 };
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -31,18 +32,37 @@ try {
   };
   await reload();
   await page.getByText(/已采样 3 分钟/).waitFor();
+  const appDetail = page.locator(".lead-detail");
+  assert.equal(await appDetail.locator(".package-version > span").first().textContent(), "2.5.1+vim4.20261018.32");
+  assert.equal(await appDetail.locator(".package-version").getAttribute("title"), status.system.packages[0].version);
+  assert.equal(await appDetail.getByText("开发版", { exact: true }).count(), 1);
+  assert.equal(await appDetail.locator(".mono").textContent(), `${new URL(page.url()).hostname}:8080`);
+  assert.equal(await appDetail.locator("a").count(), 0);
+  assert.match(await charts.first().locator(".trend-detail").textContent(), /· 最近 3 分钟 1% – 13%$/);
+  assert.match(await charts.nth(4).locator(".trend-detail").textContent(), /^最近 3 分钟 /);
+  for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /最近 3 分钟/);
   assert.equal(await page.locator(".chart-unsampled").count(), 6);
   assert.equal(await page.getByText("尚未采样", { exact: true }).count(), 6);
   assert.deepEqual(await charts.locator(".trend-title").allTextContents(), ["CPU", "内存", "网络", "CPU 动态功耗（估算）", "SoC 温度", "风扇"]);
   const hdmi = page.locator(".readout").filter({ hasText: "HDMI 输入" });
   assert.doesNotMatch(await hdmi.textContent(), /采集/);
   const uptime = page.locator(".readout").filter({ hasText: "开机时长" });
+  for (const [label, href] of [["HDMI 输入", "#/video"], ["USB 键鼠", "#/services"], ["PD 协商", "#/services"]]) {
+    assert.equal(await page.getByRole("link", { name: new RegExp(label) }).getAttribute("href"), href);
+  }
+  assert.equal(await uptime.evaluate((el) => el.matches("a") || !!el.querySelector("a")), false);
   assert.match(await uptime.locator(".readout-detail").textContent(), /^开机于 (\d+\/\d+ )?\d{2}:\d{2}$/);
   assert.doesNotMatch(await uptime.textContent(), /负载/);
   assert.equal(await charts.nth(2).locator(".trend-value small").textContent(), "发送");
   assert.match(await charts.nth(2).locator(".legend").textContent(), /接收 7 kbps/);
   await page.getByText("暂无事件", { exact: true }).waitFor();
   assert.ok((await page.getByRole("heading", { name: "最近事件", exact: true }).boundingBox()).y < 900);
+  await hdmi.click();
+  await page.waitForURL("**/#/video");
+  await page.getByRole("heading", { name: "视频输入", exact: true }).first().waitFor();
+  status.system.packages = [{ name: "vim4-manager", version: "1.0.0" }];
+  await reload();
+  assert.equal(await appDetail.textContent(), `${new URL(page.url()).hostname}:8080`);
   for (const [cpu, upper] of [[13, "25%"], [40, "50%"], [90, "100%"]]) {
     status.history = history(15, cpu);
     await reload();
@@ -50,9 +70,13 @@ try {
     assert.equal(await page.locator(".chart-unsampled").count(), 0);
     assert.equal(await page.getByText("尚未采样", { exact: true }).count(), 0);
     assert.equal(await page.getByText(/已采样/).count(), 0);
+    assert.match(await charts.first().locator(".trend-detail").textContent(), /· 15 分钟 /);
+    assert.match(await charts.nth(4).locator(".trend-detail").textContent(), /^15 分钟 /);
+    for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /最近 15 分钟/);
   }
   status.hardware.hdmi.captureWidth = 1920;
   status.hardware.hdmi.captureHeight = 1080;
+  status.system.packages = [{ name: "vim4-onekvm", version: "2.5.1+vim4.20261018.32.dev.4.gabcdef0.dirty" }];
   status.events = Array.from({ length: 7 }, (_, i) => ({ t: now - i * 5000, tone: "good", text: `事件 ${i + 1}` }));
   await reload();
   assert.match(await hdmi.textContent(), /采集 1920×1080/);
@@ -60,6 +84,8 @@ try {
   await page.getByRole("button", { name: "显示全部 7 条" }).click();
   assert.equal(await page.locator(".event").count(), 7);
 
+  // Keep pointer hover from competing with keyboard selection as charts scroll.
+  await page.mouse.move(0, 0);
   for (const width of [1440, 1280, 1024, 768, 390]) {
     await page.setViewportSize({ width, height: 900 });
     await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
