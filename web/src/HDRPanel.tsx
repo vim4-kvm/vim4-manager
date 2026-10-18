@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { DEFAULT_HDR_CURVE, type HDRCurve } from "./api";
 
 // Slider ranges. SDR white runs high to low so that "right" means brighter.
@@ -65,6 +65,7 @@ function useWidth<T extends HTMLElement>() {
 /** Output level (SDR code value, 0..100%) against HDR input nits. */
 function CurveChart({ curve }: { curve: HDRCurve }) {
   const [ref, width] = useWidth<HTMLDivElement>();
+  const gradientId = useId();
   const [hover, setHover] = useState<number>();
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
   const x = (n: number) => PAD_LEFT + logPos(n, NITS_MIN, NITS_MAX) * plotW;
@@ -115,6 +116,13 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
             onKeyDown={key}
             onBlur={() => setHover(undefined)}
           >
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path fill={`url(#${gradientId})`} d={`${path(curve)}L${x(NITS_MAX)},${y(0)}L${x(NITS_MIN)},${y(0)}Z`} />
             {yTicks.map((v) => (
               <g key={v}>
                 <line className="hdr-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
@@ -224,6 +232,7 @@ function Slider({
         min={0}
         max={1000}
         value={position}
+        style={{ "--range-fill": `${position / 10}%` } as CSSProperties}
         disabled={disabled}
         aria-valuetext={value}
         onChange={(e) => onInput(Number(e.target.value))}

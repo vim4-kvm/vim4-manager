@@ -160,8 +160,8 @@ export function QRCode({ text, label }: { text: string; label: string }) {
   const size = count + 8;
   return (
     <svg className="qr-code" viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label} shapeRendering="crispEdges">
-      <rect width={size} height={size} fill="#fff" />
-      <path d={path} fill="#000" />
+      <rect width={size} height={size} fill="var(--qr-paper)" />
+      <path d={path} fill="var(--qr-ink)" />
     </svg>
   );
 }

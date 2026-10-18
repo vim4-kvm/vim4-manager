@@ -50,7 +50,7 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
   };
 
   return (
-    <div className="updates">
+    <>
       <div className="updates-head">
         <span className="muted">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
         <button className="button small" disabled={busy || checking} onClick={() => void check()}>
@@ -61,7 +61,7 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
       {!updates ? (
         !error && <div className="skeleton" />
       ) : (
-        <table className="table">
+        <div className="card table-card updates"><table className="table">
           <thead>
             <tr>
               <th>项目</th>
@@ -115,8 +115,8 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
               );
             })}
           </tbody>
-        </table>
+        </table></div>
       )}
-    </div>
+    </>
   );
 }

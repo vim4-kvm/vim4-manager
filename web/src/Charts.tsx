@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 const HEIGHT = 112;
 const AXIS = 20;
@@ -65,6 +65,7 @@ export function TrendChart({
   currentAvailable?: boolean;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
+  const gradientId = useId();
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
   const start = end - windowMs;
   const x = (t: number) => PAD_LEFT + ((t - start) / windowMs) * plotW;
@@ -123,6 +124,12 @@ export function TrendChart({
           onBlur={() => onHover(undefined)}
           onKeyDown={key}
         >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
           {ticks.map((v) => (
             <g key={v}>
               <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
@@ -142,7 +149,7 @@ export function TrendChart({
               {m === 0 ? "现在" : `${Math.round(m)} 分钟前`}
             </text>
           ))}
-          <path className="chart-area" d={area} />
+          <path fill={`url(#${gradientId})`} d={area} />
           {otherLine && <path className="chart-line chart-line-muted chart-line-thin" d={otherLine} />}
           <path className="chart-line" d={line} />
           {active && (

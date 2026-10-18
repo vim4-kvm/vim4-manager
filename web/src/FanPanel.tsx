@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useWidth } from "./Charts";
 import type { FanTriggers } from "./api";
 
@@ -85,6 +85,7 @@ function CurveEditor({
   onChange: (next: FanTriggers) => void;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
+  const gradientId = useId();
   const [hover, setHover] = useState<number>();
   const dragging = useRef<keyof FanTriggers>(undefined);
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
@@ -155,6 +156,13 @@ function CurveEditor({
             onPointerLeave={() => setHover(undefined)}
             className={disabled ? "is-disabled" : undefined}
           >
+            <defs>
+              <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <path fill={`url(#${gradientId})`} d={`${path(draft)}L${x(T_MAX)},${y(0)}Z`} />
             {[0, 50, 100].map((v) => (
               <g key={v}>
                 <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />

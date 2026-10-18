@@ -28,6 +28,7 @@ import { MediaPanel, MediaSummary, MediaWait, needsMediaEject } from "./MediaPan
 import { DiskPanel } from "./DiskPanel";
 import { StoragePanel } from "./StoragePanel";
 import { DevelopmentTag } from "./DevelopmentTag";
+import { ThemeSwitch } from "./theme";
 
 const POLL_MS = 3000;
 
@@ -535,7 +536,7 @@ function PlatformList({
   now: number;
 }) {
   return (
-    <table className="table">
+    <div className="card table-card"><table className="table">
       <thead>
         <tr>
           <th>服务</th>
@@ -565,7 +566,7 @@ function PlatformList({
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }
 
@@ -689,8 +690,10 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
   return (
     <aside className="sidebar">
       <div className="brand">
+        <span className="brand-icon" aria-hidden="true">V4</span>
         <span className="brand-mark">VIM4</span>
         <span className="brand-name">KVM</span>
+        <ThemeSwitch compact />
       </div>
       <nav aria-label="页面">
         {PAGES.map((p) => {
@@ -709,6 +712,7 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
         })}
       </nav>
       <div className="sidebar-foot">
+        <ThemeSwitch />
         <StatusDot tone={stale ? "critical" : status ? "good" : "warning"} label={stale ? "连接中断" : status ? status.hardware.hostname : "连接中"} />
         {status && <span className="mono">{status.hardware.kernel}</span>}
       </div>
