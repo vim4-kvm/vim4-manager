@@ -2,25 +2,26 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.TEST_URL || "http://127.0.0.1:5188";
+const accountShots = new URL("../../../logs/unified-auth/shots-account/", import.meta.url).pathname;
+await mkdir(accountShots, { recursive: true });
 const shots = new URL("../../../logs/unified-auth/shots-login/", import.meta.url).pathname;
 await mkdir(shots, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 let count = 0;
 function pass(name) { console.log(`PASS ${++count}: ${name}`); }
 
-async function stableScreenshot(page, name, fullPage = true) {
+async function stableScreenshot(page, name, fullPage = true, directory = shots) {
   await page.waitForFunction(() => {
     const themeSettled = !document.documentElement.classList.contains("theme-switching");
-    const noDialog = !document.querySelector(".auth-modal");
     const animationsSettled = document.getAnimations().every(animation =>
       animation.playState !== "running" || animation.effect.getTiming().iterations === Infinity);
-    return themeSettled && noDialog && animationsSettled;
+    return themeSettled && animationsSettled;
   });
   await page.evaluate(async () => {
     await document.fonts.ready;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
-  await page.screenshot({ path: `${shots}/${name}.png`, fullPage });
+  await page.screenshot({ path: `${directory}/${name}.png`, fullPage });
 }
 
 async function checkAccountContrast(page) {
@@ -73,14 +74,14 @@ async function checkLoginContrast(page) {
       });
       return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
     }
-    return [".auth-identity h1", ".auth-field label", ".auth-card input", ".auth-submit",
+    return [".account-menu-heading strong", ".account-menu-heading small", ".account-menu [role=menuitem]", ".account-success", ".account-device .tag", ".account-only", ".account-notes", ".auth-identity h1", ".auth-field label", ".auth-card input", ".auth-submit",
       ".auth-forgot", ".auth-message", ".auth-command", ".auth-field-error", ".auth-setup p",
       ".auth-warning", ".auth-identity p", ".auth-hint"].flatMap(selector =>
       [...document.querySelectorAll(selector)].map(element => {
         const foreground = luminance(rgba(getComputedStyle(element).color));
         const surface = luminance(background(element));
         return { selector, ratio: (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05),
-          minimum: [".auth-identity p", ".auth-hint"].includes(selector) ? 3 : 4.5 };
+          minimum: [".auth-identity p", ".auth-hint", ".account-menu-heading small", ".account-only", ".account-notes"].includes(selector) ? 3 : 4.5 };
       }));
   });
   for (const value of values) assert(value.ratio >= value.minimum, JSON.stringify(value));
@@ -96,6 +97,10 @@ try {
   let loginRequests = 0;
   let retryAfter = 2;
   let loginStatus = 401;
+  let sessionsFail = false;
+  let sessionsWait;
+  let revokeFail = false;
+  let logoutFail = false;
   let account = { username: "admin", passwordChanged: "2026-10-18T12:00:00Z", sessions: [
     { id: "current", current: true, address: "192.168.1.2", userAgent: "Mozilla Macintosh Chrome/120", lastActive: new Date().toISOString() },
     { id: "other", current: false, address: "127.0.0.1", userAgent: "Mozilla iPhone Safari/17", lastActive: new Date(Date.now() - 7200000).toISOString() },
@@ -103,6 +108,13 @@ try {
   const otherDevice = { ...account.sessions[1] };
   const writes = [];
   await page.route("**/api/**", route => route.fulfill({ status: 404, json: {} }));
+  await page.route("**/api/status", route => route.fulfill({ json: {
+    active: "", apps: [], platform: [],
+    hardware: { hostname: "Khadas", kernel: "5.15.137-vim4kvm", uptimeSeconds: 60, load1: 0, cpus: 8,
+      memTotalKiB: 1024, memAvailableKiB: 512, tempC: 50, zones: [], fanAuto: true,
+      fanPercent: 30, usb: "configured", hdmi: { signal: false, audio: false }, hdrCurve: { white: 203, peak: 1000 } },
+    system: { links: [], disk: { totalBytes: 1, freeBytes: 1 }, packages: [] }, events: [], history: [],
+  } }));
   await page.route("**/__vim4/api/auth/state", async route => {
     if (holdState) await new Promise(resolve => {
       releaseState = resolve;
@@ -121,13 +133,17 @@ try {
     if (setupStatus === 200) state = { ...state, configured: true, authenticated: true };
     return route.fulfill({ status: setupStatus, json: { ok: true } });
   });
-  await page.route("**/__vim4/api/auth/logout", route => { state.authenticated = false; return route.fulfill({ json: { ok: true } }); });
-  await page.route("**/api/account/**", route => {
-    if (route.request().method() === "GET") return route.fulfill({ json: account });
+  await page.route("**/__vim4/api/auth/logout", route => { if (logoutFail) return route.fulfill({ status: 500, json: {} }); state.authenticated = false; return route.fulfill({ json: { ok: true } }); });
+  await page.route("**/api/account/**", async route => {
+    if (route.request().method() === "GET") {
+      if (sessionsWait) await sessionsWait;
+      return route.fulfill({ status: sessionsFail ? 500 : 200, json: account });
+    }
     const path = new URL(route.request().url()).pathname;
     if (path.endsWith("password") && route.request().postDataJSON().currentPassword === "wrong") return route.fulfill({ status: 403, json: { error: "当前密码错误" } });
+    if (path.endsWith("revoke") && revokeFail) return route.fulfill({ status: 500, json: { error: "退出设备失败" } });
     writes.push({ path, body: route.request().postDataJSON() });
-    if (path.endsWith("password") || path.endsWith("logout-others")) account.sessions = account.sessions.filter(d => d.current);
+    if (path.endsWith("password") || path.endsWith("username") || path.endsWith("logout-others")) account.sessions = account.sessions.filter(d => d.current);
     if (path.endsWith("username")) account.username = route.request().postDataJSON().username;
     if (path.endsWith("revoke")) account.sessions = account.sessions.filter(d => d.id !== route.request().postDataJSON().id);
     return route.fulfill({ json: { ok: true } });
@@ -324,46 +340,110 @@ try {
   pass("concurrent setup switches to login");
   state.configured = true; loginStatus = 200;
   await password.fill("password1"); await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.waitForURL(/#\/account$/); await page.getByText(/本设备/).waitFor(); await page.getByText(/127.0.0.1\(转发\)/).waitFor();
-  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.getByText("密码　上次修改 2026-10-18", { exact: true }).waitFor();
+  await page.waitForURL(/#\/account$/);
+  await page.getByText("本机转发", { exact: true }).waitFor();
+  await page.getByText(/上次修改 2026-10-18/).waitFor();
+  const shot = name => stableScreenshot(page, name, true, accountShots);
+  const menuButton = page.getByRole("button", { name: "账户菜单", exact: true });
+  const menu = page.getByRole("menu", { name: "账户菜单" });
   await checkCompactHeader(page, 760);
   await checkCompactHeader(page, 390);
-  await page.locator(".brand .account-link-compact").click();
-  assert.match(page.url(), /#\/account$/);
-  await stableScreenshot(page, "account-phone");
-  await checkAccountContrast(page);
-  await page.setViewportSize({ width: 1280, height: 900 });
-  const columns = await page.locator(".account-device").evaluateAll(rows => rows.map(row =>
-    [...row.children].map(cell => ({ x: cell.getBoundingClientRect().x, right: cell.getBoundingClientRect().right }))));
-  assert.equal(columns[0].length, 4);
-  for (let i = 0; i < 3; i++) {
-    assert(columns[0][i].right < columns[0][i + 1].x);
-    assert.equal(columns[0][i].x, columns[1][i].x, "desktop columns align across devices");
-  }
-  assert.equal(columns[0][3].right, columns[1][3].right, "actions align right");
-  await stableScreenshot(page, "account-light", false);
+  await shot("phone-light");
+  await menuButton.click();
+  await menu.getByText("本设备 192.168.1.2", { exact: true }).waitFor();
+  await shot("phone-menu");
+  await page.keyboard.press("Escape");
+  assert(await menuButton.evaluate(el => el === document.activeElement));
   await page.getByRole("radio", { name: "深色", exact: true }).click();
-  await stableScreenshot(page, "account-dark", false);
+  await shot("phone-dark");
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await shot("account-dark");
   await checkAccountContrast(page);
-  await checkCompactHeader(page, 390);
-  await stableScreenshot(page, "account-phone-dark");
-  await checkAccountContrast(page);
+  await menuButton.focus();
+  await page.keyboard.press("Enter");
+  assert(await menu.getByRole("menuitem").first().evaluate(el => el === document.activeElement));
+  await page.keyboard.press("ArrowDown");
+  assert(await menu.getByRole("menuitem").last().evaluate(el => el === document.activeElement));
+  await page.keyboard.press("ArrowDown");
+  assert(await menu.getByRole("menuitem").first().evaluate(el => el === document.activeElement));
+  await page.keyboard.press("End");
+  await page.keyboard.press("Home");
+  assert(await menu.getByRole("menuitem").first().evaluate(el => el === document.activeElement));
+  await shot("sidebar-menu-dark");
+  await checkLoginContrast(page);
+  await page.keyboard.press("Escape");
+  assert(await menuButton.evaluate(el => el === document.activeElement));
   await page.getByRole("radio", { name: "浅色", exact: true }).click();
-  pass("fixed date, four desktop columns, compact header and stable light/dark contrast");
-  pass("login, device list, forwarded address and narrow account page");
-  await page.locator(".account-device").getByRole("button", { name: "退出", exact: true }).click();
-  await page.getByText("设备已退出", { exact: true }).waitFor();
-  assert.equal(account.sessions.length, 1);
-  account.sessions.push({ ...otherDevice }); await page.reload();
+  await shot("account-light");
+  await menuButton.click();
+  await shot("sidebar-menu-light");
+  await checkLoginContrast(page);
+  await page.getByRole("heading", { name: "账户", exact: true }).click();
+  assert.equal(await menu.count(), 0);
+  await menuButton.click(); await page.keyboard.press("Tab");
+  assert.equal(await menu.count(), 0);
+  await menuButton.click();
+  await page.evaluate(() => { location.hash = "/updates"; });
+  await menu.waitFor({ state: "detached" });
+  assert.equal(await page.getByRole("navigation").getByRole("link", { name: "账户", exact: true }).count(), 0);
+  await menuButton.click();
+  await menu.getByRole("menuitem", { name: "账户与登录设备" }).click();
+  await page.waitForURL(/#\/account$/);
+  await page.getByText("本机转发", { exact: true }).waitFor();
+  logoutFail = true;
+  await menuButton.click(); await menu.getByRole("menuitem", { name: "退出登录" }).click();
+  await menu.getByRole("alert").waitFor();
+  logoutFail = false;
+  await page.keyboard.press("Escape");
+  pass("desktop and phone menu, keyboard wrapping, route/outside/Tab dismissal and logout failure");
+  account.sessions.push({ ...otherDevice, id: "curl", address: "100.88.1.5", userAgent: "curl/8.7.1" });
+  account.sessions.push({ ...otherDevice, id: "v6", address: "fd7a:115c:a1e0::1234", userAgent: "Playwright HeadlessChrome" });
+  await page.reload();
+  await page.getByText("命令行工具 · curl", { exact: true }).waitFor();
+  assert.equal(await page.getByText("Tailscale", { exact: true }).count(), 2);
+  await page.setViewportSize({ width: 2000, height: 1250 });
+  await shot("account-wide");
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const columns = await page.locator(".account-device").evaluateAll(rows => rows.map(row => [...row.querySelectorAll('[role="cell"]')].map(cell => cell.getBoundingClientRect().x)));
+  assert.deepEqual(columns[0].slice(0, 3), columns[1].slice(0, 3));
+  let releaseSessions;
+  sessionsWait = new Promise(resolve => { releaseSessions = resolve; });
+  await page.reload();
+  await page.locator(".account-skeleton").first().waitFor();
+  assert.equal(await page.locator(".account-skeleton").count(), 3);
+  sessionsFail = true; releaseSessions(); sessionsWait = undefined;
+  await page.getByText("无法读取登录设备", { exact: false }).waitFor();
+  sessionsFail = false;
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await page.getByText("命令行工具 · curl", { exact: true }).waitFor();
+  pass("tool names, Tailscale IPv4/IPv6, loopback, aligned columns and loading retry");
+  revokeFail = true;
+  const otherRow = page.locator(".account-device").filter({ hasText: "本机转发" });
+  await otherRow.getByRole("button", { name: "退出", exact: true }).click();
+  await otherRow.getByRole("alert").waitFor();
+  revokeFail = false;
+  await otherRow.getByRole("button", { name: "退出", exact: true }).click();
+  await otherRow.waitFor({ state: "detached" });
   await page.getByRole("button", { name: "退出其他设备", exact: true }).click();
-  await page.getByText("其他 1 个设备将退出，正在使用的 KVM 连接会断开。", { exact: true }).waitFor();
-  assert.equal(account.sessions.length, 2, "confirmation must precede revocation");
+  await page.getByText("其他 2 个设备将退出，正在使用的 KVM 连接会断开。", { exact: true }).waitFor();
+  assert.equal(account.sessions.length, 3);
   await page.getByRole("button", { name: "确认退出", exact: true }).click();
-  await page.getByText("其他设备已退出", { exact: true }).waitFor();
+  await page.getByText("仅本设备", { exact: true }).waitFor();
+  await shot("account-single-device");
   assert.equal(account.sessions.length, 1);
-  pass("single-device logout and confirmed logout of other devices");
+  pass("per-device failure recovery and confirmed logout of other devices");
   account.sessions.push({ ...otherDevice }); await page.reload();
+  const editPassword = page.getByRole("button", { name: "修改密码", exact: true });
+  await editPassword.click();
+  assert(await page.getByLabel("当前密码", { exact: true }).evaluate(el => el === document.activeElement));
+  await shot("password-dialog");
+  await page.keyboard.press("Escape");
+  assert(await editPassword.evaluate(el => el === document.activeElement));
+  await editPassword.click();
+  await page.locator(".auth-modal").click({ position: { x: 1, y: 1 } });
+  assert(await editPassword.evaluate(el => el === document.activeElement));
   await page.getByRole("button", { name: "修改密码", exact: true }).click();
   await page.getByLabel("当前密码", { exact: true }).fill("wrong"); await page.getByLabel("新密码", { exact: true }).fill("newpassword"); await page.getByLabel("确认新密码", { exact: true }).fill("newpassword"); await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByRole("dialog").getByText("当前密码错误", { exact: true }).waitFor();
@@ -372,12 +452,19 @@ try {
   await page.getByLabel("当前密码", { exact: true }).fill("password1"); await page.getByLabel("新密码", { exact: true }).fill("newpassword"); await page.getByLabel("确认新密码", { exact: true }).fill("newpassword"); await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByText("密码已修改，其他设备已退出", { exact: true }).waitFor();
   assert.equal(writes.at(-1).body.password, "newpassword"); assert.equal(await page.locator(".account-device").count(), 1);
-  pass("password change and other-device revocation");
+  await shot("success-banner");
+  await checkLoginContrast(page);
+  await page.getByRole("radio", { name: "深色", exact: true }).click();
+  await checkLoginContrast(page);
+  await page.getByRole("radio", { name: "浅色", exact: true }).click();
+  await page.clock.runFor(5000);
+  assert.equal(await page.locator(".account-success").count(), 0);
+  pass("password change, focus restoration and success auto-dismissal");
   await page.getByRole("button", { name: "修改用户名", exact: true }).click(); await page.getByLabel("当前密码", { exact: true }).fill("newpassword"); await page.getByLabel("新用户名").fill("operator"); await page.getByRole("button", { name: "保存", exact: true }).click(); await page.getByText("用户名已修改，其他设备已退出", { exact: true }).waitFor();
   pass("username change updates account");
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.getByRole("radio", { name: "深色", exact: true }).click();
-  await page.locator(".account-foot").getByRole("button", { name: "退出", exact: true }).click(); await page.waitForURL(/\/__vim4\/login/); await password.waitFor();
+  await menuButton.click(); await menu.getByRole("menuitem", { name: "退出登录", exact: true }).click(); await page.waitForURL(/\/__vim4\/login/); await password.waitFor();
   pass("logout returns to login");
   for (const next of ["//evil.test", "/\\evil.test", "https://evil.test"]) {
     state.authenticated = true; await page.goto(`${base}/__vim4/login?next=${encodeURIComponent(next)}`); await page.waitForURL(`${base}/#/overview`);
@@ -401,5 +488,5 @@ try {
   await page.getByRole("button", { name: "修改用户名", exact: true }).click(); await page.getByLabel("当前密码", { exact: true }).fill("password1"); await page.getByLabel("新用户名").fill("admin"); await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.waitForURL(/\/__vim4\/login/); await password.waitFor();
   pass("API 401 redirects an already running application");
-  console.log(`${count} auth scenarios passed; screenshots: ${shots}`);
+  console.log(`${count} auth scenarios passed; screenshots: ${shots}, ${accountShots}`);
 } finally { await browser.close(); }

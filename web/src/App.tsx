@@ -662,12 +662,11 @@ const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "network", title: "网络" },
   { id: "services", title: "底层服务", description: "重启 HDMI 采集会先暂停当前界面，完成后自动恢复。" },
   { id: "updates", title: "更新" },
-  { id: "account", title: "账户" },
 ];
 
 function pageFromHash(): PageId {
   const id = location.hash.replace(/^#\/?/, "");
-  return PAGES.some((p) => p.id === id) ? (id as PageId) : "overview";
+  return id === "account" || PAGES.some((p) => p.id === id) ? (id as PageId) : "overview";
 }
 
 function usePage() {
@@ -729,10 +728,10 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
         })}
       </nav>
       <div className="sidebar-foot">
-        <AccountRow />
-        <ThemeSwitch />
         <StatusDot tone={stale ? "critical" : status ? "good" : "warning"} label={stale ? "连接中断" : status ? status.hardware.hostname : "连接中"} />
         {status && <span className="mono">{status.hardware.kernel}</span>}
+        <ThemeSwitch />
+        <AccountRow />
       </div>
     </aside>
   );
@@ -856,7 +855,9 @@ export function App() {
     }
   }, [waiting, status, stale, page]);
 
-  const meta = PAGES.find((p) => p.id === page)!;
+  const meta = page === "account"
+    ? { title: "账户", description: "管理员账户用于登录管理面板。" }
+    : PAGES.find((p) => p.id === page)!;
   const hw = status?.hardware;
 
   return (
