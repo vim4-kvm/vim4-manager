@@ -167,16 +167,16 @@ function AppRow({
   );
 }
 
-function Readout({ label, value, detail, tone }: { label: string; value: string; detail?: string; tone?: Tone }) {
+function Readout({ label, value, detail, tone }: { label: string; value: ReactNode; detail?: string; tone?: Tone }) {
   return (
     <div className="readout">
       <dt>{label}</dt>
       <dd>
         <span className="readout-value">
           {tone && <span className={`lamp status-${tone}`} aria-hidden="true" />}
-          {value}
+          <span>{value}</span>
         </span>
-        {detail && <span className="readout-detail">{detail}</span>}
+        {detail && <span className="readout-detail" title={detail}>{detail}</span>}
       </dd>
     </div>
   );
@@ -186,16 +186,17 @@ function tempTone(c: number): Tone {
   return c >= 85 ? "critical" : c >= 70 ? "warning" : "good";
 }
 
-function LinkTiles({ hw, power }: { hw: Hardware; power: Status["power"] }) {
+function LinkTiles({ hw, power, now }: { hw: Hardware; power: Status["power"]; now: number }) {
   const contract = power?.bootContract;
   const h = hw.hdmi;
-  const hdmiValue = h.signal ? `${h.width}×${h.height}` : "无信号";
+  const hdmiValue = h.signal ? <>{h.width}×<wbr />{h.height}</> : "无信号";
   const hdmiDetail = h.signal
     ? [`${h.refreshHz?.toFixed(2).replace(/\.?0+$/, "")} Hz`, h.colorSpace, hdrLabel(h.hdr), h.audio ? "有声音" : "无声音"]
         .filter(Boolean)
         .join(" · ")
     : "检查被控机 HDMI 输出";
-  const capture = h.captureWidth ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
+  const capture = h.signal && h.captureWidth && h.captureHeight && (h.captureWidth !== h.width || h.captureHeight !== h.height)
+    ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
   const usbConfigured = hw.usb === "configured";
   return (
     <dl className="readouts">
@@ -209,12 +210,19 @@ function LinkTiles({ hw, power }: { hw: Hardware; power: Status["power"] }) {
       <Readout label="PD 协商"
         value={contract ? `${contract.voltageV} V / ${contract.currentA} A` : "暂无记录"}
         detail={contract ? `供电额度 ${contract.voltageV * contract.currentA} W · 本次开机` : "尚无可确认的协商结果"} />
-      <Readout label="开机时长" value={duration(hw.uptimeSeconds)} detail={`负载 ${hw.load1.toFixed(2)} · ${hw.cpus} 核`} />
+      <Readout label="开机时长" value={duration(hw.uptimeSeconds)} detail={`开机于 ${clockTime(now - hw.uptimeSeconds * 1000, now).slice(0, -3)}`} />
     </dl>
   );
 }
 
 const WINDOW_MS = 15 * 60 * 1000;
+
+function samplingDescription(history: Sample[]): string {
+  const span = (history.at(-1)?.t ?? 0) - (history[0]?.t ?? 0);
+  return span < 14.5 * 60000
+    ? `每 5 秒采样 · 已采样 ${Math.max(1, Math.floor(span / 60000))} 分钟，管理服务重启后重新开始`
+    : "每 5 秒采样，管理服务重启后重新开始";
+}
 
 const percent = (v: number) => `${Math.round(v)}%`;
 
@@ -247,25 +255,23 @@ function TrendCard({
   value,
   detail,
   tone,
-  wide,
   children,
 }: {
   title: string;
-  value: string;
+  value: ReactNode;
   detail: ReactNode;
   tone?: Tone;
-  wide?: boolean;
   children: ReactNode;
 }) {
   return (
-    <figure className={`trend${wide ? " trend-wide" : ""}`}>
+    <figure className="trend">
       <figcaption>
         <span className="trend-title">{title}</span>
         <span className="trend-value">
           {tone && <span className={`lamp status-${tone}`} aria-hidden="true" />}
           {value}
         </span>
-        <span className="trend-detail">{detail}</span>
+        <span className="trend-detail" title={typeof detail === "string" ? detail : undefined}>{detail}</span>
       </figcaption>
       {children}
     </figure>
@@ -279,6 +285,8 @@ function range(values: number[], format: (v: number) => string): string {
 
 function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; now: number }) {
   const [hover, setHover] = useState<number>();
+  const end = Math.max(now, history.at(-1)?.t ?? 0);
+  history = history.filter((s) => s.t >= end - WINDOW_MS);
   const series = (pick: (s: Sample) => number): Point[] => history.map((s) => ({ t: s.t, v: pick(s) }));
   const cpu = series((s) => s.cpu);
   const cpuPower = history.flatMap((s) => s.cpuPowerW == null ? [] : [{ t: s.t, v: s.cpuPowerW }]);
@@ -292,21 +300,19 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const lastTx = tx.length ? tx[tx.length - 1].v : 0;
   const lastRx = rx.length ? rx[rx.length - 1].v : 0;
   const netMax = niceCeil(Math.max(1e6, ...tx.map((p) => p.v), ...rx.map((p) => p.v)));
-  const end = Math.max(now, history.length ? history[history.length - 1].t : 0);
-  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover };
+  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover, height: 64, sampledFrom: history[0]?.t };
+  const percentageAxis = (points: Point[]) => {
+    const max = Math.max(0, ...points.map((p) => p.v)) * 1.2;
+    const upper = [25, 50, 100].find((v) => v >= max) ?? 100;
+    return { domain: [0, upper] as [number, number], ticks: [0, upper], tickFormat: (v: number) => v === 0 ? "0" : percent(v) };
+  };
   const memUsed = hw.memTotalKiB ? 1 - hw.memAvailableKiB / hw.memTotalKiB : 0;
   const lastCPU = cpu.length ? cpu[cpu.length - 1].v : undefined;
   const hottest = hw.zones.reduce<Zone | undefined>((a, z) => (!a || z.tempC > a.tempC ? z : a), undefined);
   return (
     <div className="trends">
       <TrendCard title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent)}`}>
-        <TrendChart label="CPU 使用率" points={cpu} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
-      </TrendCard>
-      <TrendCard title="CPU 动态功耗（估算）" value={lastPower == null ? "—" : watts(lastPower)}
-        detail={lastPower == null ? "暂无估算数据 · 需要连续两次有效采样" : "按频率驻留与各核利用率估算 · 不含静态功耗"}>
-        <TrendChart label="CPU 动态功耗估算" points={cpuPower} domain={[0, powerMax]}
-          ticks={[0, powerMax / 2, powerMax]} format={watts} maxGapMs={7500}
-          currentAvailable={lastPower != null} {...shared} />
+        <TrendChart label="CPU 使用率" points={cpu} {...percentageAxis(cpu)} format={percent} {...shared} />
       </TrendCard>
       <TrendCard
         title="内存"
@@ -314,7 +320,19 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
         detail={`可用 ${(hw.memAvailableKiB / 1048576).toFixed(1)} / ${(hw.memTotalKiB / 1048576).toFixed(1)} GiB`}
         tone={memUsed > 0.9 ? "critical" : memUsed > 0.75 ? "warning" : undefined}
       >
-        <TrendChart label="内存占用" points={mem} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
+        <TrendChart label="内存占用" points={mem} {...percentageAxis(mem)} format={percent} {...shared} />
+      </TrendCard>
+      <TrendCard title="网络" value={<><small>发送</small>{bitrate(lastTx)}</>} detail={
+        <span className="legend"><span className="legend-key" />发送（主要是视频）<span className="legend-key legend-key-muted" />接收 {bitrate(lastRx)}</span>
+      }>
+        <TrendChart label="网络发送" points={tx} compare={{ label: "接收", points: rx }}
+          domain={[0, netMax]} ticks={[0, netMax]} format={bitrate} tickFormat={bitrateTick} {...shared} />
+      </TrendCard>
+      <TrendCard title="CPU 动态功耗（估算）" value={lastPower == null ? "—" : watts(lastPower)}
+        detail={lastPower == null ? "暂无估算数据 · 需要连续两次有效采样" : "按频率驻留与各核利用率估算 · 不含静态功耗"}>
+        <TrendChart label="CPU 动态功耗估算" points={cpuPower} domain={[0, powerMax]}
+          ticks={[0, powerMax]} format={watts} maxGapMs={7500}
+          currentAvailable={lastPower != null} {...shared} />
       </TrendCard>
       <TrendCard
         title="SoC 温度"
@@ -324,7 +342,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
       >
         {(() => {
           const domain = tempDomain(temp.map((p) => p.v));
-          const ticks = [domain[0], (domain[0] + domain[1]) / 2, domain[1]];
+          const ticks = [domain[0], domain[1]];
           return <TrendChart label="SoC 温度" points={temp} domain={domain} ticks={ticks} format={celsius} {...shared} />;
         })()}
       </TrendCard>
@@ -333,30 +351,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
         value={hw.fanPercent > 0 ? `${hw.fanPercent}%` : "停转"}
         detail={hw.fanAuto ? "自动 · 占空比" : "手动 · 占空比"}
       >
-        <TrendChart label="风扇占空比" points={fan} domain={[0, 100]} ticks={[0, 50, 100]} format={percent} {...shared} />
-      </TrendCard>
-      <TrendCard
-        title="网络吞吐"
-        value={bitrate(lastTx)}
-        detail={
-          <span className="legend">
-            <span className="legend-key" />
-            发送（主要是视频）
-            <span className="legend-key legend-key-muted" />
-            接收 {bitrate(lastRx)}
-          </span>
-        }
-      >
-        <TrendChart
-          label="网络发送"
-          points={tx}
-          compare={{ label: "接收", points: rx }}
-          domain={[0, netMax]}
-          ticks={[0, netMax / 2, netMax]}
-          format={bitrate}
-          tickFormat={bitrateTick}
-          {...shared}
-        />
+        <TrendChart label="风扇占空比" points={fan} {...percentageAxis(fan)} format={percent} {...shared} />
       </TrendCard>
     </div>
   );
@@ -458,7 +453,8 @@ function clockTime(t: number, now: number): string {
 
 function EventList({ events, now }: { events: BoardEvent[]; now: number }) {
   const [all, setAll] = useState(false);
-  const shown = all ? events : events.slice(0, 8);
+  const shown = all ? events : events.slice(0, 5);
+  if (!events.length) return <p className="hint">暂无事件</p>;
   return (
     <>
       <ol className="events">
@@ -872,23 +868,23 @@ export function App() {
           <>
             {page === "overview" && hw && (
               <>
-                <ActiveApp status={status} now={now} />
-                <LinkTiles hw={hw} power={status.power} />
-                <Section title="最近 15 分钟" description="每 5 秒采样，管理服务重启后重新开始。">
+                <div className="card">
+                  <ActiveApp status={status} now={now} />
+                  <LinkTiles hw={hw} power={status.power} now={now} />
+                </div>
+                <Section title="最近 15 分钟" description={samplingDescription(status.history)}>
                   <BoardCharts hw={hw} history={status.history} now={now} />
                 </Section>
+                <Section title="最近事件" description="信号、USB、服务与操作记录，管理服务重启后清空。">
+                  <EventList events={status.events} now={now} />
+                </Section>
                 <div className="overview-columns">
-                  <Section title="最近事件" description="信号、USB、服务与操作记录，管理服务重启后清空。">
-                    <EventList events={status.events} now={now} />
+                  <Section title="网络">
+                    <NetworkList links={status.system.links} />
                   </Section>
-                  <div className="overview-side">
-                    <Section title="网络">
-                      <NetworkList links={status.system.links} />
-                    </Section>
-                    <Section title="存储与版本">
-                      <StorageAndVersions system={status.system} />
-                    </Section>
-                  </div>
+                  <Section title="存储与版本">
+                    <StorageAndVersions system={status.system} />
+                  </Section>
                 </div>
               </>
             )}

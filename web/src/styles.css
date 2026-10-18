@@ -262,8 +262,6 @@ main {
 /* Logical groups share a card shell; children remain flat inside it. */
 .card,
 .section,
-.lead,
-.readout,
 .apps,
 .wifi-card,
 .storage,
@@ -309,15 +307,6 @@ main {
 
 .section > :not(.section-head) + :not(.section-head) {
   margin-top: 0;
-}
-
-.trend:nth-child(odd):not(.trend-wide) {
-  border-right: 1px solid var(--rule);
-}
-
-.trend:last-child,
-.trends:has(> :last-child:nth-child(even)) > :nth-last-child(2) {
-  border-bottom: 0;
 }
 
 .table-card {
@@ -836,7 +825,7 @@ a:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 18px 20px;
+  padding: 18px var(--card-padding);
 }
 
 .lead > .muted {
@@ -865,7 +854,8 @@ a:hover {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
-  gap: 12px;
+  gap: 0;
+  border-top: 1px solid var(--rule);
 }
 
 .readout {
@@ -874,6 +864,10 @@ a:hover {
   gap: 6px;
   padding: 16px var(--card-padding) 20px;
   min-width: 0;
+}
+
+.readout + .readout {
+  border-left: 1px solid var(--rule);
 }
 
 .readout dt {
@@ -901,52 +895,79 @@ a:hover {
 .readout-detail {
   font-size: 12px;
   color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 /* Trends share the parent card's dividers. */
 .trends {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  overflow: hidden;
 }
 
 .trend {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   margin: 0;
   min-width: 0;
-  padding: 16px var(--card-padding) 20px;
-  border-bottom: 1px solid var(--rule);
+  padding: 16px 20px;
+  background: var(--surface);
 }
 
 .trend figcaption {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
   gap: 0 12px;
 }
 
 .trend-title {
   font-size: 13px;
-  font-weight: 600;
+  color: var(--ink-2);
 }
 
 .trend-value {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 22px;
-  font-weight: 620;
+  font-size: 20px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
 .trend-detail {
-  grid-column: 1;
+  grid-column: 1 / -1;
   font-size: 12px;
   color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-value small {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+/* Query the card rather than the viewport, which also includes the sidebar. */
+.section:has(> .trends) { container-type: inline-size; }
+@container (width < 960px) {
+  .trends { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (width < 600px) {
+  .trends { grid-template-columns: minmax(0, 1fr); }
+  .trend { padding: 14px 16px; }
 }
 
 /* Charts */
@@ -1044,27 +1065,29 @@ a:hover {
   color: var(--ink-3);
 }
 
-.trend-wide {
-  grid-column: 1 / -1;
+.chart-tooltip {
+  z-index: 2;
+  pointer-events: auto;
+  width: max-content;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 
 .chart-line-thin {
   stroke-width: 1.25;
 }
 
-/* Overview: events beside network and storage */
+/* Overview: network and storage follow the full-width event list. */
 .overview-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
 }
 
-.overview-side {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
+.overview-columns .table td:last-child {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .events {
@@ -2404,11 +2427,6 @@ a:hover {
 }
 
 @media (max-width: 960px) {
-  .readouts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .overview-columns,
   .hdr-panel,
   .fan-panel {
     grid-template-columns: 1fr;
@@ -2416,8 +2434,24 @@ a:hover {
   }
 }
 
+@media (width < 900px) {
+  .overview-columns { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (width < 720px) {
+  .readouts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .readout:nth-child(3) { border-left: 0; }
+  .readout:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+  .lead { justify-content: flex-end; }
+  .lead-title, .lead > .muted { flex-basis: 100%; }
+  .lead .button { white-space: nowrap; }
+}
+
 /* Narrow screens: the sidebar becomes a top bar with scrolling tabs. */
 @media (max-width: 760px) {
+  /* Keyboard focus must clear the sticky mobile navigation. */
+  .chart { scroll-margin-top: 112px; }
+
   :root {
     --card-padding: 16px;
   }
@@ -2429,14 +2463,6 @@ a:hover {
   .section-head p {
     flex-basis: 100%;
     order: 1;
-  }
-
-  .trend:nth-child(odd):not(.trend-wide) {
-    border-right: 0;
-  }
-
-  .trends > .trend:not(:last-child) {
-    border-bottom: 1px solid var(--rule);
   }
 
   .layout {
@@ -2475,10 +2501,6 @@ a:hover {
 
   main {
     padding: 24px 16px 48px;
-  }
-
-  .trends {
-    grid-template-columns: 1fr;
   }
 
   .app-row {
@@ -3506,12 +3528,6 @@ a:hover {
 
 .media-refresh:has(.disk-create) {
   flex-basis: 100%;
-}
-
-@media (max-width: 560px) {
-  .readouts {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .ts-urls {

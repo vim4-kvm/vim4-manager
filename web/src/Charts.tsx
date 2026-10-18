@@ -1,9 +1,8 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
-const HEIGHT = 112;
 const AXIS = 20;
 // Room on the left for y tick labels and on the right for the end dot ring.
-const PAD_LEFT = 30;
+const PAD_LEFT = 36;
 const PAD_RIGHT = 8;
 const PAD_TOP = 8;
 
@@ -47,6 +46,8 @@ export function TrendChart({
   onHover,
   maxGapMs = Infinity,
   currentAvailable = true,
+  height = 112,
+  sampledFrom,
 }: {
   label: string;
   points: Point[];
@@ -63,13 +64,19 @@ export function TrendChart({
   /** Do not connect across unavailable sampling intervals. */
   maxGapMs?: number;
   currentAvailable?: boolean;
+  height?: number;
+  /** History start, including samples whose value is unavailable for this series. */
+  sampledFrom?: number;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const gradientId = useId();
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
   const start = end - windowMs;
   const x = (t: number) => PAD_LEFT + ((t - start) / windowMs) * plotW;
-  const y = (v: number) => PAD_TOP + (1 - (Math.min(domain[1], Math.max(domain[0], v)) - domain[0]) / (domain[1] - domain[0])) * HEIGHT;
+  const y = (v: number) => PAD_TOP + (1 - (Math.min(domain[1], Math.max(domain[0], v)) - domain[0]) / (domain[1] - domain[0])) * height;
+  const firstSample = sampledFrom ?? points[0]?.t;
+  const unsampledWidth = firstSample !== undefined && firstSample - start > 10000
+    ? Math.min(plotW, x(firstSample) - PAD_LEFT) : 0;
   const visible = points.filter((p) => p.t >= start);
   const segments: Point[][] = [];
   for (const point of visible) {
@@ -80,7 +87,7 @@ export function TrendChart({
   const path = (segment: Point[]) => segment.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
   const line = segments.map(path).join("");
   const area = segments.filter((segment) => segment.length > 1).map((segment) =>
-    `${path(segment)}L${x(segment[segment.length - 1].t).toFixed(1)},${PAD_TOP + HEIGHT}L${x(segment[0].t).toFixed(1)},${PAD_TOP + HEIGHT}Z`).join("");
+    `${path(segment)}L${x(segment[segment.length - 1].t).toFixed(1)},${PAD_TOP + height}L${x(segment[0].t).toFixed(1)},${PAD_TOP + height}Z`).join("");
   const last = visible[visible.length - 1];
   const other = compare?.points.filter((p) => p.t >= start) ?? [];
   const otherLine = other.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
@@ -88,6 +95,17 @@ export function TrendChart({
   const nearest = (t: number) =>
     visible.reduce<Point | undefined>((best, p) => (!best || Math.abs(p.t - t) < Math.abs(best.t - t) ? p : best), undefined);
   const active = hover === undefined ? undefined : nearest(hover);
+  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [tooltipLeft, setTooltipLeft] = useState(0);
+  useLayoutEffect(() => {
+    if (!active) return;
+    const tip = tooltipRef.current?.getBoundingClientRect();
+    if (!tip) return;
+    const anchor = PAD_LEFT + ((active.t - start) / windowMs) * plotW;
+    const preferred = anchor + (anchor > width / 2 ? -tip.width - 8 : 8);
+    // Measure the full tooltip, including the optional receive rate, before clamping.
+    setTooltipLeft(Math.max(0, Math.min(preferred, width - tip.width)));
+  }, [active?.t, width, start, windowMs, plotW]);
 
   const move = (e: PointerEvent<SVGSVGElement>) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -97,6 +115,7 @@ export function TrendChart({
   const key = (e: KeyboardEvent<SVGSVGElement>) => {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
+    ref.current?.scrollIntoView({ block: "nearest" });
     const index = active ? visible.indexOf(active) : visible.length;
     const next = visible[Math.min(visible.length - 1, Math.max(0, index + (e.key === "ArrowLeft" ? -1 : 1)))];
     onHover(next?.t);
@@ -111,16 +130,15 @@ export function TrendChart({
   const xTicks = [minutes, (minutes * 2) / 3, minutes / 3, 0];
 
   return (
-    <div className="chart" ref={ref}>
+    <div className="chart" ref={ref} onPointerLeave={() => onHover(undefined)}>
       {width > 0 && (
         <svg
           width={width}
-          height={PAD_TOP + HEIGHT + AXIS}
+          height={PAD_TOP + height + AXIS}
           role="img"
           aria-label={summary}
           tabIndex={0}
           onPointerMove={move}
-          onPointerLeave={() => onHover(undefined)}
           onBlur={() => onHover(undefined)}
           onKeyDown={key}
         >
@@ -130,6 +148,10 @@ export function TrendChart({
               <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
             </linearGradient>
           </defs>
+          {unsampledWidth > 0 && <>
+            <rect className="chart-unsampled" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} fill="var(--hover)" />
+            {unsampledWidth >= 96 && <text className="chart-tick" x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">尚未采样</text>}
+          </>}
           {ticks.map((v) => (
             <g key={v}>
               <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
@@ -143,7 +165,7 @@ export function TrendChart({
               key={m}
               className="chart-tick"
               x={x(end - m * 60000)}
-              y={PAD_TOP + HEIGHT + 14}
+              y={PAD_TOP + height + 14}
               textAnchor={m === 0 ? "end" : m === minutes ? "start" : "middle"}
             >
               {m === 0 ? "现在" : `${Math.round(m)} 分钟前`}
@@ -154,7 +176,7 @@ export function TrendChart({
           <path className="chart-line" d={line} />
           {active && (
             <>
-              <line className="chart-crosshair" x1={x(active.t)} x2={x(active.t)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+              <line className="chart-crosshair" x1={x(active.t)} x2={x(active.t)} y1={PAD_TOP} y2={PAD_TOP + height} />
               <circle className="chart-dot" cx={x(active.t)} cy={y(active.v)} r={4} />
             </>
           )}
@@ -164,12 +186,8 @@ export function TrendChart({
       {active && width > 0 && (
         <div
           className="chart-tooltip"
-          // Beside the crosshair, flipping left in the right half so it stays inside the plot.
-          style={{
-            left: x(active.t),
-            top: PAD_TOP,
-            transform: x(active.t) > PAD_LEFT + plotW / 2 ? "translateX(calc(-100% - 8px))" : "translateX(8px)",
-          }}
+          ref={tooltipRef}
+          style={{ left: tooltipLeft, top: PAD_TOP }}
         >
           <strong>{format(active.v)}</strong>
           {compare && (
