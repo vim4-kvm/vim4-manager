@@ -27,6 +27,7 @@ func store(t *testing.T) *Store {
 	}
 	return s
 }
+
 func setup(t *testing.T, s *Store) string {
 	t.Helper()
 	token, e := s.Setup(context.Background(), lan, "test", "admin", "password1")
@@ -40,7 +41,24 @@ func TestSourceNextAndPasswordBoundaries(t *testing.T) {
 	for _, v := range []struct {
 		address string
 		allowed bool
-	}{{"192.168.1.1", true}, {"10.0.0.1", true}, {"172.16.0.1", true}, {"172.32.0.1", false}, {"169.254.1.1", true}, {"fe80::1", true}, {"fd12::1", true}, {"fc00::1", true}, {"fd7a:115c:a1e0::1", false}, {"100.64.0.1", false}, {"100.127.255.255", false}, {"127.0.0.2", false}, {"::1", false}, {"8.8.8.8", false}, {"::ffff:192.168.1.1", true}, {"::ffff:100.64.0.1", false}} {
+	}{
+		{"192.168.1.1", true},
+		{"10.0.0.1", true},
+		{"172.16.0.1", true},
+		{"172.32.0.1", false},
+		{"169.254.1.1", true},
+		{"fe80::1", true},
+		{"fd12::1", true},
+		{"fc00::1", true},
+		{"fd7a:115c:a1e0::1", false},
+		{"100.64.0.1", false},
+		{"100.127.255.255", false},
+		{"127.0.0.2", false},
+		{"::1", false},
+		{"8.8.8.8", false},
+		{"::ffff:192.168.1.1", true},
+		{"::ffff:100.64.0.1", false},
+	} {
 		if LAN(netip.MustParseAddr(v.address)) != v.allowed {
 			t.Error(v)
 		}
@@ -64,7 +82,13 @@ func TestSourceNextAndPasswordBoundaries(t *testing.T) {
 	for _, v := range []struct {
 		peer, proto string
 		secure      bool
-	}{{"127.0.0.1:1", "https", true}, {"[::1]:1", "https", true}, {"[::ffff:127.0.0.1]:1", "https", true}, {"192.168.1.1:1", "https", false}, {"127.0.0.1:1", "http", false}} {
+	}{
+		{"127.0.0.1:1", "https", true},
+		{"[::1]:1", "https", true},
+		{"[::ffff:127.0.0.1]:1", "https", true},
+		{"192.168.1.1:1", "https", false},
+		{"127.0.0.1:1", "http", false},
+	} {
 		r := httptest.NewRequest("GET", "/", nil)
 		r.RemoteAddr = v.peer
 		r.Header.Set("X-Forwarded-Proto", v.proto)
@@ -73,6 +97,7 @@ func TestSourceNextAndPasswordBoundaries(t *testing.T) {
 		}
 	}
 }
+
 func TestSessionPersistenceExpiryAndRevocation(t *testing.T) {
 	s := store(t)
 	token := setup(t, s)
@@ -112,8 +137,12 @@ func TestSessionPersistenceExpiryAndRevocation(t *testing.T) {
 		age, idle time.Duration
 		valid     bool
 	}{
-		{"LAN idle inside", lan, 6 * 24 * time.Hour, 6 * 24 * time.Hour, true}, {"LAN idle expired", lan, 7 * 24 * time.Hour, 7 * 24 * time.Hour, false}, {"LAN absolute", lan, 30 * 24 * time.Hour, time.Minute, false},
-		{"remote idle inside", remote, 59 * time.Minute, 59 * time.Minute, true}, {"remote idle expired", remote, time.Hour, time.Hour, false}, {"remote absolute", remote, 24 * time.Hour, time.Minute, false},
+		{"LAN idle inside", lan, 6 * 24 * time.Hour, 6 * 24 * time.Hour, true},
+		{"LAN idle expired", lan, 7 * 24 * time.Hour, 7 * 24 * time.Hour, false},
+		{"LAN absolute", lan, 30 * 24 * time.Hour, time.Minute, false},
+		{"remote idle inside", remote, 59 * time.Minute, 59 * time.Minute, true},
+		{"remote idle expired", remote, time.Hour, time.Hour, false},
+		{"remote absolute", remote, 24 * time.Hour, time.Minute, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			s.mu.Lock()
@@ -131,6 +160,7 @@ func TestSessionPersistenceExpiryAndRevocation(t *testing.T) {
 		})
 	}
 }
+
 func TestSessionLimitAndCredentialChanges(t *testing.T) {
 	s := store(t)
 	first := setup(t, s)
@@ -170,6 +200,7 @@ func TestSessionLimitAndCredentialChanges(t *testing.T) {
 		t.Fatal("current session not persisted with new version", e)
 	}
 }
+
 func TestLimiter(t *testing.T) {
 	var l limiter
 	now := time.Now()
@@ -213,6 +244,37 @@ func TestLimiter(t *testing.T) {
 		t.Fatal("global decay")
 	}
 }
+
+func TestIPv6RateLimitSharesSubnet(t *testing.T) {
+	var limits limiter
+	now := time.Now()
+	for _, address := range []string{
+		"2001:db8:1234:5678::1", "2001:db8:1234:5678::2", "2001:db8:1234:5678::3",
+		"2001:db8:1234:5678::4", "2001:db8:1234:5678:ffff:ffff:ffff:ffff",
+	} {
+		limits.result(netip.MustParseAddr(address), now, false)
+	}
+	if retry, _ := limits.begin(netip.MustParseAddr("2001:db8:1234:5678::99"), now); retry != 30 {
+		t.Fatalf("rotating interface addresses bypassed the subnet lock: %d", retry)
+	}
+	if retry, _ := limits.check(netip.MustParseAddr("2001:db8:1234:5679::1"), now); retry != 0 {
+		t.Fatalf("adjacent /64 was locked: %d", retry)
+	}
+	limits.result(netip.MustParseAddr("2001:db8:1234:5678::99"), now, true)
+	if retry, _ := limits.check(netip.MustParseAddr("2001:db8:1234:5678::1"), now); retry != 0 {
+		t.Fatal("successful login did not reset the subnet bucket")
+	}
+	for i := 0; i < 5; i++ {
+		limits.result(netip.MustParseAddr("::ffff:192.168.1.2"), now, false)
+	}
+	if retry, _ := limits.check(lan, now); retry != 30 {
+		t.Fatal("IPv4-mapped address did not share the IPv4 bucket")
+	}
+	if retry, _ := limits.check(netip.MustParseAddr("192.168.1.3"), now); retry != 0 {
+		t.Fatal("IPv4 addresses must keep independent buckets")
+	}
+}
+
 func TestHashAdmissionAndCancellation(t *testing.T) {
 	h := newHasher()
 	for i := 0; i < 10; i++ {
@@ -235,6 +297,7 @@ func TestHashAdmissionAndCancellation(t *testing.T) {
 		t.Fatal("cancelled waiter leaked")
 	}
 }
+
 func TestConcurrentSetupAndState(t *testing.T) {
 	s := store(t)
 	w := httptest.NewRecorder()
@@ -268,12 +331,17 @@ func TestConcurrentSetupAndState(t *testing.T) {
 		t.Fatal(a, b)
 	}
 }
+
 func TestRequestCancellationAndLoginErrors(t *testing.T) {
 	s := store(t)
 	token := setup(t, s)
 	entered := make(chan struct{})
 	done := make(chan struct{})
-	handler := s.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { close(entered); <-r.Context().Done(); close(done) }))
+	handler := s.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-r.Context().Done()
+		close(done)
+	}))
 	r := httptest.NewRequest("GET", "/api/status", nil)
 	r.RemoteAddr = "192.168.1.2:1"
 	r.AddCookie(&http.Cookie{Name: CookieName, Value: token})
@@ -307,6 +375,7 @@ func TestRequestCancellationAndLoginErrors(t *testing.T) {
 		t.Fatal(e)
 	}
 }
+
 func TestPasswordCommandAndRunningReload(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("command ownership requires the deployment khadas account")
@@ -316,8 +385,14 @@ func TestPasswordCommandAndRunningReload(t *testing.T) {
 	v := s.Authenticate(token, lan)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
-	go func() { s.Run(ctx); close(done) }()
-	defer func() { cancel(); <-done }()
+	go func() {
+		s.Run(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
 	input, e := os.CreateTemp(t.TempDir(), "stdin")
 	if e != nil {
 		t.Fatal(e)

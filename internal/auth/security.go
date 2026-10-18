@@ -50,19 +50,23 @@ func Peer(remote string) netip.Addr {
 	}
 	return p.Addr().Unmap()
 }
+
 func LAN(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	return ip.IsValid() && !ip.IsLoopback() && !board.IsTailscaleAddress(ip) && (ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
+
 func Secure(r *http.Request) bool {
 	return r.TLS != nil || (Peer(r.RemoteAddr).IsLoopback() && r.Header.Get("X-Forwarded-Proto") == "https")
 }
+
 func Next(path string) string {
 	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") || strings.ContainsAny(path, "\\\r\n\t") {
 		return "/"
 	}
 	return path
 }
+
 func random(n int) string {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -77,7 +81,10 @@ type hasher struct {
 	admitted chan struct{}
 }
 
-func newHasher() *hasher { return &hasher{make(chan struct{}, 2), make(chan struct{}, 10)} }
+func newHasher() *hasher {
+	return &hasher{make(chan struct{}, 2), make(chan struct{}, 10)}
+}
+
 func (h *hasher) hash(ctx context.Context, password, salt string) (string, error) {
 	select {
 	case h.admitted <- struct{}{}:
@@ -97,11 +104,13 @@ func (h *hasher) hash(ctx context.Context, password, salt string) (string, error
 	}
 	return base64.RawStdEncoding.EncodeToString(key), nil
 }
+
 func (h *hasher) encode(ctx context.Context, password string) (string, error) {
 	salt := random(16)
 	key, e := h.hash(ctx, password, salt)
 	return hashPrefix + base64.RawStdEncoding.EncodeToString([]byte(salt)) + "$" + key, e
 }
+
 func parseHash(encoded string) (string, string, error) {
 	parts := strings.Split(strings.TrimPrefix(encoded, hashPrefix), "$")
 	if !strings.HasPrefix(encoded, hashPrefix) || len(parts) != 2 {
@@ -117,6 +126,7 @@ func parseHash(encoded string) (string, string, error) {
 	}
 	return string(salt), parts[1], nil
 }
+
 func (h *hasher) verify(ctx context.Context, password, encoded string) (bool, error) {
 	salt, expected, err := parseHash(encoded)
 	if err != nil {
@@ -130,6 +140,7 @@ type attempts struct {
 	failures    int
 	last, until time.Time
 }
+
 type limiter struct {
 	mu       sync.Mutex
 	ips      map[string]attempts
@@ -137,17 +148,24 @@ type limiter struct {
 }
 
 func bucket(ip netip.Addr) string {
+	ip = ip.Unmap()
 	if ip.IsLoopback() {
 		return "loopback"
 	}
+	if ip.Is6() {
+		return netip.PrefixFrom(ip.WithZone(""), 64).Masked().String()
+	}
 	return ip.String()
 }
+
 func (l *limiter) check(ip netip.Addr, now time.Time) (int, bool) {
 	return l.inspect(ip, now, false)
 }
+
 func (l *limiter) begin(ip netip.Addr, now time.Time) (int, bool) {
 	return l.inspect(ip, now, true)
 }
+
 func (l *limiter) inspect(ip netip.Addr, now time.Time, attempt bool) (int, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -159,6 +177,7 @@ func (l *limiter) inspect(ip netip.Addr, now time.Time, attempt bool) (int, bool
 	}
 	return max(0, int(a.until.Sub(now).Seconds()+0.999)), len(l.failures) > 50
 }
+
 func (l *limiter) prune(now time.Time) {
 	for k, a := range l.ips {
 		if now.Sub(a.last) >= 10*time.Minute {
@@ -171,6 +190,7 @@ func (l *limiter) prune(now time.Time) {
 	}
 	l.failures = l.failures[i:]
 }
+
 func (l *limiter) result(ip netip.Addr, now time.Time, ok bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

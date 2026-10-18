@@ -29,7 +29,7 @@ import { DiskPanel } from "./DiskPanel";
 import { StoragePanel } from "./StoragePanel";
 import { DevelopmentTag, isDevelopmentVersion } from "./DevelopmentTag";
 import { ThemeSwitch } from "./theme";
-import { AccountPanel, AccountRow } from "./AccountPanel";
+import { AccountLink, AccountPanel, AccountRow } from "./AccountPanel";
 
 const POLL_MS = 3000;
 
@@ -643,7 +643,12 @@ const ICONS: Record<PageId, ReactNode> = {
     </>
   ),
   updates: <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />,
-  account: <><circle cx="12" cy="7" r="4"/><path d="M4 22v-3a8 8 0 0 1 16 0v3"/></>,
+  account: (
+    <>
+      <circle cx="12" cy="7" r="4" />
+      <path d="M4 22v-3a8 8 0 0 1 16 0v3" />
+    </>
+  ),
 };
 
 const PAGES: { id: PageId; title: string; description?: string }[] = [
@@ -704,6 +709,7 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
         <span className="brand-icon" aria-hidden="true">V4</span>
         <span className="brand-mark">VIM4</span>
         <span className="brand-name">KVM</span>
+        <AccountLink compact />
         <ThemeSwitch compact />
       </div>
       <nav aria-label="页面">

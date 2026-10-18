@@ -17,7 +17,11 @@ func TestAuthenticatedManagerBoundaries(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	handler := AuthenticatedHandler(&board.Service{}, fstest.MapFS{"login.html": {Data: []byte("login")}, "__vim4/assets/login.js": {Data: []byte("login-script")}}, s)
+	assets := fstest.MapFS{
+		"login.html":             {Data: []byte("login")},
+		"__vim4/assets/login.js": {Data: []byte("login-script")},
+	}
+	handler := AuthenticatedHandler(&board.Service{}, assets, s)
 	for _, path := range []string{"/__vim4/login", "/__vim4/assets/login.js"} {
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, httptest.NewRequest("GET", path, nil))

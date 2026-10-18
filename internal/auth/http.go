@@ -14,13 +14,18 @@ const CookieName = "vim4_session"
 
 type sessionKey struct{}
 
-func Current(r *http.Request) *Session { v, _ := r.Context().Value(sessionKey{}).(*Session); return v }
+func Current(r *http.Request) *Session {
+	v, _ := r.Context().Value(sessionKey{}).(*Session)
+	return v
+}
+
 func response(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
+
 func failure(w http.ResponseWriter, e error) {
 	code := 400
 	var locked *LockedError
@@ -37,13 +42,23 @@ func failure(w http.ResponseWriter, e error) {
 	}
 	response(w, code, map[string]string{"error": e.Error()})
 }
+
 func (s *Store) cookie(w http.ResponseWriter, r *http.Request, token string) {
 	age := 30 * 24 * 3600
 	if token == "" {
 		age = -1
 	}
-	http.SetCookie(w, &http.Cookie{Name: CookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: Secure(r), MaxAge: age})
+	http.SetCookie(w, &http.Cookie{
+		Name:     CookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   Secure(r),
+		MaxAge:   age,
+	})
 }
+
 func (s *Store) session(r *http.Request) *Session {
 	c, e := r.Cookie(CookieName)
 	if e != nil {
@@ -107,7 +122,15 @@ func (s *Store) Routes() http.Handler {
 		if v != nil {
 			username = c.Username
 		}
-		response(w, 200, map[string]any{"configured": s.Configured(), "authenticated": v != nil, "username": username, "secure": Secure(r), "setupAllowed": LAN(Peer(r.RemoteAddr)), "retryAfter": retry, "hostname": hostname})
+		response(w, 200, map[string]any{
+			"configured":    s.Configured(),
+			"authenticated": v != nil,
+			"username":      username,
+			"secure":        Secure(r),
+			"setupAllowed":  LAN(Peer(r.RemoteAddr)),
+			"retryAfter":    retry,
+			"hostname":      hostname,
+		})
 	})
 	for _, action := range []string{"login", "setup"} {
 		mux.HandleFunc("POST /__vim4/api/auth/"+action, func(w http.ResponseWriter, r *http.Request) {
@@ -148,15 +171,27 @@ func (s *Store) Routes() http.Handler {
 	})))
 	return mux
 }
+
 func (s *Store) AccountRoutes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/account/sessions", func(w http.ResponseWriter, r *http.Request) {
 		rows := []map[string]any{}
 		for _, v := range s.Sessions() {
-			rows = append(rows, map[string]any{"id": v.ID, "address": v.Address, "userAgent": v.UserAgent, "created": v.Created, "lastActive": v.LastActive, "current": v.ID == Current(r).ID})
+			rows = append(rows, map[string]any{
+				"id":         v.ID,
+				"address":    v.Address,
+				"userAgent":  v.UserAgent,
+				"created":    v.Created,
+				"lastActive": v.LastActive,
+				"current":    v.ID == Current(r).ID,
+			})
 		}
 		c := s.Credentials()
-		response(w, 200, map[string]any{"username": c.Username, "passwordChanged": c.PasswordChanged, "sessions": rows})
+		response(w, 200, map[string]any{
+			"username":        c.Username,
+			"passwordChanged": c.PasswordChanged,
+			"sessions":        rows,
+		})
 	})
 	for _, action := range []string{"revoke", "logout-others", "password", "username"} {
 		mux.HandleFunc("POST /api/account/"+action, func(w http.ResponseWriter, r *http.Request) {

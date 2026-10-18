@@ -23,6 +23,7 @@ type Credentials struct {
 	Version         string    `json:"sessionsVersion"`
 	PasswordChanged time.Time `json:"passwordChanged"`
 }
+
 type Session struct {
 	ID         string    `json:"id"`
 	Digest     string    `json:"digest"`
@@ -33,10 +34,12 @@ type Session struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 }
+
 type sessionFile struct {
 	Version  string     `json:"sessionsVersion"`
 	Sessions []*Session `json:"sessions"`
 }
+
 type Store struct {
 	mu          sync.Mutex
 	dir         string
@@ -72,11 +75,17 @@ func atomicJSON(path string, value any) error {
 	}
 	return os.Rename(f.Name(), path)
 }
+
 func Open(dir string) (*Store, error) {
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return nil, e
 	}
-	s := &Store{dir: dir, sessions: map[string]*Session{}, now: time.Now, hashes: newHasher()}
+	s := &Store{
+		dir:      dir,
+		sessions: map[string]*Session{},
+		now:      time.Now,
+		hashes:   newHasher(),
+	}
 	if e := s.reload(); e != nil {
 		return nil, e
 	}
@@ -100,6 +109,7 @@ func Open(dir string) (*Store, error) {
 	}
 	return s, nil
 }
+
 func (s *Store) reload() error {
 	info, e := os.Stat(filepath.Join(s.dir, "auth.json"))
 	if os.IsNotExist(e) {
@@ -162,7 +172,13 @@ func (s *Store) Run(ctx context.Context) {
 		}
 	}
 }
-func (s *Store) Close() error { s.mu.Lock(); defer s.mu.Unlock(); return s.save() }
+
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.save()
+}
+
 func (s *Store) save() error {
 	rows := make([]*Session, 0, len(s.sessions))
 	for _, v := range s.sessions {
@@ -174,12 +190,19 @@ func (s *Store) save() error {
 	}
 	return e
 }
-func (s *Store) Credentials() Credentials { s.mu.Lock(); defer s.mu.Unlock(); return s.credentials }
+
+func (s *Store) Credentials() Credentials {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.credentials
+}
+
 func (s *Store) Configured() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.credentials.Version != "" || s.loadError != nil
 }
+
 func (s *Store) revokeExcept(id string) {
 	for k, v := range s.sessions {
 		if v.ID != id {
@@ -188,10 +211,12 @@ func (s *Store) revokeExcept(id string) {
 		}
 	}
 }
+
 func digest(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
 }
+
 func (s *Store) create(ip netip.Addr, agent string) (string, error) {
 	if len(s.sessions) >= 20 {
 		var oldest *Session
@@ -204,7 +229,14 @@ func (s *Store) create(ip netip.Addr, agent string) (string, error) {
 		delete(s.sessions, oldest.Digest)
 	}
 	token := random(32)
-	v := &Session{ID: random(16), Digest: digest(token), Address: ip.String(), UserAgent: agent, Created: s.now(), LastActive: s.now()}
+	v := &Session{
+		ID:         random(16),
+		Digest:     digest(token),
+		Address:    ip.String(),
+		UserAgent:  agent,
+		Created:    s.now(),
+		LastActive: s.now(),
+	}
 	v.ctx, v.cancel = context.WithCancel(context.Background())
 	s.sessions[v.Digest] = v
 	if e := s.save(); e != nil {
@@ -214,6 +246,7 @@ func (s *Store) create(ip netip.Addr, agent string) (string, error) {
 	}
 	return token, nil
 }
+
 func (s *Store) Authenticate(token string, ip netip.Addr) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -237,6 +270,7 @@ func (s *Store) Authenticate(token string, ip netip.Addr) *Session {
 	copy := *v
 	return &copy
 }
+
 func (s *Store) Sessions() []Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -247,6 +281,7 @@ func (s *Store) Sessions() []Session {
 	sort.Slice(out, func(i, j int) bool { return out[i].LastActive.After(out[j].LastActive) })
 	return out
 }
+
 func (s *Store) Revoke(id string, others bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -261,7 +296,10 @@ func (s *Store) Revoke(id string, others bool) error {
 
 type LockedError struct{ RetryAfter int }
 
-func (e *LockedError) Error() string { return "尝试次数过多" }
+func (e *LockedError) Error() string {
+	return "尝试次数过多"
+}
+
 func (s *Store) verify(ctx context.Context, ip netip.Addr, username, password string) (Credentials, error) {
 	retry, slow := s.limits.begin(ip, s.now())
 	if retry > 0 {
@@ -298,6 +336,7 @@ func (s *Store) verify(ctx context.Context, ip netip.Addr, username, password st
 	}
 	return c, nil
 }
+
 func (s *Store) Login(ctx context.Context, ip netip.Addr, agent, username, password string) (string, error) {
 	c, e := s.verify(ctx, ip, username, password)
 	if e != nil {
@@ -310,6 +349,7 @@ func (s *Store) Login(ctx context.Context, ip netip.Addr, agent, username, passw
 	}
 	return s.create(ip, agent)
 }
+
 func (s *Store) Setup(ctx context.Context, ip netip.Addr, agent, username, password string) (string, error) {
 	if !LAN(ip) {
 		return "", errors.New("请在局域网内完成首次设置")
@@ -337,6 +377,7 @@ func (s *Store) Setup(ctx context.Context, ip netip.Addr, agent, username, passw
 	}
 	return s.create(ip, agent)
 }
+
 func (s *Store) writeCredentials(c Credentials) error {
 	if e := atomicJSON(filepath.Join(s.dir, "auth.json"), c); e != nil {
 		return e
@@ -373,6 +414,7 @@ func (s *Store) SetPassword(ctx context.Context, username, password string) erro
 	s.revokeExcept("")
 	return s.save()
 }
+
 func (s *Store) Change(ctx context.Context, ip netip.Addr, current *Session, password, newUsername, newPassword string) error {
 	c, e := s.verify(ctx, ip, s.Credentials().Username, password)
 	if e != nil {

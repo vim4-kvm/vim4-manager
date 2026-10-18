@@ -7,11 +7,57 @@ await mkdir(shots, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 let count = 0;
 function pass(name) { console.log(`PASS ${++count}: ${name}`); }
+
+async function stableScreenshot(page, name, fullPage = true) {
+  await page.waitForFunction(() => {
+    const themeSettled = !document.documentElement.classList.contains("theme-switching");
+    const noDialog = !document.querySelector(".auth-modal");
+    const animationsSettled = document.getAnimations().every(animation =>
+      animation.playState !== "running" || animation.effect.getTiming().iterations === Infinity);
+    return themeSettled && noDialog && animationsSettled;
+  });
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await page.screenshot({ path: `${shots}/${name}.png`, fullPage });
+}
+
+async function checkAccountContrast(page) {
+  const contrasts = await page.evaluate(() => {
+    function luminance(color) {
+      const channels = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(value => {
+        value /= 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      });
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    }
+    return [[".account-card h3", ".account-card"], [".account-card p", ".account-card"], [".brand-mark", ".sidebar"]].map(([text, background]) => {
+      const foreground = luminance(getComputedStyle(document.querySelector(text)).color);
+      const surface = luminance(getComputedStyle(document.querySelector(background)).backgroundColor);
+      return (Math.max(foreground, surface) + 0.05) / (Math.min(foreground, surface) + 0.05);
+    });
+  });
+  assert(contrasts.every(value => value >= 4.5), `account and brand contrast: ${contrasts}`);
+}
+
+async function checkCompactHeader(page, width) {
+  await page.setViewportSize({ width, height: 844 });
+  const icon = await page.locator(".brand .account-link-compact").boundingBox();
+  const theme = await page.locator(".brand .theme-switch-compact").boundingBox();
+  assert(icon && theme);
+  assert(icon.x + icon.width <= theme.x, "account icon precedes theme control");
+  assert(Math.abs(icon.y + icon.height / 2 - theme.y - theme.height / 2) <= 1, "header controls vertically align");
+  assert(await page.locator(".sidebar-foot").isHidden());
+  assert(await page.getByRole("button", { name: "退出登录", exact: true }).isVisible());
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+}
+
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC" });
   let state = { configured: true, authenticated: false, username: "admin", secure: false, setupAllowed: true, retryAfter: 0, hostname: "vim4" };
   let loginStatus = 401;
-  let account = { username: "admin", passwordChanged: new Date().toISOString(), sessions: [
+  let account = { username: "admin", passwordChanged: "2026-10-18T12:00:00Z", sessions: [
     { id: "current", current: true, address: "192.168.1.2", userAgent: "Mozilla Macintosh Chrome/120", lastActive: new Date().toISOString() },
     { id: "other", current: false, address: "127.0.0.1", userAgent: "Mozilla iPhone Safari/17", lastActive: new Date(Date.now() - 7200000).toISOString() },
   ] };
@@ -68,13 +114,13 @@ try {
   pass("busy and network error messages");
   state.setupAllowed = false; await page.reload();
   await page.getByText(/此连接未加密/).waitFor();
-  await page.screenshot({ path: `${shots}/login-warning.png`, fullPage: true });
+  await stableScreenshot(page, "login-warning");
   state.secure = true; await page.reload(); await password.waitFor();
   assert.equal(await page.getByText(/此连接未加密/).count(), 0);
   pass("unencrypted warning only on insecure non-LAN access");
   state = { ...state, configured: false, setupAllowed: false };
   await page.reload(); await page.getByText(/请在局域网内打开此页面/).waitFor(); assert.equal(await page.locator("form").count(), 0);
-  await page.screenshot({ path: `${shots}/setup-remote.png`, fullPage: true });
+  await stableScreenshot(page, "setup-remote");
   pass("non-LAN setup guidance");
   state.setupAllowed = true; await page.reload();
   await password.fill("short"); await password.blur(); await page.getByText("密码须为 8–128 个字符", { exact: true }).waitFor();
@@ -84,7 +130,7 @@ try {
   await page.getByLabel("确认密码", { exact: true }).fill("password1");
   await page.setViewportSize({ width: 390, height: 844 });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `${shots}/setup-phone.png`, fullPage: true });
+  await stableScreenshot(page, "setup-phone");
   pass("setup validation and 390px layout");
   setupStatus = 409; await page.getByRole("button", { name: "创建并登录" }).click(); await page.getByText("账户已被设置，请登录").waitFor();
   pass("concurrent setup switches to login");
@@ -92,7 +138,31 @@ try {
   await password.fill("password1"); await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(/#\/account$/); await page.getByText(/本设备/).waitFor(); await page.getByText(/127.0.0.1\(转发\)/).waitFor();
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `${shots}/account-phone.png`, fullPage: true });
+  await page.getByText("密码　上次修改 2026-10-18", { exact: true }).waitFor();
+  await checkCompactHeader(page, 760);
+  await checkCompactHeader(page, 390);
+  await page.locator(".brand .account-link-compact").click();
+  assert.match(page.url(), /#\/account$/);
+  await stableScreenshot(page, "account-phone");
+  await checkAccountContrast(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const columns = await page.locator(".account-device").evaluateAll(rows => rows.map(row =>
+    [...row.children].map(cell => ({ x: cell.getBoundingClientRect().x, right: cell.getBoundingClientRect().right }))));
+  assert.equal(columns[0].length, 4);
+  for (let i = 0; i < 3; i++) {
+    assert(columns[0][i].right < columns[0][i + 1].x);
+    assert.equal(columns[0][i].x, columns[1][i].x, "desktop columns align across devices");
+  }
+  assert.equal(columns[0][3].right, columns[1][3].right, "actions align right");
+  await stableScreenshot(page, "account-light", false);
+  await page.getByRole("radio", { name: "深色", exact: true }).click();
+  await stableScreenshot(page, "account-dark", false);
+  await checkAccountContrast(page);
+  await checkCompactHeader(page, 390);
+  await stableScreenshot(page, "account-phone-dark");
+  await checkAccountContrast(page);
+  await page.getByRole("radio", { name: "浅色", exact: true }).click();
+  pass("fixed date, four desktop columns, compact header and stable light/dark contrast");
   pass("login, device list, forwarded address and narrow account page");
   await page.locator(".account-device").getByRole("button", { name: "退出", exact: true }).click();
   await page.getByText("设备已退出", { exact: true }).waitFor();
@@ -118,7 +188,7 @@ try {
   await page.getByRole("button", { name: "修改用户名", exact: true }).click(); await page.getByLabel("当前密码", { exact: true }).fill("newpassword"); await page.getByLabel("新用户名").fill("operator"); await page.getByRole("button", { name: "保存", exact: true }).click(); await page.getByText("用户名已修改，其他设备已退出", { exact: true }).waitFor();
   pass("username change updates account");
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole("radio", { name: "深色", exact: true }).click(); await page.screenshot({ path: `${shots}/account-dark.png`, fullPage: true });
+  await page.getByRole("radio", { name: "深色", exact: true }).click();
   await page.locator(".account-foot").getByRole("button", { name: "退出", exact: true }).click(); await page.waitForURL(/\/__vim4\/login/); await password.waitFor();
   pass("logout returns to login");
   for (const next of ["//evil.test", "/\\evil.test", "https://evil.test"]) {
@@ -128,6 +198,14 @@ try {
   state = { ...state, authenticated: false, configured: false, setupAllowed: true }; setupStatus = 200;
   await page.goto(`${base}/__vim4/login?next=${encodeURIComponent('/#/account')}`); await password.fill("password1"); await page.getByLabel("确认密码", { exact: true }).fill("password1"); await page.getByRole("button", { name: "创建并登录" }).click(); await page.waitForURL(/#\/account$/);
   pass("successful setup signs in");
+  await page.getByRole("button", { name: "修改用户名", exact: true }).waitFor();
+  await checkCompactHeader(page, 390);
+  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page.waitForURL(/\/__vim4\/login/);
+  await password.waitFor();
+  pass("account page logout remains available on narrow screens");
+  state.authenticated = true;
+  await page.goto(`${base}/#/account`);
   await page.getByRole("button", { name: "修改用户名", exact: true }).waitFor();
   state.authenticated = false;
   await page.route("**/api/account/sessions", route => route.fulfill({ status: 401, json: { error: "未登录" } }));
