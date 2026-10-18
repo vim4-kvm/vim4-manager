@@ -640,7 +640,7 @@ const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "apps", title: "KVM 界面", description: "四个界面共用采集、编码器和键鼠，同一时间只运行一个。" },
   { id: "media", title: "虚拟介质", description: "挂载到被控电脑的 U 盘或光盘。四个界面共用同一个 USB 存储设备，切换界面不会改变已挂载的介质。" },
   { id: "disks", title: "数据盘", description: "在板子上创建 U 盘镜像，上传或取回文件，挂载后被控电脑当作普通 U 盘使用。" },
-  { id: "storage", title: "网络存储", description: "把 NAS 的 SMB 或 NFS 共享连接到板子，用于保存录制文件，或把其中的文件夹作为 U 盘交给被控电脑。" },
+  { id: "storage", title: "网络存储", description: "把 NAS 的 SMB/NFS 共享连接到板子，用来保存录屏，或把其中的文件夹作为 U 盘交给被控电脑。" },
   { id: "video", title: "视频输入" },
   { id: "cooling", title: "散热" },
   { id: "network", title: "网络" },
@@ -854,7 +854,7 @@ export function App() {
             <TailscalePanel busy={!!busy} />
           </>
         )}
-        {page === "storage" && <StoragePanel busy={!!busy} />}
+        {page === "storage" && <StoragePanel busy={!!busy} status={status} />}
         {page === "updates" && <UpdatesPanel busy={!!busy} run={run} active={status?.active} />}
         {page === "video" && (
           <Section title="EDID" description="被控电脑看到的显示器型号与能力。">

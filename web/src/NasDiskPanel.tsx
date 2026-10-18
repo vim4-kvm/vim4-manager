@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { nasDiskWrite, request, storageWrite, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage } from "./api";
+import { nasDiskWrite, request, storageWrite, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage, type Status } from "./api";
 import { bytes } from "./DiskPanel";
-import { hostEject } from "./MediaPanel";
+import { hostEject, mediaName } from "./MediaPanel";
 
 type Setup = { storage: string; path: string; mode: "ro" | "rw"; label: string; labelEdited: boolean };
 type Confirm = { kind: "discard"; id: string; name: string } | { kind: "cancel" } | { kind: "trash"; id: string; files: number; bytes: number };
@@ -17,6 +17,7 @@ const SKIP_REASONS: Record<string, string> = {
 };
 
 const CONFIRM_TITLE = { discard: "放弃修改", cancel: "取消挂载", trash: "清空回收目录" };
+const HIDDEN_RESULT_KEY = "nasdisk-hidden-last";
 
 export function folderLabel(path: string) {
   const name = path.split("/").filter(Boolean).pop() ?? "";
@@ -44,24 +45,20 @@ function when(seconds: number) {
   return new Date(seconds * 1000).toLocaleString("zh-CN", { hour12: false, month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
-export function NasDiskPanel({
-  storages,
-  setupFor,
-  onSetupDone,
-  locked: parentLocked,
-}: {
-  storages: Storage[];
-  setupFor?: string;
-  onSetupDone: () => void;
-  locked: boolean;
-}) {
+export function useNasDisk() {
   const [state, setState] = useState<NasDiskState>();
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
-  const [setup, setSetup] = useState<Setup>();
-  const [confirming, setConfirming] = useState<Confirm>();
-  const [showSkipped, setShowSkipped] = useState(false);
+  const [hiddenResult, setHiddenResult] = useState(() => {
+    try {
+      return localStorage.getItem(HIDDEN_RESULT_KEY);
+    } catch {
+      return null;
+    }
+  });
   const active = !!state?.session;
+  const last = state?.last && state.last.id !== hiddenResult ? state.last : undefined;
+  const hasActivity = active || !!last || !!state?.pending.length;
 
   useEffect(() => {
     if (pending) return;
@@ -84,17 +81,9 @@ export function NasDiskPanel({
     };
   }, [pending, active]);
 
-  useEffect(() => {
-    if (!setupFor) return;
-    setError("");
-    setSetup({ storage: setupFor, path: "/", mode: "rw", label: "NAS", labelEdited: false });
-    onSetupDone();
-  }, [setupFor, onSetupDone]);
-
   async function act(label: string, run: () => Promise<unknown>) {
     setPending(label);
     setError("");
-    setConfirming(undefined);
     try {
       await run();
       return true;
@@ -106,55 +95,46 @@ export function NasDiskPanel({
     }
   }
 
-  const mounted = storages.filter((s) => s.mounted);
-  const locked = parentLocked || !!pending || !state?.known;
-  const session = state?.session;
-
-  async function start() {
-    if (!setup) return;
-    const ok = await act("正在准备 U 盘…", () =>
-      nasDiskWrite("/start", {
-        storage: setup.storage,
-        path: setup.path,
-        mode: setup.mode,
-        label: setup.label,
-        utcOffsetMinutes: -new Date().getTimezoneOffset(),
-      }),
-    );
-    if (ok) setSetup(undefined);
+  function hideLast() {
+    if (!last) return;
+    setHiddenResult(last.id);
+    try {
+      localStorage.setItem(HIDDEN_RESULT_KEY, last.id);
+    } catch {
+      // Storage may be unavailable; hiding still works for this visit.
+    }
   }
 
-  return (
-    <section className="nasdisk" aria-label="NAS 文件夹 U 盘">
-      <div className="storage-head">
-        <div>
-          <h3>NAS 文件夹 U 盘</h3>
-          <p className="muted">把 NAS 上的一个文件夹作为 U 盘交给被控电脑。可写模式下，电脑的修改在安全弹出后写回 NAS。</p>
-        </div>
-        <div className="storage-head-action">
-          {pending && (
-            <span className="muted" role="status">
-              <span className="spinner" aria-hidden="true" />
-              {pending}
-            </span>
-          )}
-          {!session && !setup && (
-            <button
-              className="button"
-              disabled={locked || mounted.length === 0}
-              title={mounted.length === 0 ? "先连接一个 NAS" : undefined}
-              onClick={() => setSetup({ storage: mounted[0].id, path: "/", mode: "rw", label: "NAS", labelEdited: false })}
-            >
-              选择文件夹…
-            </button>
-          )}
-        </div>
-      </div>
+  return { state, last, hasActivity, pending, error, act, hideLast };
+}
 
+export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<typeof useNasDisk>; locked: boolean }) {
+  const { state, last, pending, error } = disk;
+  const [confirming, setConfirming] = useState<Confirm>();
+  const [showSkipped, setShowSkipped] = useState(false);
+  const active = !!state?.session;
+  const locked = parentLocked || !!pending || !state?.known;
+  const session = state?.session;
+  function act(label: string, run: () => Promise<unknown>) {
+    setConfirming(undefined);
+    return disk.act(label, run);
+  }
+
+  if (!disk.hasActivity) return null;
+
+  return (
+    <section className="nasdisk reveal" aria-label="U 盘活动">
+      {pending && (
+        <span className="muted" role="status">
+          <span className="spinner" aria-hidden="true" />
+          {pending}
+        </span>
+      )}
       {state && !state.known && <p className="storage-warn">暂时无法读取 U 盘状态。</p>}
 
       {session ? (
         <SessionCard
+          key={session.id}
           session={session}
           locked={locked}
           showSkipped={showSkipped}
@@ -169,14 +149,17 @@ export function NasDiskPanel({
               : setConfirming({ kind: "discard", id: session.id, name: `${session.storageName} › ${displayPath(session.path)}` })
           }
         />
-      ) : setup ? (
-        <SetupForm setup={setup} setSetup={setSetup} storages={mounted} locked={locked} onCancel={() => setSetup(undefined)} onStart={() => void start()} />
       ) : (
-        state?.last && (
+        last && (
           <LastResult
-            last={state.last}
+            key={last.id}
+            last={last}
             locked={locked}
-            onEmptyTrash={(t) => setConfirming({ kind: "trash", id: state.last!.id, files: t.files, bytes: t.bytes })}
+            onEmptyTrash={(t) => setConfirming({ kind: "trash", id: last.id, files: t.files, bytes: t.bytes })}
+            onHide={() => {
+              disk.hideLast();
+              setConfirming(undefined);
+            }}
           />
         )
       )}
@@ -240,37 +223,32 @@ export function NasDiskPanel({
           </button>
         </div>
       )}
-
-      {error && (
-        <p className="storage-error" role="alert">
-          {error}
-        </p>
-      )}
+      {error && <p className="storage-error" role="alert">{error}</p>}
     </section>
   );
 }
 
-function SetupForm({
-  setup,
-  setSetup,
-  storages,
+export function NasDiskSetup({
+  storage,
+  status,
   locked,
   onCancel,
   onStart,
 }: {
-  setup: Setup;
-  setSetup: (s: Setup) => void;
-  storages: Storage[];
+  storage: Storage;
+  status?: Status;
   locked: boolean;
   onCancel: () => void;
-  onStart: () => void;
+  onStart: (setup: Setup) => void;
 }) {
+  const [setup, setSetup] = useState<Setup>({ storage: storage.id, path: "/", mode: storage.writable === false ? "ro" : "rw", label: "NAS", labelEdited: false });
+  const [editingLabel, setEditingLabel] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [dirs, setDirs] = useState<{ names: string[]; truncated: boolean }>();
   const [dirError, setDirError] = useState("");
   const [newName, setNewName] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [mkdirError, setMkdirError] = useState("");
-  const storage = storages.find((s) => s.id === setup.storage);
 
   useEffect(() => {
     let cancelled = false;
@@ -288,12 +266,14 @@ function SetupForm({
     return () => {
       cancelled = true;
     };
-  }, [setup.storage, setup.path]);
+  }, [setup.storage, setup.path, retry]);
 
   const go = (path: string) => setSetup({ ...setup, path, label: setup.labelEdited ? setup.label : folderLabel(path) });
   const parts = setup.path.split("/").filter(Boolean);
   const labelValid = /^[A-Z0-9 _-]{1,11}$/.test(setup.label) && setup.label.trim() === setup.label;
-  const readOnlyOnly = storage?.writable === false;
+  const readOnlyOnly = storage.writable === false;
+  const occupiedMedia = status?.media?.inserted && !status.media.nasdisk ? status.media : undefined;
+  const canStart = !locked && !creating && labelValid && !!dirs && !occupiedMedia;
   const nameTrimmed = newName?.trim() ?? "";
   const nameProblem = !nameTrimmed
     ? ""
@@ -326,21 +306,10 @@ function SetupForm({
       className="storage-editor nasdisk-setup"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!locked && labelValid) onStart();
+        if (canStart) onStart({ ...setup, mode: readOnlyOnly ? "ro" : setup.mode });
       }}
     >
-      {storages.length > 1 && (
-        <label className="field nasdisk-storage">
-          NAS
-          <select value={setup.storage} onChange={(e) => setSetup({ ...setup, storage: e.target.value, path: "/" })}>
-            {storages.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <h4>选择要作为 U 盘的文件夹</h4>
 
       <div className="nasdisk-browser">
         <nav className="nasdisk-crumbs" aria-label="文件夹路径">
@@ -364,7 +333,9 @@ function SetupForm({
           ))}
         </nav>
         {dirError ? (
-          <p className="storage-error nasdisk-dirs-note">{dirError}</p>
+          <div className="storage-error nasdisk-dirs-note" role="alert">
+            {dirError} <button type="button" className="link-button" onClick={() => setRetry((n) => n + 1)}>重试</button>
+          </div>
         ) : !dirs ? (
           <p className="muted nasdisk-dirs-note">正在读取…</p>
         ) : dirs.names.length === 0 ? (
@@ -378,6 +349,7 @@ function SetupForm({
                     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
                   </svg>
                   <span>{name}</span>
+                  <span className="nasdisk-enter" aria-hidden="true">›</span>
                 </button>
               </li>
             ))}
@@ -388,7 +360,7 @@ function SetupForm({
           <div className="nasdisk-mkdir">
             {newName === undefined ? (
               <button type="button" className="link-button" disabled={locked} onClick={() => setNewName("")}>
-                新建文件夹
+                <span aria-hidden="true">+ </span>新建文件夹
               </button>
             ) : (
               <>
@@ -427,14 +399,13 @@ function SetupForm({
             )}
           </div>
         )}
+        <p className="nasdisk-chosen">
+          已选择 <strong>{storage.name} › {displayPath(setup.path)}</strong>
+        </p>
       </div>
 
-      <p className="nasdisk-chosen">
-        将作为 U 盘：<strong>{storage?.name} › {displayPath(setup.path)}</strong>
-      </p>
-
       <div className="segmented storage-types" role="group" aria-label="模式">
-        <button type="button" aria-pressed={setup.mode === "rw"} disabled={readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "rw" })}>
+        <button type="button" aria-pressed={setup.mode === "rw" && !readOnlyOnly} disabled={readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "rw" })}>
           <strong>可写</strong>
           <span>{readOnlyOnly ? "NAS 不允许写入" : "安全弹出后写回 NAS"}</span>
         </button>
@@ -444,28 +415,44 @@ function SetupForm({
         </button>
       </div>
 
-      <label className="field nasdisk-label">
-        卷标
-        <input
-          value={setup.label}
-          maxLength={11}
-          autoComplete="off"
-          spellCheck={false}
-          aria-invalid={!labelValid}
-          onChange={(e) => setSetup({ ...setup, label: e.target.value.toUpperCase(), labelEdited: true })}
-        />
-        {!labelValid && <span className="field-hint">1–11 个大写字母、数字、空格、下划线或连字符</span>}
-      </label>
+      {editingLabel ? (
+        <label className="field nasdisk-label">
+          卷标
+          <input
+            value={setup.label}
+            autoFocus
+            maxLength={11}
+            autoComplete="off"
+            spellCheck={false}
+            aria-invalid={!labelValid}
+            onChange={(e) => setSetup({ ...setup, label: e.target.value.toUpperCase(), labelEdited: true })}
+          />
+          {!labelValid && <span className="field-hint">1–11 个大写字母、数字、空格、下划线或连字符</span>}
+        </label>
+      ) : (
+        <div className="nasdisk-label-summary">
+          <span>卷标 <strong>{setup.label}</strong></span>
+          <button type="button" className="link-button" onClick={() => setEditingLabel(true)}>修改</button>
+        </div>
+      )}
 
       <p className="muted nasdisk-note">
-        挂载时会扫描整个文件夹，文件很多时需要一些时间。单个文件超过 4 GiB 或名称 U 盘不支持时不会出现在 U 盘里，也不会被删除。
+        单个文件不小于 4 GiB 或名称 U 盘不支持的文件不会出现在 U 盘里，也不会被删除。
       </p>
+      {occupiedMedia && (
+        <p className="storage-warn" role="status">
+          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a href="#/media">虚拟介质页</a>弹出。
+        </p>
+      )}
+      {status && status.hardware.usb !== "configured" && (
+        <p className="storage-warn" role="status">被控电脑尚未通过 USB 连接，连接后即可看到 U 盘。</p>
+      )}
 
       <div className="storage-editor-actions">
         <button type="button" className="button" onClick={onCancel}>
           取消
         </button>
-        <button type="submit" className="button primary" disabled={locked || !labelValid || (!!dirError && !dirs)}>
+        <button type="submit" className="button primary" disabled={!canStart}>
           挂载到被控电脑
         </button>
       </div>
@@ -516,12 +503,12 @@ function SessionCard({
         <div className="storage-main">
           <div className="storage-name">
             <strong>
-              {s.storageName} › {displayPath(s.path)}
+              U 盘 · {s.storageName} › {displayPath(s.path)}
             </strong>
             <span className="tag tag-quiet">{rw ? "可写" : "只读"}</span>
             <span className="tag tag-quiet">{s.label}</span>
           </div>
-          <span className={`storage-state ${tone}`} role="status">
+          <span key={s.state} className={`storage-state reveal ${tone}`} role="status">
             {(s.state === "scanning" || s.state === "attaching" || s.state === "parsing" || s.state === "committing") && (
               <span className="spinner" aria-hidden="true" />
             )}
@@ -540,11 +527,6 @@ function SessionCard({
               取消
             </button>
           )}
-          {s.state === "attached" && (
-            <a className="button small" href="#/media">
-              弹出…
-            </a>
-          )}
         </div>
       </div>
 
@@ -554,10 +536,10 @@ function SessionCard({
         </p>
       )}
       {s.state === "attached" && (
-        <p className="nasdisk-hint muted">
-          {hostEject}
-          {rw ? "弹出后修改会自动写回 NAS。" : ""}
-        </p>
+        <div className="nasdisk-hint muted">
+          <p>{rw ? "在电脑上安全弹出后，修改会写回 NAS。" : "在电脑上安全弹出后，即可结束这次 U 盘。"}</p>
+          <details className="nasdisk-detail"><summary>如何安全弹出</summary><p>{hostEject}</p></details>
+        </div>
       )}
 
       {s.state === "committing" && progress && (
@@ -665,7 +647,7 @@ function Detail({ text }: { text?: string }) {
   );
 }
 
-function LastResult({ last, locked, onEmptyTrash }: { last: NasDiskLast; locked: boolean; onEmptyTrash: (t: { files: number; bytes: number }) => void }) {
+function LastResult({ last, locked, onEmptyTrash, onHide }: { last: NasDiskLast; locked: boolean; onEmptyTrash: (t: { files: number; bytes: number }) => void; onHide: () => void }) {
   const where = `${last.storageName} › ${displayPath(last.path)}`;
   const text = {
     committed: counts(last.summary) ? `已写回 NAS：${counts(last.summary)}。` : "已写回 NAS。",
@@ -676,38 +658,35 @@ function LastResult({ last, locked, onEmptyTrash }: { last: NasDiskLast; locked:
   }[last.result];
   return (
     <div className={`nasdisk-last${last.result === "failed" ? " is-failed" : ""}`}>
-      <span className="muted">
-        上次 · {when(last.finishedAt)} · {where}
-      </span>
-      <span>{text}</span>
+      <div className="nasdisk-last-line">
+        <span className="nasdisk-last-summary"><span className="muted">上次 · {when(last.finishedAt)} · {where}</span> — {text}</span>
+        {!!last.trash?.files && <span className="nasdisk-trash" title={`回收目录：${last.trash.files.toLocaleString()} 个文件，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 .vim4-nasdisk/trash`}>
+          <span className="muted">回收目录 {bytes(last.trash.bytes)}</span>
+          <button type="button" className="button small" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</button>
+        </span>}
+        <button type="button" className="button small" aria-label="隐藏上次结果" onClick={onHide}>×</button>
+      </div>
       {last.result === "failed" && <Detail text={last.detail} />}
       {last.conflicts.length > 0 && (
-        <ul>
-          {last.conflicts.map((c) => (
-            <li key={c.path}>
-              <code className="mono">{c.path}</code>
-              <span className="muted">
-                {c.copy ? (
-                  <>
-                    NAS 上的文件在挂载期间被改过，电脑的版本保存为 <code className="mono">{c.copy}</code>
-                  </>
-                ) : (
-                  "电脑删除了它，但 NAS 上的文件在挂载期间被改过，已保留"
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {!!last.trash?.files && (
-        <div className="nasdisk-trash">
-          <span className="muted">
-            回收目录：{last.trash.files.toLocaleString()} 个文件 · {bytes(last.trash.bytes)}，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 <code className="mono">.vim4-nasdisk/trash</code>
-          </span>
-          <button type="button" className="button small" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>
-            清空…
-          </button>
-        </div>
+        <details className="nasdisk-detail" open>
+          <summary>冲突项（{last.conflicts.length}）</summary>
+          <ul>
+            {last.conflicts.map((c) => (
+              <li key={c.path}>
+                <code className="mono">{c.path}</code>
+                <span className="muted">
+                  {c.copy ? (
+                    <>
+                      NAS 上的文件在挂载期间被改过，电脑的版本保存为 <code className="mono">{c.copy}</code>
+                    </>
+                  ) : (
+                    "电脑删除了它，但 NAS 上的文件在挂载期间被改过，已保留"
+                  )}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );

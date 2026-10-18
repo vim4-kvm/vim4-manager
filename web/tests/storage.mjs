@@ -21,6 +21,8 @@ try {
   ];
   let state = { known: true, tools: { smb: true, nfs: true }, storages };
   const requests = [];
+  await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "Unexpected test API" } }));
+  await page.route("**/api/nasdisk", (route) => route.fulfill({ json: { known: true, session: null, last: null, pending: [] } }));
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
   await page.route("**/api/storage", (route) => {
     if (route.request().method() === "POST") {
@@ -37,6 +39,7 @@ try {
   await page.route(/\/api\/storage\/(mount|unmount|delete)$/, (route) => {
     const path = new URL(route.request().url()).pathname;
     requests.push({ path, body: route.request().postDataJSON() });
+    if (path === "/api/storage/mount") Object.assign(storages[1], { mounted: true, state: "mounted", error: "" });
     if (path === "/api/storage/unmount") return route.fulfill({ status: 409, json: { error: "正在被录制使用，请先停止录制" } });
     return route.fulfill({ json: { ok: true } });
   });
@@ -48,6 +51,12 @@ try {
   await page.getByText("主机不可达").waitFor();
   await page.getByText("板子没有写入权限", { exact: false }).waitFor();
   await page.getByText("剩余 1.2 TiB / 4.0 TiB").waitFor();
+  assert.equal(await page.getByRole("region", { name: "U 盘活动" }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "选择文件夹…" }).count(), 0);
+  const home = page.locator(".storage-list > li").filter({ hasText: "家庭 NAS" });
+  const lab = page.locator(".storage-list > li").filter({ hasText: "[fd00::5]" });
+  assert.equal(await home.getByRole("button", { name: "作为 U 盘…" }).count(), 1);
+  assert.equal(await lab.getByRole("button", { name: "连接", exact: true }).count(), 1);
   if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/storage-list.png`, fullPage: true });
 
   // Adding: test then save; the password travels only in the request body.
@@ -83,7 +92,21 @@ try {
   await page.getByRole("button", { name: "取消" }).click();
 
   // Editing keeps the saved password unless a new one is typed.
-  await page.getByRole("button", { name: "编辑" }).first().click();
+  const more = home.getByRole("button", { name: "家庭 NAS 的更多操作" });
+  await more.focus();
+  await more.press("Enter");
+  await page.getByRole("menu").waitFor();
+  assert.equal(await page.getByRole("menuitem", { name: "编辑" }).evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press("ArrowDown");
+  assert.equal(await page.getByRole("menuitem", { name: "断开" }).evaluate((el) => el === document.activeElement), true);
+  await page.keyboard.press("Escape");
+  assert.equal(await page.getByRole("menu").count(), 0);
+  assert.equal(await more.evaluate((el) => el === document.activeElement), true);
+  await more.press("Space");
+  await page.getByRole("heading", { name: "网络存储", level: 2 }).click();
+  assert.equal(await page.getByRole("menu").count(), 0);
+  await more.click();
+  await page.getByRole("menuitem", { name: "编辑" }).click();
   await page.getByText("/var/lib/vim4-kvm/nas/home").waitFor();
   assert.equal(await page.getByRole("group", { name: "协议" }).count(), 0, "type is fixed after creation");
   await page.getByRole("button", { name: "保存", exact: true }).click();
@@ -92,11 +115,15 @@ try {
   assert.equal("password" in edited, false);
 
   // Unmount failure is shown, delete sends the name as confirmation.
-  await page.getByRole("button", { name: "断开" }).first().click();
+  await more.click();
+  await page.getByRole("menuitem", { name: "断开" }).click();
   await page.getByRole("alertdialog", { name: "断开" }).getByRole("button", { name: "断开" }).click();
   await page.getByText("正在被录制使用，请先停止录制").waitFor();
-  await page.getByRole("button", { name: "编辑" }).nth(1).click();
-  await page.getByRole("button", { name: "删除连接…" }).click();
+  await lab.getByRole("button", { name: "连接", exact: true }).click();
+  await lab.getByRole("button", { name: "作为 U 盘…" }).waitFor();
+  assert.equal(await lab.getByRole("button", { name: "连接", exact: true }).count(), 0);
+  await lab.getByRole("button", { name: "lab 的更多操作" }).click();
+  await page.getByRole("menuitem", { name: "删除" }).click();
   await page.getByRole("alertdialog", { name: "删除连接" }).getByRole("button", { name: "删除连接" }).click();
   await page.waitForTimeout(100);
   assert.deepEqual(requests.find((r) => r.path === "/api/storage/delete").body, { id: "lab", confirm: "lab" });
@@ -108,7 +135,12 @@ try {
 
   state = { known: true, tools: { smb: false, nfs: true }, storages: [] };
   await page.reload();
-  await page.getByText("还没有连接 NAS").waitFor();
+  await page.getByText("还没有 NAS", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "添加 NAS" }).count(), 1);
+  assert.equal(await page.locator(".storage-list").count(), 0);
   await page.getByText("SMB（cifs-utils）", { exact: false }).waitFor();
-  console.log("PASS: list states, add with test, NFS validation, edit keeps password, unmount error, delete confirm, missing tools, mobile layout");
+  if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/storage-empty.png`, fullPage: true });
+  await page.getByRole("button", { name: "添加 NAS" }).click();
+  await page.getByLabel("服务器").waitFor();
+  console.log("PASS: empty state, row action transitions, keyboard/outside/Escape menu, add with test, NFS validation, edit keeps password, unmount error, delete confirm, missing tools, mobile layout");
 } finally { await browser.close(); }

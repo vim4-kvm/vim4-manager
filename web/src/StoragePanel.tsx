@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { request, storageWrite, type Storage, type StorageConfig, type StorageState, type StorageTest, type StorageType } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { nasDiskWrite, request, storageWrite, type Status, type Storage, type StorageConfig, type StorageState, type StorageTest, type StorageType } from "./api";
 import { bytes } from "./DiskPanel";
 import { CopyButton, PasswordInput } from "./Icons";
-import { NasDiskPanel } from "./NasDiskPanel";
+import { NasDiskPanel, NasDiskSetup, useNasDisk } from "./NasDiskPanel";
 
 const VERSIONS: Record<StorageType, { value: string; label: string }[]> = {
   smb: [
@@ -68,7 +68,7 @@ function stateLabel(s: Storage): { tone: string; text: string } {
   return { tone: "", text: "未连接" };
 }
 
-export function StoragePanel({ busy }: { busy: boolean }) {
+export function StoragePanel({ busy, status }: { busy: boolean; status?: Status }) {
   const [state, setState] = useState<StorageState>();
   const [stale, setStale] = useState(true);
   const [pending, setPending] = useState("");
@@ -77,7 +77,12 @@ export function StoragePanel({ busy }: { busy: boolean }) {
   const [test, setTest] = useState<StorageTest & { running?: boolean }>();
   const [confirming, setConfirming] = useState<Confirm>();
   const [diskSetup, setDiskSetup] = useState<string>();
-  const clearDiskSetup = useCallback(() => setDiskSetup(undefined), []);
+  const disk = useNasDisk();
+  const session = disk.state?.session;
+
+  useEffect(() => {
+    if (session) setDiskSetup(undefined);
+  }, [session]);
 
   useEffect(() => {
     if (pending) return;
@@ -119,6 +124,7 @@ export function StoragePanel({ busy }: { busy: boolean }) {
   }
 
   function openEditor(storage?: Storage) {
+    setDiskSetup(undefined);
     setTest(undefined);
     setError("");
     setEditor(
@@ -165,29 +171,22 @@ export function StoragePanel({ busy }: { busy: boolean }) {
   const missingTools = state && (!state.tools.smb || !state.tools.nfs);
 
   return (
-    <>
-    {storages.length > 0 && (
-      <NasDiskPanel
-        storages={storages}
-        setupFor={diskSetup}
-        onSetupDone={clearDiskSetup}
-        locked={busy || stale}
-      />
-    )}
+    <div className="storage-page">
+    <NasDiskPanel disk={disk} locked={locked} />
     <section className="storage" aria-label="网络存储">
       <div className="storage-head">
         <div>
-          <h3>NAS 连接</h3>
-          <p className="muted">连接后可在板子上直接使用 NAS 的空间，断开不会删除 NAS 上的文件。</p>
+          <h3>NAS</h3>
+          <p className="muted">断开不会删除 NAS 上的文件。</p>
         </div>
         <div className="storage-head-action">
-          {pending && (
+          {(pending || (!disk.hasActivity && disk.pending)) && (
             <span className="muted" role="status">
               <span className="spinner" aria-hidden="true" />
-              {pending}
+              {pending || disk.pending}
             </span>
           )}
-          {!editor && (
+          {!editor && storages.length > 0 && (
             <button className="button primary" disabled={locked || storages.length >= 8} onClick={() => openEditor()}>
               添加 NAS
             </button>
@@ -219,25 +218,28 @@ export function StoragePanel({ busy }: { busy: boolean }) {
         <p className="storage-empty muted">{stale ? "正在读取…" : ""}</p>
       ) : storages.length === 0 && !editor ? (
         <div className="storage-empty">
-          <strong>还没有连接 NAS</strong>
-          <span className="muted">支持 Windows 共享、macOS 文件共享、群晖、威联通等的 SMB，以及 Linux 和 NAS 的 NFS 导出。</span>
+          <strong>还没有 NAS</strong>
+          <span className="muted">添加后可以把录屏保存到 NAS，或把 NAS 上的文件夹作为 U 盘交给被控电脑。</span>
+          <button className="button primary" disabled={locked} onClick={() => openEditor()}>添加 NAS</button>
         </div>
       ) : (
         <ul className="storage-list" aria-label="NAS 连接">
           {storages.map((s) => {
-            const status = stateLabel(s);
+            const connection = stateLabel(s);
             const room = capacity(s);
             const open = editor?.editing && editor.draft.id === s.id;
+            const inUse = session?.storage === s.id;
             return (
               <li key={s.id} className={open ? "is-open" : undefined}>
                 <div className="storage-row">
-                  <span className={`lamp ${status.tone}`} aria-hidden="true" />
+                  <span className={`lamp ${connection.tone}`} aria-hidden="true" />
                   <div className="storage-main">
                     <div className="storage-name">
                       <strong>{s.name}</strong>
                       <span className="tag tag-quiet">{s.type.toUpperCase()}</span>
                       {s.insecure && <span className="tag tag-warning">SMB 1.0</span>}
-                      <span className={`storage-state ${status.tone}`}>{status.text}</span>
+                      <span className={`storage-state ${connection.tone}`}>{connection.text}</span>
+                      {inUse && <span className="tag tag-quiet">U 盘使用中</span>}
                     </div>
                     <span className="storage-address mono">{storageAddress(s)}</span>
                     {room && (
@@ -255,22 +257,20 @@ export function StoragePanel({ busy }: { busy: boolean }) {
                     )}
                     {!s.mounted && s.error && <span className="storage-error">{s.error}</span>}
                   </div>
-                    <div className="storage-actions">
-                    {s.mounted && (
+                  <div className="storage-actions">
+                    {s.mounted ? (
                       <button
                         className="button small"
-                        disabled={locked}
+                        disabled={locked || !!disk.pending || !disk.state?.known || !!session}
+                        title={session ? "同一时间只能有一个 U 盘" : undefined}
+                        aria-expanded={diskSetup === s.id}
                         onClick={() => {
                           setDiskSetup(s.id);
-                          window.scrollTo({ top: 0, behavior: "smooth" });
+                          setEditor(undefined);
+                          setConfirming(undefined);
                         }}
                       >
                         作为 U 盘…
-                      </button>
-                    )}
-                    {s.mounted ? (
-                      <button className="button small" disabled={locked} onClick={() => setConfirming({ kind: "unmount", storage: s })}>
-                        断开
                       </button>
                     ) : (
                       <button
@@ -281,11 +281,21 @@ export function StoragePanel({ busy }: { busy: boolean }) {
                         连接
                       </button>
                     )}
-                    <button className="button small" disabled={locked} aria-expanded={!!open} onClick={() => (open ? setEditor(undefined) : openEditor(s))}>
-                      编辑
-                    </button>
+                    <StorageMenu storage={s} locked={locked} inUse={inUse}
+                      onEdit={() => (open ? setEditor(undefined) : openEditor(s))}
+                      onConfirm={(kind) => setConfirming({ kind, storage: s })} />
                   </div>
                 </div>
+
+                {diskSetup === s.id && s.mounted && !session && (
+                  <NasDiskSetup key={s.id} storage={s} status={status}
+                    locked={locked || !!disk.pending || !disk.state?.known}
+                    onCancel={() => setDiskSetup(undefined)}
+                    onStart={(setup) => void disk.act("正在准备 U 盘…", () => nasDiskWrite("/start", {
+                      storage: setup.storage, path: setup.path, mode: setup.mode, label: setup.label,
+                      utcOffsetMinutes: -new Date().getTimezoneOffset(),
+                    })).then((ok) => { if (ok) setDiskSetup(undefined); })} />
+                )}
 
                 {open && (
                   <>
@@ -309,7 +319,6 @@ export function StoragePanel({ busy }: { busy: boolean }) {
                       onTest={() => void runTest()}
                       onSave={() => void save()}
                       onCancel={() => (setEditor(undefined), setTest(undefined))}
-                      onDelete={() => setConfirming({ kind: "delete", storage: s })}
                     />
                   </>
                 )}
@@ -326,7 +335,8 @@ export function StoragePanel({ busy }: { busy: boolean }) {
                     </button>
                     <button
                       className="button danger"
-                      disabled={locked}
+                      disabled={locked || inUse}
+                      title={inUse ? "U 盘正在使用此 NAS" : undefined}
                       onClick={() =>
                         void (confirming.kind === "delete"
                           ? act(`正在删除「${s.name}」…`, () => storageWrite("/delete", { id: s.id, confirm: s.name })).then(
@@ -350,8 +360,102 @@ export function StoragePanel({ busy }: { busy: boolean }) {
           {error}
         </p>
       )}
+      {!disk.hasActivity && disk.state && !disk.state.known && <p className="storage-warn">暂时无法读取 U 盘状态。</p>}
+      {!disk.hasActivity && disk.error && <p className="storage-error" role="alert">{disk.error}</p>}
     </section>
-    </>
+    </div>
+  );
+}
+
+function StorageMenu({ storage, locked, inUse, onEdit, onConfirm }: {
+  storage: Storage;
+  locked: boolean;
+  inUse: boolean;
+  onEdit: () => void;
+  onConfirm: (kind: Confirm["kind"]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const menuId = `storage-menu-${storage.id}`;
+
+  useEffect(() => {
+    if (!open) return;
+    root.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus();
+    function outside(event: PointerEvent) {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
+
+  function choose(action: () => void) {
+    setOpen(false);
+    trigger.current?.focus();
+    action();
+  }
+
+  return (
+    <div
+      className="storage-menu"
+      ref={root}
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false); }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && open) {
+          e.preventDefault();
+          setOpen(false);
+          trigger.current?.focus();
+        }
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) {
+          e.preventDefault();
+          if (!open) {
+            setOpen(true);
+            return;
+          }
+          const items = Array.from(root.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)'));
+          const current = items.indexOf(document.activeElement as HTMLButtonElement);
+          const next = e.key === "Home" ? 0 : e.key === "End" ? items.length - 1 : (current + (e.key === "ArrowUp" ? -1 : 1) + items.length) % items.length;
+          items[next]?.focus();
+        }
+      }}
+    >
+      <button
+        ref={trigger}
+        className="button small"
+        aria-label={`${storage.name} 的更多操作`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        disabled={locked}
+        onClick={() => setOpen(!open)}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div className="storage-menu-popover reveal" id={menuId} role="menu" aria-label={`${storage.name} 的操作`}>
+          <button role="menuitem" disabled={locked} onClick={() => choose(onEdit)}>编辑</button>
+          {storage.mounted && (
+            <button
+              role="menuitem"
+              disabled={locked || inUse}
+              title={inUse ? "U 盘正在使用此 NAS" : undefined}
+              onClick={() => choose(() => onConfirm("unmount"))}
+            >
+              断开
+            </button>
+          )}
+          <button
+            role="menuitem"
+            disabled={locked || inUse}
+            title={inUse ? "U 盘正在使用此 NAS" : undefined}
+            onClick={() => choose(() => onConfirm("delete"))}
+          >
+            删除
+          </button>
+          {inUse && <p className="muted">U 盘正在使用此 NAS</p>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -364,7 +468,6 @@ function StorageEditor({
   onTest,
   onSave,
   onCancel,
-  onDelete,
 }: {
   editor: Editor;
   setEditor: (e: Editor) => void;
@@ -374,7 +477,6 @@ function StorageEditor({
   onTest: () => void;
   onSave: () => void;
   onCancel: () => void;
-  onDelete?: () => void;
 }) {
   const d = editor.draft;
   const set = (patch: Partial<StorageConfig>) => setEditor({ ...editor, draft: { ...d, ...patch } });
@@ -497,11 +599,6 @@ function StorageEditor({
       {test && <TestResult test={test} />}
 
       <div className="storage-editor-actions">
-        {onDelete && (
-          <button type="button" className="button danger storage-delete" disabled={locked} onClick={onDelete}>
-            删除连接…
-          </button>
-        )}
         <button type="button" className="button" onClick={onCancel}>
           取消
         </button>
