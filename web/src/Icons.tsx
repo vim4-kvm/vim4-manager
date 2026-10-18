@@ -92,7 +92,7 @@ export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>,
 
 // The dashboard is served over plain http on a LAN address, where the async
 // Clipboard API is unavailable; fall back to a hidden textarea copy.
-async function copyText(text: string) {
+export async function copyText(text: string) {
   if (navigator.clipboard && window.isSecureContext) {
     await navigator.clipboard.writeText(text);
     return;

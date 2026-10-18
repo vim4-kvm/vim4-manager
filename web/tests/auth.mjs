@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.TEST_URL || "http://127.0.0.1:5188";
-const shots = new URL("../../../logs/unified-auth/shots-b/", import.meta.url).pathname;
+const shots = new URL("../../../logs/unified-auth/shots-login/", import.meta.url).pathname;
 await mkdir(shots, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 let count = 0;
@@ -53,9 +53,48 @@ async function checkCompactHeader(page, width) {
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 }
 
+async function checkLoginContrast(page) {
+  const values = await page.evaluate(() => {
+    function rgba(value) {
+      return value.match(/[\d.]+/g).map(Number);
+    }
+    function blend(top, bottom) {
+      const alpha = top[3] ?? 1;
+      return top.slice(0, 3).map((value, index) => value * alpha + bottom[index] * (1 - alpha));
+    }
+    function background(element) {
+      if (!element) return [255, 255, 255];
+      return blend(rgba(getComputedStyle(element).backgroundColor), background(element.parentElement));
+    }
+    function luminance(channels) {
+      const linear = channels.slice(0, 3).map(value => {
+        value /= 255;
+        return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+      });
+      return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
+    }
+    return [".auth-identity h1", ".auth-field label", ".auth-card input", ".auth-submit",
+      ".auth-forgot", ".auth-message", ".auth-command", ".auth-field-error", ".auth-setup p",
+      ".auth-warning", ".auth-identity p", ".auth-hint"].flatMap(selector =>
+      [...document.querySelectorAll(selector)].map(element => {
+        const foreground = luminance(rgba(getComputedStyle(element).color));
+        const surface = luminance(background(element));
+        return { selector, ratio: (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05),
+          minimum: [".auth-identity p", ".auth-hint"].includes(selector) ? 3 : 4.5 };
+      }));
+  });
+  for (const value of values) assert(value.ratio >= value.minimum, JSON.stringify(value));
+}
+
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce", locale: "en-US", timezoneId: "UTC" });
-  let state = { configured: true, authenticated: false, username: "admin", secure: false, setupAllowed: true, retryAfter: 0, hostname: "vim4" };
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: "en-US", timezoneId: "UTC" });
+  let state = { configured: true, authenticated: false, username: "admin", secure: false, setupAllowed: true, retryAfter: 0, hostname: "Khadas" };
+  let stateFails = false;
+  let releaseState;
+  let stateRequested;
+  let holdState = false;
+  let loginRequests = 0;
+  let retryAfter = 2;
   let loginStatus = 401;
   let account = { username: "admin", passwordChanged: "2026-10-18T12:00:00Z", sessions: [
     { id: "current", current: true, address: "192.168.1.2", userAgent: "Mozilla Macintosh Chrome/120", lastActive: new Date().toISOString() },
@@ -64,11 +103,18 @@ try {
   const otherDevice = { ...account.sessions[1] };
   const writes = [];
   await page.route("**/api/**", route => route.fulfill({ status: 404, json: {} }));
-  await page.route("**/__vim4/api/auth/state", route => route.fulfill({ json: state }));
+  await page.route("**/__vim4/api/auth/state", async route => {
+    if (holdState) await new Promise(resolve => {
+      releaseState = resolve;
+      stateRequested();
+    });
+    return stateFails ? route.abort() : route.fulfill({ json: state });
+  });
   await page.route("**/__vim4/api/auth/login", route => {
+    loginRequests++;
     if (loginStatus === 0) return route.abort();
     if (loginStatus === 200) state.authenticated = true;
-    return route.fulfill({ status: loginStatus, json: { error: "用户名或密码错误", retryAfter: 2 } });
+    return route.fulfill({ status: loginStatus, json: { error: "用户名或密码错误", retryAfter } });
   });
   let setupStatus = 200;
   await page.route("**/__vim4/api/auth/setup", route => {
@@ -89,23 +135,130 @@ try {
   await page.goto(`${base}/#/account`);
   await page.waitForURL(/\/__vim4\/login\?next=/);
   assert.equal(new URL(page.url()).searchParams.get("next"), "/#/account");
-  await page.getByRole("heading", { name: "登录", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Khadas", exact: true }).waitFor();
   pass("unauthenticated startup redirects with hash route");
   const password = page.getByLabel("密码", { exact: true });
+  const username = page.getByLabel("用户名", { exact: true });
+  const login = page.getByRole("button", { name: "登录", exact: true });
+  await page.getByRole("radio", { name: "浅色", exact: true }).click();
+  await stableScreenshot(page, "desktop-light");
+  const card = await page.locator(".auth-card").boundingBox();
+  assert.equal(card.width, 400);
+  assert.equal(card.x + card.width / 2, 720, "login centers across the full viewport");
+  assert.equal(await page.title(), "登录 · Khadas — VIM4 KVM");
+  assert(await login.isEnabled(), "empty password does not disable submit");
+  await username.fill("");
+  await login.click();
+  assert.equal(loginRequests, 0);
+  await page.getByText("请输入用户名", { exact: true }).waitFor();
+  await page.getByText("请输入密码", { exact: true }).waitFor();
+  assert.equal(await username.getAttribute("aria-invalid"), "true");
+  assert(await username.evaluate(element => element === document.activeElement));
+  await username.fill("admin");
+  assert.equal(await page.getByText("请输入用户名", { exact: true }).count(), 0);
+  await password.fill("password1");
+  assert.equal(await page.getByText("请输入密码", { exact: true }).count(), 0);
+  await password.fill("");
+  await username.focus();
+  for (const selector of ["#password", ".password-field button", ".auth-submit", ".auth-forgot", ".auth-theme [tabindex='0']"]) {
+    await page.keyboard.press("Tab");
+    assert(await page.locator(selector).evaluate(element => element === document.activeElement), selector);
+  }
+  await password.focus();
+  await password.dispatchEvent("keydown", { key: "A", modifierCapsLock: true });
+  await page.getByText("⇪ 大写锁定已开启").waitFor();
+  await password.blur();
+  assert.equal(await page.getByText("⇪ 大写锁定已开启").count(), 0);
+  await page.getByRole("radio", { name: "深色", exact: true }).click();
+  await stableScreenshot(page, "desktop-dark");
+  await checkLoginContrast(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await stableScreenshot(page, "phone-dark");
+  await checkLoginContrast(page);
+  await page.getByRole("radio", { name: "浅色", exact: true }).click();
+  await stableScreenshot(page, "phone-light");
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.setViewportSize({ width: 390, height: 500 });
+  await login.scrollIntoViewIfNeeded();
+  const loginBox = await login.boundingBox();
+  assert(loginBox.y >= 0 && loginBox.y + loginBox.height <= 500);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "忘记密码？" }).click();
+  await stableScreenshot(page, "forgot-open");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "复制", exact: true }).click();
+  await page.getByRole("button", { name: "已复制", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "sudo vim4-manager set-password");
+  await page.getByRole("button", { name: "复制", exact: true }).waitFor();
+  await page.getByRole("button", { name: "忘记密码？" }).click();
+  assert.equal(await page.locator("#password-recovery").count(), 0);
+  pass("empty submit, field recovery, tab order, caps lock, themes, short viewport and reset copy");
+
+  stateFails = true;
+  await page.reload();
+  await page.getByRole("alert").getByText("无法连接板子，请检查网络后重试").waitFor();
+  assert.equal(await page.locator("form").count(), 0);
+  stateFails = false;
+  holdState = true;
+  const pendingState = new Promise(resolve => { stateRequested = resolve; });
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await page.getByRole("status", { name: "正在连接" }).waitFor();
+  assert.equal(await page.locator("form").count(), 0);
+  assert.equal(await page.locator(".auth-skeleton").count(), 4);
+  await pendingState;
+  holdState = false;
+  releaseState();
+  await password.waitFor();
+  pass("failed state load retries through a static skeleton");
+  let releaseLogin;
+  const pendingLogin = new Promise(resolve => { releaseLogin = resolve; });
+  await page.route("**/__vim4/api/auth/login", async route => {
+    await pendingLogin;
+    await route.fulfill({ status: 503, json: {} });
+  }, { times: 1 });
+  await password.fill("password1");
+  await password.press("Enter");
+  const submitting = page.getByRole("button", { name: "正在登录…" });
+  await submitting.waitFor();
+  assert(await submitting.isDisabled());
+  assert.equal(await submitting.getAttribute("aria-busy"), "true");
+  assert.equal(await password.getAttribute("readonly"), "");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await page.locator(".auth-submit .spinner").evaluate(element => getComputedStyle(element).animationName), "none");
+  releaseLogin();
+  await page.getByRole("alert").waitFor();
+  assert.equal(await page.getByRole("alert").evaluate(element => getComputedStyle(element).animationName), "none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  pass("Enter submits, pending request locks the form and reduced motion removes animations");
   await password.fill("wrong-password");
   await page.getByRole("button", { name: "显示密码" }).click();
   assert.equal(await password.getAttribute("type"), "text");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByText("用户名或密码错误", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("alert").count(), 1);
   assert.equal(await password.inputValue(), "");
   await page.waitForFunction(() => document.activeElement?.getAttribute("autocomplete") === "current-password");
+  await stableScreenshot(page, "desktop-error");
+  await page.getByRole("radio", { name: "深色", exact: true }).click();
+  await checkLoginContrast(page);
+  await page.getByRole("radio", { name: "浅色", exact: true }).click();
   pass("wrong credentials clear and focus password; visibility toggle");
   loginStatus = 429;
+  retryAfter = 28;
   await password.fill("password1"); await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.getByText("尝试次数过多，请 2 秒后再试").waitFor();
-  assert(await page.getByRole("button", { name: "登录", exact: true }).isDisabled());
-  await page.getByText("尝试次数过多，请 1 秒后再试").waitFor();
-  await password.fill("password1");
+  await page.getByRole("button", { name: "请 28 秒后再试" }).waitFor();
+  await stableScreenshot(page, "desktop-locked");
+  assert(await page.getByRole("button", { name: /请 \d+ 秒后再试/ }).isDisabled());
+  await page.clock.install();
+  await page.reload();
+  retryAfter = 2;
+  await password.fill("password1"); await login.click();
+  await page.getByRole("button", { name: "请 2 秒后再试" }).waitFor();
+  await page.clock.runFor(1000);
+  await page.getByRole("button", { name: "请 1 秒后再试" }).waitFor();
+  await page.clock.runFor(1000);
+  await password.fill("password2");
+  assert.equal(await page.getByRole("alert").count(), 0, "editing clears the server error");
   await page.waitForFunction(() => !document.querySelector('button.primary').disabled);
   pass("429 countdown and recovery");
   for (const [status, message] of [[503, "登录请求过多，请稍后再试"], [0, "无法连接板子，请检查网络后重试"]]) {
@@ -114,19 +267,32 @@ try {
   pass("busy and network error messages");
   state.setupAllowed = false; await page.reload();
   await page.getByText(/此连接未加密/).waitFor();
-  await stableScreenshot(page, "login-warning");
+  await stableScreenshot(page, "insecure-warning");
   state.secure = true; await page.reload(); await password.waitFor();
   assert.equal(await page.getByText(/此连接未加密/).count(), 0);
   pass("unencrypted warning only on insecure non-LAN access");
   state = { ...state, configured: false, setupAllowed: false };
-  await page.reload(); await page.getByText(/请在局域网内打开此页面/).waitFor(); assert.equal(await page.locator("form").count(), 0);
+  await page.reload(); await page.getByText("需要在局域网内完成设置", { exact: true }).waitFor(); assert.equal(await page.locator("form").count(), 0);
   await stableScreenshot(page, "setup-remote");
   pass("non-LAN setup guidance");
   state.setupAllowed = true; await page.reload();
+  await password.waitFor();
+  await stableScreenshot(page, "setup");
+  assert.equal(await page.title(), "创建账户 · Khadas — VIM4 KVM");
+  await username.fill("bad username");
+  await password.fill("short");
+  await page.getByLabel("确认密码", { exact: true }).fill("different");
+  await page.getByRole("button", { name: "创建并登录" }).click();
+  assert.equal(await page.locator('[aria-invalid="true"]').count(), 3);
+  assert(await username.evaluate(element => element === document.activeElement));
+  await stableScreenshot(page, "setup-errors");
+  await page.getByRole("radio", { name: "深色", exact: true }).click();
+  await checkLoginContrast(page);
+  await page.getByRole("radio", { name: "浅色", exact: true }).click();
   await password.fill("short"); await password.blur(); await page.getByText("密码须为 8–128 个字符", { exact: true }).waitFor();
   await page.getByLabel("用户名", { exact: true }).fill("samepassword"); await password.fill("samepassword"); await password.blur(); await page.getByText("密码不能与用户名相同").waitFor();
   await page.getByLabel("用户名", { exact: true }).fill("admin"); await password.fill("password1"); await page.getByLabel("确认密码", { exact: true }).fill("different"); await page.getByLabel("确认密码", { exact: true }).blur(); await page.getByText("两次密码不一致").waitFor();
-  assert(await page.getByRole("button", { name: "创建并登录" }).isDisabled());
+  assert(await page.getByRole("button", { name: "创建并登录" }).isEnabled());
   await page.getByLabel("确认密码", { exact: true }).fill("password1");
   await page.setViewportSize({ width: 390, height: 844 });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
