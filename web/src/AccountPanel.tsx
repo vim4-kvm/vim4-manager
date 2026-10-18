@@ -20,7 +20,7 @@ interface Account {
 
 type DialogMode = "password" | "username" | "others";
 const RESET_COMMAND = "sudo vim4-manager set-password";
-const KVM_AUTH_NOTE = "KVM 界面（8080）暂时仍使用各应用自己的登录；MCP、VNC 等接口使用各自的密钥。";
+const KVM_AUTH_NOTE = "登录后可直接打开 KVM 界面（8080）；MCP、VNC 等接口使用各自的密钥。";
 
 function deviceInfo(agent: string) {
   const tool = agent.match(/curl|wget|python-requests|go-http-client|node-fetch|undici/i)?.[0];

@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 User=khadas
 Group=khadas
-# Port 80 without root. Switching goes through the sudoers-restricted helper,
+# Port 80 without root; the KVM gateway's 8080 needs no capability.
+# Switching goes through the sudoers-restricted helper,
 # so NoNewPrivileges must stay off.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 # Restore the saved fan curve as root ("+"); a failure must not keep the

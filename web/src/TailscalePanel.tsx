@@ -296,7 +296,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
 
         {connected && (
           <p className="tailscale-note">
-            管理面板需要管理员登录，KVM 界面使用各自的登录方式。请用 Tailscale ACL 限制可访问此设备的成员。
+            管理面板与 KVM 界面使用统一登录；MCP、VNC 等接口使用各自的密钥。请用 Tailscale ACL 限制可访问此设备的成员。
           </p>
         )}
 

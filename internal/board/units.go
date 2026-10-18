@@ -88,6 +88,29 @@ func QueryUnits(ctx context.Context, run Runner, names []string) (map[string]Uni
 	return result, nil
 }
 
+// SelectedApp returns the uniquely enabled KVM application without reading
+// hardware state. Ambiguous selections fail closed for gateway exemptions.
+func (s *Service) SelectedApp(ctx context.Context) (string, error) {
+	names := make([]string, 0, len(Apps))
+	for _, app := range Apps {
+		names = append(names, app.Unit)
+	}
+	units, err := QueryUnits(ctx, s.Run, names)
+	if err != nil {
+		return "", err
+	}
+	selected := ""
+	for _, app := range Apps {
+		if units[app.Unit].Enabled == "enabled" {
+			if selected != "" {
+				return "", fmt.Errorf("multiple KVM applications enabled")
+			}
+			selected = app.ID
+		}
+	}
+	return selected, nil
+}
+
 func parseShow(output string) []Unit {
 	var units []Unit
 	var current *Unit

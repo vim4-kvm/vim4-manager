@@ -4,7 +4,8 @@
 管理器 API 需要管理员登录。加入 tailnet 后，访问策略允许的 tailnet 设备也能
 访问管理面板 80 和 KVM 界面 8080；应按这个访问范围配置 tailnet/Headscale 策略。
 登录后 Tailscale IPv4/IPv6 来源可读写管理器；会话按非局域网的短有效期检查。
-账户设置、限速与密码重置见 [账户说明](auth.md)。KVM 应用保持各自访问策略。
+管理面板与 KVM 网关共享登录；只转发 8080 时也能在该端口登录。MCP、VNC 等接口使用各自密钥。
+账户设置、限速、MCP 白名单与密码重置见 [账户说明](auth.md)。
 Host 必须为板子网卡地址、本机名、其 `.local` 名、localhost、当前 MagicDNS 名，
 或通过 `-allowed-hosts name1,name2` 明确配置的主机名；不解析任意 Host 的 DNS。
 写请求带 Origin 时还需与 Host 同源；读取设备名称及 tailnet 地址也需要会话。

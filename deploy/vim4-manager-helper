@@ -1146,7 +1146,7 @@ def select(app):
         systemctl('disable', *others)
     systemctl('enable', unit)
     # Conflicts= does not order shutdown before startup. Wait until the old
-    # process has released port 8080, HID and the encoder before starting.
+    # process has released backend port 8081, HID and the encoder before starting.
     if others:
         systemctl('stop', *others)
     systemctl('restart', unit)

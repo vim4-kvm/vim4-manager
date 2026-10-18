@@ -29,6 +29,8 @@ func main() {
 		return
 	}
 	listen := flag.String("listen", ":80", "HTTP listen address")
+	kvmListen := flag.String("kvm-listen", ":8080", "KVM gateway listen address")
+	kvmBackend := flag.String("kvm-backend", "127.0.0.1:8081", "KVM backend address")
 	stateDir := flag.String("state-dir", auth.DefaultDirectory, "Authentication state directory")
 	allowedHosts := flag.String("allowed-hosts", "", "Additional trusted HTTP hostnames, comma-separated")
 	flag.Parse()
@@ -49,6 +51,15 @@ func main() {
 	server := &http.Server{Addr: *listen, Handler: web.CheckHost(service, web.AuthenticatedHandler(service, assets, sessions), strings.Split(*allowedHosts, ",")), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	kvmDone := make(chan struct{})
+	go func() {
+		defer close(kvmDone)
+		handler := web.KVMHandler(service, assets, sessions, *kvmBackend, strings.Split(*allowedHosts, ","))
+		if err := web.ServeKVM(ctx, *kvmListen, handler, service.Events); err != nil {
+			slog.Error("KVM gateway", "error", err)
+		}
+	}()
+	defer func() { stop(); <-kvmDone }()
 	authDone := make(chan struct{})
 	go func() { sessions.Run(ctx); close(authDone) }()
 	defer func() { stop(); <-authDone }()
