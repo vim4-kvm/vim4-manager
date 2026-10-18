@@ -143,8 +143,17 @@ try {
   await page.getByRole("radio", { name: "浅色", exact: true }).click();
   await stableScreenshot(page, "desktop-light");
   const card = await page.locator(".auth-card").boundingBox();
+  const identity = page.locator(".auth-identity");
+  const identityBox = await identity.boundingBox();
+  assert.equal(identityBox.y, 180, "desktop identity starts at 20vh");
   assert.equal(card.width, 400);
   assert.equal(card.x + card.width / 2, 720, "login centers across the full viewport");
+  for (const [width, height, top] of [[480, 200, 48], [479, 900, 108]]) {
+    await page.setViewportSize({ width, height });
+    assert.equal(await identity.evaluate(element => element.getBoundingClientRect().top + scrollY), top,
+      "desktop keeps a 48px minimum; narrow screens keep 12vh");
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   assert.equal(await page.title(), "登录 · Khadas — VIM4 KVM");
   assert(await login.isEnabled(), "empty password does not disable submit");
   await username.fill("");
@@ -152,6 +161,7 @@ try {
   assert.equal(loginRequests, 0);
   await page.getByText("请输入用户名", { exact: true }).waitFor();
   await page.getByText("请输入密码", { exact: true }).waitFor();
+  assert.deepEqual(await identity.boundingBox(), identityBox, "field errors keep the identity anchored");
   assert.equal(await username.getAttribute("aria-invalid"), "true");
   assert(await username.evaluate(element => element === document.activeElement));
   await username.fill("admin");
@@ -184,6 +194,7 @@ try {
   assert(loginBox.y >= 0 && loginBox.y + loginBox.height <= 500);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByRole("button", { name: "忘记密码？" }).click();
+  assert.deepEqual(await identity.boundingBox(), identityBox, "password recovery grows down from the identity");
   await stableScreenshot(page, "forgot-open");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
   await page.getByRole("button", { name: "复制", exact: true }).click();
@@ -235,6 +246,7 @@ try {
   assert.equal(await password.getAttribute("type"), "text");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByText("用户名或密码错误", { exact: true }).waitFor();
+  assert.deepEqual(await identity.boundingBox(), identityBox, "server errors keep the identity anchored");
   assert.equal(await page.getByRole("alert").count(), 1);
   assert.equal(await password.inputValue(), "");
   await page.waitForFunction(() => document.activeElement?.getAttribute("autocomplete") === "current-password");
@@ -282,13 +294,23 @@ try {
   await username.fill("bad username");
   await password.fill("short");
   await page.getByLabel("确认密码", { exact: true }).fill("different");
-  await page.getByRole("button", { name: "创建并登录" }).click();
+  const create = page.getByRole("button", { name: "创建并登录" });
+  const createBox = await create.boundingBox();
+  // Keep confirmation focused until mousedown triggers its blur validation.
+  await page.mouse.click(createBox.x + createBox.width / 2, createBox.y + createBox.height / 2);
   assert.equal(await page.locator('[aria-invalid="true"]').count(), 3);
   assert(await username.evaluate(element => element === document.activeElement));
+  assert.deepEqual(await create.boundingBox(), createBox, "setup validation must not move the submit button");
   await stableScreenshot(page, "setup-errors");
   await page.getByRole("radio", { name: "深色", exact: true }).click();
   await checkLoginContrast(page);
   await page.getByRole("radio", { name: "浅色", exact: true }).click();
+  await username.fill("bad username");
+  const usernameBlurBox = await create.boundingBox();
+  await page.mouse.click(usernameBlurBox.x + usernameBlurBox.width / 2, usernameBlurBox.y + usernameBlurBox.height / 2);
+  assert.equal(await page.locator('[aria-invalid="true"]').count(), 3);
+  assert(await username.evaluate(element => element === document.activeElement));
+  assert.deepEqual(await create.boundingBox(), usernameBlurBox, "username blur must not move the submit button");
   await password.fill("short"); await password.blur(); await page.getByText("密码须为 8–128 个字符", { exact: true }).waitFor();
   await page.getByLabel("用户名", { exact: true }).fill("samepassword"); await password.fill("samepassword"); await password.blur(); await page.getByText("密码不能与用户名相同").waitFor();
   await page.getByLabel("用户名", { exact: true }).fill("admin"); await password.fill("password1"); await page.getByLabel("确认密码", { exact: true }).fill("different"); await page.getByLabel("确认密码", { exact: true }).blur(); await page.getByText("两次密码不一致").waitFor();

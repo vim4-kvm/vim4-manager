@@ -221,7 +221,7 @@ function Login() {
                 <p>此账户用于登录管理面板和 KVM 界面。</p>
               </div>
             )}
-            <form onSubmit={submit} noValidate>
+            <form className={setup ? "auth-setup-form" : undefined} onSubmit={submit} noValidate>
               <div className="auth-field">
                 <label htmlFor="username">用户名</label>
                 <input
@@ -240,7 +240,9 @@ function Login() {
                   }}
                   onBlur={() => blur("username")}
                 />
-                {touched.username && usernameError && <span id="username-error" className="auth-field-error">{usernameError}</span>}
+                {(setup || (touched.username && usernameError)) && (
+                  <span id="username-error" className="auth-field-error">{touched.username && usernameError}</span>
+                )}
               </div>
               <div className="auth-field">
                 <label htmlFor="password">密码</label>
@@ -301,7 +303,7 @@ function Login() {
                     }}
                     onBlur={() => blur("confirm")}
                   />
-                  {touched.confirm && confirmError && <span id="confirm-error" className="auth-field-error">{confirmError}</span>}
+                  <span id="confirm-error" className="auth-field-error">{touched.confirm && confirmError}</span>
                 </div>
               )}
               {error && <ErrorNotice message={error} />}
