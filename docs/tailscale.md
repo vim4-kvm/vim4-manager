@@ -1,14 +1,13 @@
 # Tailscale 组网
 
 管理器通过 root 助手管理整机 Tailscale，与 KVM 应用的选择、重启独立。
-API 没有认证，面向可信局域网。加入 tailnet 后，访问策略允许的 tailnet 设备也能
+管理器 API 需要管理员登录。加入 tailnet 后，访问策略允许的 tailnet 设备也能
 访问管理面板 80 和 KVM 界面 8080；应按这个访问范围配置 tailnet/Headscale 策略。
-管理器拒绝来自 Tailscale IPv4/IPv6 网段的所有写请求（含 IPv4-mapped IPv6），返回 403；
-仅检查实际连接来源，不信任转发头。此限制只保护管理器，KVM 应用保持各自访问策略。
+登录后 Tailscale IPv4/IPv6 来源可读写管理器；会话按非局域网的短有效期检查。
+账户设置、限速与密码重置见 [账户说明](auth.md)。KVM 应用保持各自访问策略。
 Host 必须为板子网卡地址、本机名、其 `.local` 名、localhost、当前 MagicDNS 名，
 或通过 `-allowed-hosts name1,name2` 明确配置的主机名；不解析任意 Host 的 DNS。
-写请求带 Origin 时还需与 Host 同源。来源限制和操作确认不构成身份认证：
-可信局域网中的调用者仍可管理设备，设备名称及 tailnet 地址仍可读取。
+写请求带 Origin 时还需与 Host 同源；读取设备名称及 tailnet 地址也需要会话。
 
 ## API
 
@@ -27,7 +26,7 @@ Host 必须为板子网卡地址、本机名、其 `.local` 名、localhost、�
 | `version` | status JSON 的 Version |
 | `peers`、`peersOnline` | Peer 总数、Online 为真的数量，不包含本机 |
 | `devices` | Peer 设备数组，缺省 `[]`；先在线、再按 hostName 升序。每项含 `id,hostName,dnsName,os,ips,online,lastSeen,relay,exitNode,active` |
-| `writable` | 当前连接来源允许写入；tailnet 来源为 false |
+| `writable` | 已登录会话可写，恒为 true |
 | `job` | 最近一次操作 `{action,running,error}`，从未操作时省略 |
 
 设备 id 来自 Peer.ID；dnsName 去除末尾点，lastSeen 为 RFC3339 字符串（零值为空串），
@@ -113,7 +112,7 @@ python3 -m unittest discover -s deploy -p 'test_*.py'
 
 浏览器回归：运行 `pnpm --dir web dev --port 5188` 后执行
 `PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/tailscale.mjs`，
-使用模拟 API 覆盖安装、自建控制服务器、登录链接、断开/连接确认、服务器切换确认、退出确认、只读访问、失败、后台任务、访问地址复制、设备列表与连接测试。
+使用模拟 API 覆盖安装、自建控制服务器、登录链接、断开/连接确认、服务器切换确认、退出确认、写入权限、失败、后台任务、访问地址复制、设备列表与连接测试。
 
 部署后的功能验证：读取 GET；POST install 后轮询 job；分别登录官方控制服务器和 Headscale，
 核对 authURL、controlURL 与 Running；执行 down/up/logout，核对状态转移及守护进程仍在；

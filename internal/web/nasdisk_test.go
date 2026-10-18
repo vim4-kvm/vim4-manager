@@ -71,7 +71,7 @@ func TestNASDiskAccessAndFailure(t *testing.T) {
 		{"POST", "/api/nasdisk/trash-empty", "application/json", "", "192.168.1.2:100", 409, true},
 		{"POST", "/api/nasdisk/start", "text/plain", "", "192.168.1.2:100", 415, false},
 		{"POST", "/api/nasdisk/start", "application/json", "http://evil.invalid", "192.168.1.2:100", 403, false},
-		{"POST", "/api/nasdisk/start", "application/json", "", "100.64.0.1:100", 403, false},
+		{"POST", "/api/nasdisk/start", "application/json", "", "100.64.0.1:100", 409, true},
 	} {
 		called = false
 		r := httptest.NewRequest(test.method, test.endpoint, strings.NewReader(`{}`))

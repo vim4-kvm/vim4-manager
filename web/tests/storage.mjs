@@ -44,6 +44,7 @@ try {
     return route.fulfill({ json: { ok: true } });
   });
 
+  await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/storage`);
   await page.getByRole("heading", { name: "网络存储", level: 2 }).waitFor();
   await page.getByText("//192.168.50.2/video/kvm").waitFor();

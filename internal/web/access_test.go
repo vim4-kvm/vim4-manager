@@ -1,12 +1,10 @@
 package web
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
 )
@@ -17,12 +15,8 @@ func (transport statusTransport) RoundTrip(r *http.Request) (*http.Response, err
 	return transport(r)
 }
 
-func TestTailnetCannotWriteAnyManagerRoute(t *testing.T) {
-	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) {
-		t.Fatal("forbidden write reached helper")
-		return "", nil
-	}}
-	handler := Handler(service, fstest.MapFS{})
+func TestTailnetWritesReachAuthenticatedRoutes(t *testing.T) {
+	handler := localWrites(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	for _, address := range []string{"100.64.0.0:123", "100.127.255.255:123", "[fd7a:115c:a1e0::2]:123", "[::ffff:100.64.0.2]:123"} {
 		for _, route := range []string{"/api/tailscale", "/api/select", "/api/wifi", "/api/disks/file"} {
 			for _, method := range []string{"POST", "PUT", "DELETE"} {
@@ -32,7 +26,7 @@ func TestTailnetCannotWriteAnyManagerRoute(t *testing.T) {
 				r.Header.Set("X-Forwarded-For", "192.168.1.2")
 				w := httptest.NewRecorder()
 				handler.ServeHTTP(w, r)
-				if w.Code != 403 {
+				if w.Code != 204 {
 					t.Fatalf("%s %s from %s: %d", method, route, address, w.Code)
 				}
 			}
@@ -54,7 +48,7 @@ func TestHostAndOriginValidation(t *testing.T) {
 		{"attacker.example", "http://attacker.example", "192.168.1.1:123", 403},
 		{"127.0.0.1", "http://attacker.example", "192.168.1.1:123", 403},
 		{"127.0.0.1:bad", "", "192.168.1.1:123", 403},
-		{"127.0.0.1", "", "[::ffff:100.64.0.2]:123", 403},
+		{"127.0.0.1", "", "[::ffff:100.64.0.2]:123", 204},
 	} {
 		r := httptest.NewRequest("POST", "/api/tailscale", nil)
 		r.Host = test.host

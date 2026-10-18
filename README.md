@@ -91,10 +91,10 @@ NanoKVM/JetKVM 首次连接存储可将 NCM 换成存储，会短暂重连 USB�
 `POST /api/media/eject` 接受当前 `media.token` 和 `confirmed: true`，拒绝过期的磁盘标识。
 助手逐级禁止符号链接，并拒绝硬链接、特殊文件、越界路径和小于 512 字节的镜像。
 
-API 没有认证，面向可信局域网。POST 只接受 application/json，跨站表单无法触发切换。
-所有路由校验 Host，带 Origin 的写请求须同源；Tailscale 来源禁止写入。
+管理器 API 需要管理员登录，首次设置、会话有效期与密码重置见 [账户说明](docs/auth.md)。
+POST 只接受 application/json，所有路由校验 Host，带 Origin 的写请求须同源。
 默认接受板子 IP、本机名及其 `.local` 名、localhost 和当前 MagicDNS 名；其他入口用
-`-allowed-hosts name1,name2` 显式配置。这些检查不替代认证，局域网调用者仍能修改设置。
+`-allowed-hosts name1,name2` 显式配置。登录后局域网与 Tailscale 来源均可修改设置。
 
 ## Tailscale 组网
 
@@ -112,7 +112,7 @@ API 没有认证，面向可信局域网。POST 只接受 application/json，跨
 登录传入 `--accept-dns=false`；重连仅恢复 WantRunning，保留 Headscale 和其他设置。
 断开、退出和卸载须 confirmed:true；切换控制服务器还须确认当前 previousControlURL。
 状态由只读 LocalAPI 读取并缓存三秒，不返回对端公网端点；重复登录仅保留一个受管任务。
-API 无认证，面向可信局域网；接入 tailnet 后，tailnet 内设备在访问策略允许时
+管理器 API 需要管理员会话；接入 tailnet 后，tailnet 内设备在访问策略允许时
 也可访问管理面板 80 和 KVM 界面 8080 端口。状态字段、登录流程及验证见
 [Tailscale 说明](docs/tailscale.md)。
 
@@ -388,8 +388,8 @@ python3 -m unittest discover -s deploy -p 'test_*.py'
 正式构建和打包由工作区完成：`python3 tools/workspace.py build manager`，组件包
 vim4-manager 由 tools/ubuntu-build.py 生成，tools/board.py deploy 部署。
 
-前端开发：`pnpm --dir web dev`，API 代理到 http://192.168.50.210（可用
-VIM4_MANAGER 覆盖）。
+前端开发：`pnpm --dir web dev`，管理 API 和 `/__vim4/api` 默认代理到本机
+http://127.0.0.1:5189（可用 VIM4_MANAGER 覆盖）；登录页面与资源由 Vite 提供。
 
 ## 已知限制
 
@@ -399,7 +399,7 @@ VIM4_MANAGER 覆盖）。
 拒绝会修改其他包的 APT 安装计划。PiKVM 挂载虚拟介质时必须先安全弹出。
 更新只重启正在运行的目标服务，不切换当前 KVM 应用；管理器更新后需刷新网页。
 发布清单固定为各仓库的 `<package>-latest.json`，下载目录由 systemd 创建在
-`/var/lib/vim4-manager/updates`。该功能沿用管理面板现有的局域网访问边界。
+`/var/lib/vim4-manager/updates`。该功能需要管理员登录。
 
 `.github/workflows/vim4-release.yml` 在推送和 PR 时构建验证；手动勾选 publish
 或推送 `release-*` 标签才创建 Release。发布流程见主仓库的

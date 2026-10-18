@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { authenticated } from "./auth-fixture.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const now = Date.now();
 const status = {
@@ -16,6 +17,7 @@ const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
+  await authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
   await page.getByText("5 V / 3 A", { exact: true }).waitFor();
   await page.getByText(/供电额度 15 W/).waitFor();

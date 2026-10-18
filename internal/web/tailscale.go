@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/netip"
 	"time"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
@@ -33,8 +32,7 @@ func tailscaleRoutes(mux *http.ServeMux, service *board.Service) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
-		peer, parseErr := netip.ParseAddrPort(r.RemoteAddr)
-		state.Writable = parseErr == nil && !board.IsTailscaleAddress(peer.Addr())
+		state.Writable = true
 		writeJSON(w, http.StatusOK, state)
 	})
 	mux.HandleFunc("POST /api/tailscale", func(w http.ResponseWriter, r *http.Request) {

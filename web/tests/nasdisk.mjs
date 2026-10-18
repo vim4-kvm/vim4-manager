@@ -55,6 +55,7 @@ try {
     return route.fulfill({ json: { ok: true } });
   });
 
+  await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/storage`);
   await page.locator(".nasdisk-last-summary").filter({ hasText: "已写回 NAS：写入 3 个文件" }).waitFor();
   await page.getByText("说明 (冲突 20261018-010203).txt").waitFor();

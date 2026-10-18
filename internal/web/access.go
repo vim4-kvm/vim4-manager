@@ -17,15 +17,10 @@ func readRequest(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
 }
 
-// Inspect the actual peer; forwarding headers are untrusted on this listener.
+// Authenticated writes must still reject cross-site browser requests.
 func localWrites(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !readRequest(r.Method) {
-			peer, err := netip.ParseAddrPort(r.RemoteAddr)
-			if err != nil || board.IsTailscaleAddress(peer.Addr().Unmap()) {
-				writeError(w, http.StatusForbidden, errors.New("请通过局域网访问管理面板进行修改"))
-				return
-			}
 			if origin := r.Header.Get("Origin"); origin != "" {
 				u, err := url.Parse(origin)
 				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.EqualFold(u.Host, r.Host) {

@@ -1,3 +1,5 @@
+import { redirectLogin } from "./auth";
+
 export interface Unit {
   name: string;
   loaded: boolean;
@@ -146,6 +148,7 @@ export async function request<T>(path: string, body?: unknown, signal?: AbortSig
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401) redirectLogin();
   if (!response.ok) throw new Error(data.error ?? `请求失败（${response.status}）`);
   return data as T;
 }
@@ -223,6 +226,7 @@ export function uploadDiskFile(disk: string, path: string, file: File, overwrite
     xhr.setRequestHeader("X-Vim4-Upload", "1");
     xhr.upload.onprogress = (event) => onProgress(event.loaded);
     xhr.onload = () => {
+      if (xhr.status === 401) redirectLogin();
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
       let message = `上传失败（${xhr.status}）`;
       try { message = JSON.parse(xhr.responseText).error ?? message; } catch { /* non-JSON proxy error */ }

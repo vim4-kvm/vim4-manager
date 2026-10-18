@@ -34,6 +34,7 @@ try {
     await page.clock.runFor(50);
   };
   const image = (name) => page.getByRole("radio", { name: new RegExp(name.replace(".", "\\.")) });
+  await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/apps`);
   await page.getByRole("link", { name: /rescue\.iso/ }).click();
   await page.getByRole("heading", { name: "rescue.iso" }).waitFor();

@@ -152,10 +152,11 @@ try {
   assert.equal(await page.getByRole("link", { name: "打开登录页面" }).count(), 0);
   await page.getByRole("button", { name: "获取登录链接" }).waitFor();
 
-  state = { ...online, writable: false };
-  await page.getByText(/当前通过 Tailscale 访问，只能查看状态/).waitFor();
-  assert(await toggle.isDisabled());
-  assert(await page.getByRole("button", { name: "测试到 macbook 的连接" }).isDisabled());
+  state = { ...online, writable: true };
+  await page.reload();
+  await status.getByText("已连接").waitFor();
+  assert(await toggle.isEnabled());
+  assert(await page.getByRole("button", { name: "测试到 macbook 的连接" }).isEnabled());
 
   state = { installed: true, job: { action: "uninstall", running: true } };
   await status.getByText("正在卸载 Tailscale…").waitFor();

@@ -18,6 +18,7 @@ async function context(options = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", ...options });
   await context.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "Unexpected test API" } }));
   await context.route("**/api/status", (route) => route.fulfill({ json: status }));
+  await (await import("./auth-fixture.mjs")).authenticated(context);
   return context;
 }
 try {

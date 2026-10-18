@@ -29,6 +29,7 @@ import { DiskPanel } from "./DiskPanel";
 import { StoragePanel } from "./StoragePanel";
 import { DevelopmentTag, isDevelopmentVersion } from "./DevelopmentTag";
 import { ThemeSwitch } from "./theme";
+import { AccountPanel, AccountRow } from "./AccountPanel";
 
 const POLL_MS = 3000;
 
@@ -592,7 +593,7 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-type PageId = "overview" | "apps" | "media" | "disks" | "storage" | "video" | "cooling" | "network" | "services" | "updates";
+type PageId = "overview" | "apps" | "media" | "disks" | "storage" | "video" | "cooling" | "network" | "services" | "updates" | "account";
 
 const ICONS: Record<PageId, ReactNode> = {
   overview: <path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z" />,
@@ -642,6 +643,7 @@ const ICONS: Record<PageId, ReactNode> = {
     </>
   ),
   updates: <path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14" />,
+  account: <><circle cx="12" cy="7" r="4"/><path d="M4 22v-3a8 8 0 0 1 16 0v3"/></>,
 };
 
 const PAGES: { id: PageId; title: string; description?: string }[] = [
@@ -655,6 +657,7 @@ const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "network", title: "网络" },
   { id: "services", title: "底层服务", description: "重启 HDMI 采集会先暂停当前界面，完成后自动恢复。" },
   { id: "updates", title: "更新" },
+  { id: "account", title: "账户" },
 ];
 
 function pageFromHash(): PageId {
@@ -720,6 +723,7 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
         })}
       </nav>
       <div className="sidebar-foot">
+        <AccountRow />
         <ThemeSwitch />
         <StatusDot tone={stale ? "critical" : status ? "good" : "warning"} label={stale ? "连接中断" : status ? status.hardware.hostname : "连接中"} />
         {status && <span className="mono">{status.hardware.kernel}</span>}
@@ -871,6 +875,7 @@ export function App() {
         )}
 
         <div className="page-body" key={page}>
+        {page === "account" && <AccountPanel />}
         {page === "network" && (
           <>
             <WifiControl busy={!!busy} />
@@ -886,7 +891,7 @@ export function App() {
         )}
 
         {!status ? (
-          page !== "network" && page !== "video" && page !== "updates" && page !== "storage" && <div className="skeleton" />
+          page !== "network" && page !== "video" && page !== "updates" && page !== "storage" && page !== "account" && <div className="skeleton" />
         ) : (
           <>
             {page === "overview" && hw && (

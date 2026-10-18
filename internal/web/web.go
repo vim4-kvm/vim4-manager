@@ -270,9 +270,7 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 	})
 }
 
-// requireJSON rejects cross-site form posts: the API has no authentication on
-// the trusted LAN, and a JSON content type forces a CORS preflight that another
-// web page cannot pass.
+// requireJSON rejects cross-site form posts by forcing a CORS preflight.
 func requireJSON(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))

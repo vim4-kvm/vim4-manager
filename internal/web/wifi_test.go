@@ -159,7 +159,7 @@ func TestWifiNewRoutesValidationAndAccess(t *testing.T) {
 		}
 	}
 	for _, route := range []string{"connect", "activate", "disconnect", "forget", "autoconnect", "hotspot", "mode"} {
-		for _, access := range []string{"content-type", "origin", "tailscale"} {
+		for _, access := range []string{"content-type", "origin"} {
 			req := httptest.NewRequest("POST", "/api/wifi/"+route, strings.NewReader(`{}`))
 			req.Header.Set("Content-Type", "application/json")
 			want := 403
@@ -169,8 +169,6 @@ func TestWifiNewRoutesValidationAndAccess(t *testing.T) {
 				want = 415
 			case "origin":
 				req.Header.Set("Origin", "http://evil.example")
-			case "tailscale":
-				req.RemoteAddr = "100.64.0.2:1234"
 			}
 			rsp := httptest.NewRecorder()
 			handler.ServeHTTP(rsp, req)

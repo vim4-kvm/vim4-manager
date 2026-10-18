@@ -24,6 +24,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: {} }));
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
+  await (await import("./auth-fixture.mjs")).authenticated(page);
   const charts = page.locator(".trend");
   const reload = async () => {
     await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);

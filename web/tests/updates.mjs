@@ -33,6 +33,7 @@ try {
         available: managerLatest !== "2.5.1+vim4.20261016.1020", selfService: false },
     ] });
   });
+  await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/updates`);
   await page.getByRole("heading", { name: "更新", exact: true }).waitFor();
   await page.getByText("切换到 NanoKVM 后在其设置中更新").waitFor();

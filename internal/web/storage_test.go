@@ -73,7 +73,7 @@ func TestStorageFailureAndAccessBoundary(t *testing.T) {
 		{"POST", "/api/storage/mkdir", "application/json", "", "192.168.1.2:100", 400, true},
 		{"POST", "/api/storage", "text/plain", "", "192.168.1.2:100", 415, false},
 		{"POST", "/api/storage", "application/json", "http://evil.invalid", "192.168.1.2:100", 403, false},
-		{"POST", "/api/storage", "application/json", "", "100.64.0.1:100", 403, false},
+		{"POST", "/api/storage", "application/json", "", "100.64.0.1:100", 400, true},
 	} {
 		called = false
 		r := httptest.NewRequest(test.method, test.endpoint, strings.NewReader(`{"id":"nas"}`))

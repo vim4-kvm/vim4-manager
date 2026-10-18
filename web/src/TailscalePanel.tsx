@@ -91,7 +91,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
   const current = state ? phase(state) : undefined;
   const job = state?.job;
   const jobRunning = !!job?.running;
-  const writable = state?.writable !== false;
+  const writable = true;
   const locked = busy || stale || !!pending || jobRunning || !writable;
   const candidateLink = current === "login" ? state?.authURL || authURL : "";
   const link = candidateLink && /^https?:\/\/[^\s]+$/i.test(candidateLink) ? candidateLink : "";
@@ -191,7 +191,6 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
           </div>
         )}
 
-        {!writable && <p className="tailscale-note">当前通过 Tailscale 访问，只能查看状态。请通过局域网连接修改设置。</p>}
 
         {state && (current === "login" || changing) && !jobRunning && (
           <div className="tailscale-body">
@@ -297,7 +296,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
 
         {connected && (
           <p className="tailscale-note">
-            管理面板和 KVM 界面的接口没有额外认证，接入后 tailnet 内的所有设备都能访问。请用 Tailscale ACL 限制可访问此设备的成员。
+            管理面板需要管理员登录，KVM 界面使用各自的登录方式。请用 Tailscale ACL 限制可访问此设备的成员。
           </p>
         )}
 
