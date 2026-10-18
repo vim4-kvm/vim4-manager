@@ -21,6 +21,8 @@ const HIDDEN_RESULT_KEY = "nasdisk-hidden-last";
 
 export function folderLabel(path: string) {
   const name = path.split("/").filter(Boolean).pop() ?? "";
+  // A partly transliterated name ("U盘测试" -> "U") reads worse than the generic default.
+  if (/[^\x20-\x7e]/.test(name)) return "NAS";
   const label = name.toUpperCase().replace(/[^A-Z0-9 _-]/g, "").trim().slice(0, 11).trim();
   return label || "NAS";
 }
