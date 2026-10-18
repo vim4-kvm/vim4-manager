@@ -441,7 +441,7 @@ export function NasDiskSetup({
       </p>
       {occupiedMedia && (
         <p className="storage-warn" role="status">
-          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a href="#/media">虚拟介质页</a>弹出。
+          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a className="link-button" href="#/media">虚拟介质页</a>弹出。
         </p>
       )}
       {status && status.hardware.usb !== "configured" && (
