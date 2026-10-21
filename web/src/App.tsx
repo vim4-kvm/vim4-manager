@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { TailscalePanel } from "./TailscalePanel";
 import { WifiControl } from "./WifiControl";
 import { EDIDPanel } from "./EDIDPanel";
+import { KernelPanel } from "./KernelPanel";
 import {
   getStatus,
   previewHDRCurve,
@@ -890,7 +891,12 @@ export function App() {
           </>
         )}
         {page === "storage" && <StoragePanel busy={!!busy} status={status} />}
-        {page === "updates" && <UpdatesPanel busy={!!busy} run={run} active={status?.active} />}
+        {page === "updates" && <>
+          <Section title="内核" description="切换 5.15 与 7.x，共用当前系统数据。">
+            <KernelPanel busy={!!busy} run={run} />
+          </Section>
+          <UpdatesPanel busy={!!busy} run={run} active={status?.active} />
+        </>}
         {page === "video" && (
           <Section title="EDID" description="被控电脑看到的显示器型号与能力。">
             <EDIDPanel busy={!!busy} run={run} />

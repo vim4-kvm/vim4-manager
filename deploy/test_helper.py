@@ -856,6 +856,7 @@ class HelperTest(unittest.TestCase):
 
     def setUp(self):
         self.calls = []
+        self.enterContext(patch.object(helper.platform, 'release', return_value='5.15-test'))
         self.active = set()
         patcher = patch.object(helper, 'systemctl', side_effect=lambda *args: self.calls.append(args))
         patcher.start()

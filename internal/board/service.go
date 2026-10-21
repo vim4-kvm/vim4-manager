@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -98,6 +99,14 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List(), Media: s.media(ctx)}
+	if strings.HasPrefix(status.Hardware.Kernel, "7.") {
+		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		data, err := s.Run(probeCtx, "sudo", "-n", Helper, "mainline-hardware")
+		cancel()
+		if err == nil {
+			_ = json.Unmarshal([]byte(data), &status.Hardware.HDMI)
+		}
+	}
 	status.Power = s.power(ctx)
 	if s.History != nil {
 		status.History = s.History.Samples()
@@ -195,7 +204,7 @@ func (s *Service) helper(ctx context.Context, args ...string) error {
 	}
 	defer s.mu.Unlock()
 	timeout := 90 * time.Second
-	if len(args) > 0 && (args[0] == "edid-select" || args[0] == "update") {
+	if len(args) > 0 && (args[0] == "edid-select" || args[0] == "update" || args[0] == "kernel-select") {
 		// Finish configuration recovery even if the browser disconnects.
 		ctx = context.WithoutCancel(ctx)
 		timeout = 8 * time.Minute

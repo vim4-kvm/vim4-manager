@@ -10,6 +10,7 @@ from test_helper import helper
 
 class EDIDTest(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.object(helper.platform, 'release', return_value='5.15-test'))
         self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.config = self.root / 'config.json'
         self.old = Path(__file__).with_name('edid').joinpath('rtk-uhd-hdr.bin').read_bytes()
@@ -38,6 +39,18 @@ class EDIDTest(unittest.TestCase):
         self.assertEqual(self.config.stat().st_mode & 0o777, 0o600)
         self.load.assert_called_once_with('test', self.new)
         self.services.assert_not_called()
+
+    def test_mainline_releases_active_capture_before_edid_and_restarts_same_app(self):
+        events = []
+        self.run.side_effect = lambda args, **kwargs: subprocess.CompletedProcess(
+            args, 0 if args[-1] == helper.APPS['onekvm'] else 3)
+        self.services.side_effect = lambda action, unit: events.append((action, unit))
+        self.load.side_effect = lambda *args: events.append(('load', 'edid'))
+        with patch.object(helper.platform, 'release', return_value='7.3-test'), \
+                patch.object(helper, 'check_pikvm_media'):
+            helper.select_edid('test')
+        self.assertEqual(events, [('stop', helper.APPS['onekvm']), ('load', 'edid'),
+                                  ('start', helper.APPS['onekvm'])])
 
     def test_current_preset_does_not_disconnect_running_jetkvm(self):
         self.run.return_value.returncode = 0

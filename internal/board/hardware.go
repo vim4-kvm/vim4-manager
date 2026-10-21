@@ -90,6 +90,17 @@ func ReadHardware(root string) Hardware {
 	h.FanAuto = afterColon(read("sys/class/fan/mode")) == "1"
 	h.FanPct, _ = strconv.Atoi(afterColon(read("sys/class/fan/speed")))
 	h.FanCurve, h.FanTriggers = fanCurve(read("sys/class/fan/temp"))
+	if strings.HasPrefix(h.Kernel, "7.") {
+		base := "sys/bus/platform/devices/khadas-mcu-fan-ctrl/"
+		h.FanPct, _ = strconv.Atoi(read(base + "speed_percent"))
+		h.FanAuto = true
+		if milli, err := strconv.Atoi(read(base + "temperature_millic")); err == nil {
+			h.TempC = float64(milli) / 1000
+		}
+		if levels := strings.Fields(read(base + "trigger_temperatures")); len(levels) == 3 {
+			h.FanCurve, h.FanTriggers = fanCurve("level0:" + levels[0] + " level1:" + levels[1] + " level2:" + levels[2])
+		}
+	}
 	if states, _ := filepath.Glob(filepath.Join(root, "sys/class/udc/*/state")); len(states) > 0 {
 		data, _ := os.ReadFile(states[0])
 		h.USB = strings.TrimSpace(string(data))

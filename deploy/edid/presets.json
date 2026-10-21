@@ -1,5 +1,11 @@
 [
   {
+    "id": "VIM4-1080P60-SDR8",
+    "name": "VIM4 · 1080p60 SDR 8-bit",
+    "description": "7.x 的 1080p 兼容预设，关闭尚未适配的深色输入；也可用于 5.15。",
+    "file": "/usr/share/vim4-kvm/edid/1080p60-sdr8.bin"
+  },
+  {
     "id": "RTK-CONTROL",
     "name": "RTK UHD HDR · 4K60",
     "description": "兼容性选项；曾通过当前 Mac 的 Screen Sharing 恢复测试，但 UU 虚拟屏场景仍可能无法恢复。",

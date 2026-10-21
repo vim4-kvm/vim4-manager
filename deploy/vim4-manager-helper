@@ -10,6 +10,7 @@ import ipaddress
 import json
 import os
 import pwd
+import platform
 import re
 import secrets
 import select as io_select
@@ -49,6 +50,7 @@ JETKVM_CONFIG = Path('/var/lib/jetkvm/config.json')
 # khadas-mcu auto-mode trigger temperatures; restored at manager start.
 FAN_CONFIG = '/etc/default/vim4-kvm-fan'
 FAN_SYSFS = Path('/sys/class/fan')
+MAINLINE_FAN = Path('/sys/bus/platform/devices/khadas-mcu-fan-ctrl')
 FAN_KEYS = ('FAN_TRIGGER_LOW', 'FAN_TRIGGER_MID', 'FAN_TRIGGER_HIGH')
 # Packages without their own web updater. The manager downloads as khadas;
 # only this helper, as root, installs them.
@@ -984,6 +986,8 @@ def saved_edid(presets):
 
 
 def loaded_edid():
+    if platform.release().startswith('7.'):
+        return validate_edid(Path('/sys/kernel/debug/fe398000.hdmi-receiver/edid').read_bytes())
     if not EDID_LOADED.exists():
         return None
     run = subprocess.run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'tvserver.service'],
@@ -1039,7 +1043,7 @@ def write_jetkvm_config(content):
 
 
 def load_edid(name, data):
-    args = ['preset', name] if name in ('VIM4-4K60', 'VIM4-1080P60') else ['apply', name]
+    args = ['preset', name] if name in ('VIM4-4K60', 'VIM4-1080P60', 'VIM4-1080P60-SDR8') else ['apply', name]
     subprocess.run([EDID_HELPER, *args], input=data[:128 * (1 + data[126])], check=True, timeout=30)
 
 
@@ -1050,7 +1054,9 @@ def select_edid(preset_id):
         raise ValueError('未知 EDID 预设')
     old_name, old_saved = saved_edid(presets)
     old_loaded = loaded_edid()
-    running = subprocess.run(['systemctl', 'is-active', '--quiet', APPS['jetkvm']], timeout=10).returncode == 0
+    candidates = list(APPS.values()) if platform.release().startswith('7.') else [APPS['jetkvm']]
+    running = [unit for unit in candidates
+               if subprocess.run(['systemctl', 'is-active', '--quiet', unit], timeout=10).returncode == 0]
     # Read once before stopping to reject malformed configuration without disruption.
     config = json.loads(JETKVM_CONFIG.read_text()) if JETKVM_CONFIG.exists() else {}
     if not isinstance(config, dict):
@@ -1059,8 +1065,9 @@ def select_edid(preset_id):
             str(config.get('hdmi_edid_string', '')).upper() == preset['data'].hex().upper()):
         return
     if running:
-        check_pikvm_media()
-        systemctl('stop', APPS['jetkvm'])
+        check_pikvm_media(entering=platform.release().startswith('7.'))
+        for unit in running:
+            systemctl('stop', unit)
     # JetKVM may save settings on shutdown. Snapshot only after it has stopped.
     old_config = None
     config_written = False
@@ -1074,14 +1081,14 @@ def select_edid(preset_id):
         if old_saved != preset['data'] or old_loaded != preset['data']:
             load_attempted = True
             load_edid(preset_id, preset['data'])
-        if running:
-            systemctl('start', APPS['jetkvm'])
+        for unit in running:
+            systemctl('start', unit)
         os.sync()
     except Exception as error:
         recovery = []
         try:
-            if running:
-                systemctl('stop', APPS['jetkvm'])
+            for unit in running:
+                systemctl('stop', unit)
             if config_written:
                 if old_config is None:
                     JETKVM_CONFIG.unlink(missing_ok=True)
@@ -1089,8 +1096,8 @@ def select_edid(preset_id):
                     write_jetkvm_config(old_config)
             if load_attempted:
                 load_edid(old_name, old_saved)
-            if running:
-                systemctl('start', APPS['jetkvm'])
+            for unit in running:
+                systemctl('start', unit)
             os.sync()
         except Exception:
             recovery.append('恢复原配置失败，请检查 HDMI 和 JetKVM 服务')
@@ -1136,7 +1143,7 @@ def installed(unit):
 
 
 def select(app):
-    check_pikvm_media(entering=app == 'pikvm')
+    check_pikvm_media(entering=True)
     unit = APPS[app]
     if not installed(unit):
         raise ValueError(f'{unit} is not installed')
@@ -1770,6 +1777,12 @@ def fan_triggers(low, mid, high):
 
 def write_fan_triggers(low, mid, high):
     """Apply in an order the driver accepts from any valid starting curve."""
+    if platform.release().startswith('7.'):
+        path = MAINLINE_FAN / 'trigger_temperatures'
+        target = f'{low} {mid} {high}'
+        if path.read_text().strip() != target:
+            path.write_text(target + '\n')
+        return
     def current(name):
         return int((FAN_SYSFS / name).read_text().rsplit(':', 1)[1])
 
@@ -2763,6 +2776,11 @@ def main(argv):
             print(json.dumps(cpu_power_snapshot()))
         case ['power-status']:
             print(json.dumps(power_status()))
+        case ['mainline-hardware']:
+            if not platform.release().startswith('7.'):
+                raise ValueError('Mainline metadata is only available on the 7.x kernel')
+            import vim4video
+            print(json.dumps(vim4video.status()))
         case ['media-list']:
             print(json.dumps(media_catalog()))
         case ['media-mount', app, identifier, cdrom, readonly] if cdrom in ('true', 'false') and readonly in ('true', 'false'):
@@ -2775,6 +2793,27 @@ def main(argv):
             update(package, checksum, version)
         case ['edid-status']:
             print(json.dumps(edid_status()))
+        case ['kernel-status']:
+            import vim4boot
+            print(json.dumps(vim4boot.status()))
+        case ['kernel-select', identifier, reboot] if reboot in ('true', 'false'):
+            import vim4boot
+            check_pikvm_media(entering=True)
+            running = [unit for unit in APPS.values()
+                       if subprocess.run(['systemctl', 'is-active', '--quiet', unit], timeout=10).returncode == 0]
+            try:
+                if reboot == 'true' and running:
+                    systemctl('stop', *running)
+                # A media request already in flight must not race the reboot.
+                check_pikvm_media(entering=True)
+                vim4boot.select(identifier)
+                if reboot == 'true':
+                    subprocess.run(['systemd-run', '--unit=vim4-kernel-reboot', '--on-active=3s',
+                                    '/usr/bin/systemctl', 'reboot'], check=True, timeout=10)
+            except Exception:
+                if reboot == 'true' and running:
+                    systemctl('start', *running)
+                raise
         case ['edid-select', preset]:
             select_edid(preset)
         case ['select', app] if app in APPS:
@@ -2804,7 +2843,7 @@ def main(argv):
 def operation_lock(argv):
     action = argv[0] if argv else ''
     if action.startswith('disk-') or action in ('nasdisk-status', 'nasdisk-lun-attach', 'storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
-                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot'):
+                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'mainline-hardware', 'kernel-status'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'

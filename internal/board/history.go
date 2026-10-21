@@ -70,6 +70,9 @@ func (h *History) Sample(now time.Time) {
 		s.TempC = float64(milli) / 1000
 	}
 	s.FanPct, _ = strconv.Atoi(afterColon(read("sys/class/fan/speed")))
+	if value := read("sys/bus/platform/devices/khadas-mcu-fan-ctrl/speed_percent"); value != "" {
+		s.FanPct, _ = strconv.Atoi(value)
+	}
 	rx, tx := netBytes(h.Root)
 	currentPower := readCPUPowerSnapshot(h.Execute)
 
