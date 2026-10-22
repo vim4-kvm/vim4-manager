@@ -22,6 +22,15 @@ loader.exec_module(helper)
 class PowerTest(unittest.TestCase):
     COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
 
+    def test_cross_boot_history_is_included_in_power_status(self):
+        last = {'voltageV': 5, 'currentA': 3, 'usbComm': True, 'rdo': '1304b12c',
+                'origin': 'linux', 'bootId': 'previous', 'establishedAt': '2026-10-22T12:00:00+00:00'}
+        with patch.object(helper, 'previous_contract', return_value=last), \
+                patch.object(helper, 'firmware_power', return_value=None), \
+                patch.object(helper.Path, 'is_file', return_value=False), \
+                patch.object(helper.subprocess, 'check_output', return_value=''):
+            self.assertEqual(helper.power_status()['lastContract'], last)
+
     def firmware(self, root, *, flags=65, source=0x1061, request=0x1042,
                  rdo=0x1401912c, rp=3, pdos=(0x3e01912c,)):
         cells = [1, flags, source, request, rdo, len(pdos), rp, 5000, 3000, *pdos]

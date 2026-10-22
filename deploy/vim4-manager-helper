@@ -60,6 +60,7 @@ UPDATE_STAGING = Path('/var/lib/vim4-manager-update')
 UPDATE_LIMIT = 256 << 20
 sys.path.insert(0, '/usr/lib/vim4-kvm/python')
 import vim4media
+from vim4pd import boot_power_contract, firmware_power, previous_contract
 
 media_catalog = vim4media.catalog
 media_image = vim4media.open_image
@@ -166,105 +167,6 @@ def cpu_power_snapshot():
     return domains
 
 
-def boot_power_contract(log):
-    """Only completed bootstrap contracts; never infer consumption from PDOs."""
-    if 'PD bootstrap complete; USB-capable 5V contract established' not in log:
-        return None
-    match = re.search(r'^PD contract at bootstrap: 5000mV (\d+)mA$', log, re.M)
-    if match:
-        current = int(match[1])
-    else:
-        # Older bootstrap logs only the first RDO. Later Source_Capabilities
-        # can change the request without logging its value, so fail closed.
-        if re.search(r'rx hdr [0-9a-f]+ data 1 n ', log):
-            return None
-        match = re.search(r'^Request rdo ([0-9a-f]{8}): tx 0$', log, re.M)
-        if not match:
-            return None
-        rdo = int(match[1], 16)
-        if rdo >> 28 != 1:
-            return None
-        current = ((rdo >> 10) & 0x3ff) * 10
-    if not 0 < current <= 3000:
-        return None
-    return {'voltageV': 5, 'currentA': current / 1000}
-
-
-def firmware_power(root=Path('/proc/device-tree/chosen')):
-    """Decode the versioned U-Boot snapshot; never access the PD controller."""
-    try:
-        data = root.joinpath('khadas,usb-pd-boot').read_bytes()
-    except OSError:
-        return None
-    if len(data) != 64:
-        return None
-    cells = [int.from_bytes(data[i:i + 4], 'big') for i in range(0, 64, 4)]
-    version, flags, source, request, rdo, count, rp, policy_mv, policy_ma = cells[:9]
-    if (version != 1 or flags & ~255 or count > 7 or rp > 3 or
-            source > 0xffff or request > 0xffff or
-            (count and (source & 31 != 1 or (source >> 12) & 7 != count))):
-        return None
-    pdos = []
-    position = (rdo >> 28) & 7
-    for index, raw in enumerate(cells[9:9 + count], 1):
-        kind = raw >> 30
-        pdo = {'position': index, 'raw': f'{raw:08x}',
-               'type': ('Fixed', 'Battery', 'Variable', 'APDO')[kind]}
-        if kind == 0:
-            pdo.update(minVoltageV=((raw >> 10) & 1023) / 20,
-                       maxVoltageV=((raw >> 10) & 1023) / 20,
-                       maxCurrentA=(raw & 1023) / 100)
-        elif kind in (1, 2):
-            pdo.update(minVoltageV=((raw >> 10) & 1023) / 20,
-                       maxVoltageV=((raw >> 20) & 1023) / 20)
-            pdo['maxPowerW' if kind == 1 else 'maxCurrentA'] = (raw & 1023) / (4 if kind == 1 else 100)
-        elif (raw >> 28) & 3 == 0:
-            pdo.update(type='PPS', minVoltageV=((raw >> 8) & 255) / 10,
-                       maxVoltageV=((raw >> 17) & 255) / 10, maxCurrentA=(raw & 127) / 20)
-        pdos.append(pdo)
-    # PS_RDY is evidence of completion. An I/O error makes the observed bytes
-    # unreliable; policy targets and source ratings are never contract values.
-    ps_ready = bool(flags & 1)
-    selected = pdos[position - 1] if 0 < position <= count else None
-    voltage = current = power = max_current = max_power = None
-    request_valid = ((request >> 12) & 7 == 1 and request & 31 == 2 and
-                     selected is not None)
-    if request_valid:
-        kind = selected['type']
-        if kind in ('Fixed', 'Variable'):
-            operating, maximum = ((rdo >> 10) & 1023) / 100, (rdo & 1023) / 100
-            if 0 < operating <= maximum <= selected['maxCurrentA']:
-                current = operating
-                max_current = maximum
-                if kind == 'Fixed':
-                    voltage = selected['maxVoltageV'] or None
-        elif kind == 'Battery':
-            operating, maximum = ((rdo >> 10) & 1023) / 4, (rdo & 1023) / 4
-            if 0 < operating <= maximum <= selected['maxPowerW']:
-                power = operating
-                max_power = maximum
-        elif kind == 'PPS':
-            mv, ma = ((rdo >> 9) & 4095) * 20, (rdo & 127) * 50
-            if selected['minVoltageV'] * 1000 <= mv <= selected['maxVoltageV'] * 1000 and 0 < ma <= selected['maxCurrentA'] * 1000:
-                voltage, current = mv / 1000, ma / 1000
-                max_current = current
-    contract = None
-    if ps_ready and flags & 64 and not flags & (32 | 128) and voltage and current:
-        contract = {'voltageV': voltage, 'currentA': max_current}
-    revision = lambda header: ('1.0', '2.0', '3.0', 'unknown')[(header >> 6) & 3]
-    return {'psReady': ps_ready, 'flags': flags, 'hardReset': bool(flags & 6),
-            'requestFailed': bool(flags & 8), 'timedOut': bool(flags & 16),
-            'ioError': bool(flags & 32), 'typecFallback': bool(flags & 128),
-            'rp': ('unknown', 'default', '1.5A', '3A')[rp],
-            'sourceRevision': revision(source) if count else None,
-            'requestRevision': revision(request) if request else None,
-            'sourceHeader': f'{source:04x}', 'requestHeader': f'{request:04x}',
-            'rdo': f'{rdo:08x}', 'selectedPosition': position if selected else None,
-            'selectedType': selected['type'] if selected else None,
-            'requestedVoltageV': voltage, 'requestedCurrentA': current, 'requestedPowerW': power,
-            'requestedMaxCurrentA': max_current, 'requestedMaxPowerW': max_power,
-            'policyVoltageV': policy_mv / 1000, 'policyCurrentA': policy_ma / 1000,
-            'contract': contract, 'sourceCapabilities': pdos}
 
 
 def power_status():
@@ -294,6 +196,9 @@ def power_status():
             result['bootContract'] = boot_power_contract(log)
     except (OSError, subprocess.SubprocessError):
         pass
+    last = previous_contract()
+    if last is not None:
+        result['lastContract'] = last
     return result
 
 

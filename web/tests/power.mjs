@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { mkdir } from "node:fs/promises";
 import { authenticated } from "./auth-fixture.mjs";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const now = Date.now();
@@ -15,7 +16,9 @@ const status = {
 };
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce", timezoneId: "Pacific/Honolulu" });
+  const screenshots = process.env.SCREENSHOTS || "logs/pdcard";
+  await mkdir(screenshots, { recursive: true });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
@@ -87,8 +90,58 @@ try {
   await page.getByText("发生硬复位 · 初始化超时", { exact: true }).waitFor();
   assert.equal(await page.getByText(/PD 合同 · 5V/).count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+  const tile = page.locator('.readout').filter({ has: page.getByText('PD 协商', { exact: true }) });
+  const boardYear = new Date().getUTCFullYear();
+  status.power.firmwarePD.sourceCapabilities = [];
+  Object.assign(status.power.firmwarePD, { rp: "3A", hardReset: false });
+  status.power.lastContract = { voltageV: 5, currentA: 3, usbComm: true, rdo: "1304b12c",
+    origin: "linux", bootId: "previous", establishedAt: `${boardYear}-01-02T03:04:05+08:00` };
+  async function checkWarm(name, value, detail, secondLine) {
+    await page.reload();
+    await tile.getByText(value, { exact: true }).waitFor();
+    assert.equal(await tile.locator('.readout-detail').getAttribute('title'), detail);
+    assert.equal(await tile.locator('.readout-value').innerText(), value);
+    await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
+    assert.deepEqual(await tile.locator('details p').allTextContents(), [
+      '等待来源能力超时（热重启时供电端不重发）', secondLine,
+      '启动协商记录；不代表实时电流或功耗',
+    ]);
+    assert.equal(await tile.locator('ul').count(), 0);
+    assert.equal(await tile.locator('.lamp').count(), 0);
+    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+    const metrics = await tile.locator('.readout-value > span').evaluate(el => {
+      const css = getComputedStyle(el);
+      return { whiteSpace: css.whiteSpace, overflow: css.overflow, ellipsis: css.textOverflow,
+        height: el.getBoundingClientRect().height, lineHeight: parseFloat(css.lineHeight) };
+    });
+    assert.equal(metrics.whiteSpace, 'nowrap');
+    assert.equal(metrics.overflow, 'hidden');
+    assert.equal(metrics.ellipsis, 'ellipsis');
+    await page.screenshot({ path: `${screenshots}/${name}-390.png`, fullPage: true });
+  }
+  await checkWarm('s3', '沿用上次合同 · 5V 3A', '本次未重新协商 · 上次 01-02 03:04',
+    '上次合同 · 5V 3A · USB 数据 · Linux 初始化 · 01-02 03:04');
+  // Earlier year, firmware origin and no USB comm use board time despite browser zone.
+  Object.assign(status.power.lastContract, { establishedAt: `${boardYear - 1}-12-31T23:59:00+08:00`,
+    origin: 'firmware', usbComm: false });
+  await checkWarm('s3-previous-year', '沿用上次合同 · 5V 3A', `本次未重新协商 · 上次 ${boardYear - 1}-12-31 23:59`,
+    `上次合同 · 5V 3A · 启动固件协商 · ${boardYear - 1}-12-31 23:59`);
+  delete status.power.lastContract;
+  await checkWarm('s4', 'Type-C · 本次未重新协商', '启动固件 · Rp 3A', '冷插拔 USB-C 后可读取完整协商');
+  Object.assign(status.power.firmwarePD, { hardReset: true, requestFailed: true, ioError: true });
+  await page.reload();
+  await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
+  await tile.getByText('发生硬复位 · 请求失败/延后 · 读取异常', { exact: true }).waitFor();
+  assert.equal(await tile.getByText(/初始化超时|未完成 PD 合同/).count(), 0);
+  Object.assign(status.power.firmwarePD, { timedOut: false, hardReset: false, requestFailed: false, ioError: false });
+  await page.reload();
+  await tile.getByText('Type-C · 无确认的 PD 合同', { exact: true }).waitFor();
+  await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
+  await tile.getByText('启动固件 · 未完成 PD 合同', { exact: true }).waitFor();
+  assert.equal(await tile.getByText('冷插拔 USB-C 后可读取完整协商', { exact: true }).count(), 0);
+  await page.screenshot({ path: `${screenshots}/s5-empty-pdo-390.png`, fullPage: true });
   assert.deepEqual(errors, [], "no browser exceptions");
-  console.log("PASS: PD request vs PDO rating, Linux priority, legacy fallback, hard reset, source capabilities, CPU watts and 390px layout");
+  console.log("PASS: S1–S5 PD states, board-local history time/year, independent failures, exact text, CPU watts and 390px screenshots");
 } finally {
   await browser.close();
 }

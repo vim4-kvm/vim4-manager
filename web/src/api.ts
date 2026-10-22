@@ -133,6 +133,10 @@ export interface Status {
     vbusPresent: boolean | null;
     bootContract: { voltageV: number; currentA: number } | null;
     firmwarePD?: FirmwarePD;
+    lastContract?: {
+      voltageV: number; currentA: number; usbComm: boolean; rdo: string;
+      origin: "linux" | "firmware"; bootId: string; establishedAt: string;
+    };
   };
   media?: Media;
   active: string;

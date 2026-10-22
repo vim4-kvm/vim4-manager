@@ -201,29 +201,46 @@ function capabilityLabel(pdo: PowerCapability): string {
   return pdo.type;
 }
 
+function contractTime(establishedAt: string): string {
+  // Keep the board's wall clock and offset, independent of the browser zone.
+  const offset = Date.parse(`${establishedAt.slice(0, 19)}Z`) - Date.parse(establishedAt);
+  const boardYear = new Date(Date.now() + offset).getUTCFullYear();
+  return establishedAt.slice(Number(establishedAt.slice(0, 4)) === boardYear ? 5 : 0, 16).replace("T", " ");
+}
+
 function PowerTile({ power, kernel }: { power: Status["power"]; kernel: string }) {
   const fw = power?.firmwarePD;
   const linux = power?.bootContract;
   const contract = linux || fw?.contract;
+  const warm = !contract && fw?.timedOut && fw.sourceCapabilities.length === 0 && power?.vbusPresent === true;
+  const last = warm ? power?.lastContract : undefined;
+  const lastTime = last ? contractTime(last.establishedAt) : "";
   const allowance = contract ? `${contract.voltageV}V ${contract.currentA}A` : "";
   const value = contract ? (linux ? `${contract.voltageV} V / ${contract.currentA} A` : `PD 合同 · ${allowance}`)
+    : warm ? last ? `沿用上次合同 · ${last.voltageV}V ${last.currentA}A` : "Type-C · 本次未重新协商"
     : fw ? (fw.psReady && !fw.ioError && !fw.typecFallback ? "PD 已就绪 · 额度不可确认" : fw.typecFallback ? "Type-C · 无确认的 PD 合同" : "无确认的 PD 合同")
     : power?.vbusPresent === true ? "已检测到 USB-C 电压" : power?.vbusPresent === false ? "未检测到 USB-C 电压" : "状态不可读";
   const detail = contract ? `供电额度 ${+(contract.voltageV * contract.currentA).toFixed(2)} W · ${linux ? "Linux 初始化" : "启动固件协商"}`
+    : last ? `本次未重新协商 · 上次 ${lastTime}`
     : fw ? `启动固件 · Rp ${fw.rp === "default" ? "默认电流" : fw.rp === "unknown" ? "未知" : fw.rp}`
     : kernel.startsWith("7.") ? "沿用启动固件初始化 · 协商额度不可读" : "本次开机无可确认的协商额度";
   return <Readout label="PD 协商" value={value} detail={detail} href={fw ? undefined : "#/services"} destination="底层服务">
     {fw && <details className="pd-capabilities">
-      <summary>来源能力 · {fw.sourceCapabilities.length} 项</summary>
+      <summary>来源能力 · {fw.sourceCapabilities.length ? `${fw.sourceCapabilities.length} 项` : "本次未收到"}</summary>
+      {warm ? <>
+        <p>等待来源能力超时（热重启时供电端不重发）</p>
+        <p>{last ? `上次合同 · ${last.voltageV}V ${last.currentA}A${last.usbComm ? " · USB 数据" : ""} · ${last.origin === "linux" ? "Linux 初始化" : "启动固件协商"} · ${lastTime}` : "冷插拔 USB-C 后可读取完整协商"}</p>
+      </> : <>
       <p>启动固件 · {fw.contract ? `${fw.contract.voltageV}V ${fw.contract.currentA}A` : fw.psReady ? "已收到 PS_RDY" : "未完成 PD 合同"}</p>
       {fw.sourceRevision && <p>来源 PD {fw.sourceRevision} · 请求 PD {fw.requestRevision || "未知"}</p>}
       {fw.requestedCurrentA != null && <p>工作请求 {fw.requestedCurrentA}A · 最大请求 {fw.requestedMaxCurrentA}A</p>}
       {fw.requestedPowerW != null && <p>工作请求 {fw.requestedPowerW}W · 最大请求 {fw.requestedMaxPowerW}W</p>}
-      {(fw.hardReset || fw.requestFailed || fw.timedOut || fw.ioError) && <p>{[fw.hardReset && "发生硬复位", fw.requestFailed && "请求失败/延后", fw.timedOut && "初始化超时", fw.ioError && "读取异常"].filter(Boolean).join(" · ")}</p>}
-      <ul>{fw.sourceCapabilities.map(pdo => <li key={pdo.position}>
+      </>}
+      {(fw.hardReset || fw.requestFailed || (!warm && fw.timedOut) || fw.ioError) && <p>{[fw.hardReset && "发生硬复位", fw.requestFailed && "请求失败/延后", !warm && fw.timedOut && "初始化超时", fw.ioError && "读取异常"].filter(Boolean).join(" · ")}</p>}
+      {!warm && <ul>{fw.sourceCapabilities.map(pdo => <li key={pdo.position}>
         <span>PDO {pdo.position}{fw.selectedPosition === pdo.position ? " · 已请求" : ""}</span>
         <span>{capabilityLabel(pdo)}</span><code>0x{pdo.raw}</code>
-      </li>)}</ul>
+      </li>)}</ul>}
       <p>启动协商记录；不代表实时电流或功耗</p>
     </details>}
   </Readout>;

@@ -9,9 +9,20 @@ import (
 // Power separates the live VBUS threshold from the historical PD contract.
 // Neither reports input current, board power consumption, or the active source.
 type Power struct {
-	VBUSPresent  *bool          `json:"vbusPresent"`
-	BootContract *PowerContract `json:"bootContract"`
-	FirmwarePD   *FirmwarePD    `json:"firmwarePD,omitempty"`
+	VBUSPresent  *bool              `json:"vbusPresent"`
+	BootContract *PowerContract     `json:"bootContract"`
+	FirmwarePD   *FirmwarePD        `json:"firmwarePD,omitempty"`
+	LastContract *LastPowerContract `json:"lastContract,omitempty"`
+}
+
+// LastPowerContract records confirmed history from an earlier boot.
+type LastPowerContract struct {
+	PowerContract
+	USBComm       bool   `json:"usbComm"`
+	RDO           string `json:"rdo"`
+	Origin        string `json:"origin"`
+	BootID        string `json:"bootId"`
+	EstablishedAt string `json:"establishedAt"`
 }
 
 // FirmwarePD is a historical U-Boot observation, independent of Linux bootstrap.

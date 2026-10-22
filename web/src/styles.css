@@ -1924,6 +1924,13 @@ a.readout:hover .readout-chevron {
   letter-spacing: -0.01em;
 }
 
+.readout-value > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .readout-detail {
   font-size: 12px;
   color: var(--ink-2);
