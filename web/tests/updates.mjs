@@ -16,6 +16,17 @@ try {
   };
   let pikvm = "2.5.1+vim4.20261015.63";
   const installs = [];
+  const switches = [];
+  await page.route("**/api/kernel", async route => {
+    if (route.request().method() === "POST") {
+      switches.push(route.request().postDataJSON());
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fulfill({ json: { running: "7.3.0-rc7-vim4kvm-uhd1+", kernels: [
+      { id: "vendor", name: "Linux 5.15", release: "5.15.137", selected: false, available: true, error: "" },
+      { id: "mainline", name: "Linux 7.x", release: "7.3.0-rc7-vim4kvm-uhd1+", selected: true, available: true, error: "" },
+    ] } });
+  });
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
   await page.route("**/api/updates", async (route) => {
     if (route.request().method() === "POST") {
@@ -36,6 +47,13 @@ try {
   await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/updates`);
   await page.getByRole("heading", { name: "更新", exact: true }).waitFor();
+  const kernelPanel = page.locator(".kernel-panel");
+  await kernelPanel.getByText("正在运行", { exact: true }).waitFor();
+  await kernelPanel.getByRole("button", { name: "切换并重启", exact: true }).click();
+  await kernelPanel.getByRole("alertdialog").waitFor();
+  assert.deepEqual(switches, [], "choosing a kernel cannot immediately reboot");
+  await kernelPanel.getByRole("button", { name: "取消", exact: true }).click();
+  assert.equal(await kernelPanel.getByRole("alertdialog").count(), 0);
   await page.getByText("切换到 NanoKVM 后在其设置中更新").waitFor();
   await page.getByText("尚未发布").waitFor();
   await page.getByText("未安装").waitFor();
@@ -63,6 +81,10 @@ try {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
   assert.equal(overflow, false, "no horizontal overflow at phone width");
   if (shots) await page.screenshot({ path: `${shots}/updates-phone.png`, fullPage: true });
+  await kernelPanel.getByRole("button", { name: "切换并重启", exact: true }).click();
+  await kernelPanel.getByRole("button", { name: "确认重启", exact: true }).click();
+  await kernelPanel.getByRole("status").waitFor();
+  assert.deepEqual(switches, [{ id: "vendor", reboot: true }]);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
   await page.getByRole("button", { name: "查看各组件" }).click();
   await page.locator(".packages").getByText("开发版", { exact: true }).waitFor();

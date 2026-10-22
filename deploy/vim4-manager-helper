@@ -81,6 +81,35 @@ TAILSCALE_PACKAGE_UNIT = 'vim4-manager-tailscale-package.service'
 TAILSCALE_LOGIN_UNIT = 'vim4-manager-tailscale-login.service'
 
 
+def cpu_opp_domains():
+    """Use the live, speed-bin-adjusted OPP voltage when EM is not registered."""
+    domains = []
+    for policy in sorted(Path('/sys/devices/system/cpu/cpufreq').glob('policy[0-9]*')):
+        cpus = [int(cpu) for cpu in policy.joinpath('related_cpus').read_text().split()]
+        if not cpus:
+            raise ValueError('Empty CPU policy')
+        coefficients = []
+        for cpu in cpus:
+            raw = Path(f'/sys/devices/system/cpu/cpu{cpu}/of_node/dynamic-power-coefficient').read_bytes()
+            if len(raw) != 4:
+                raise ValueError('Invalid CPU power coefficient')
+            coefficients.append(int.from_bytes(raw, 'big'))
+        if not coefficients[0] or len(set(coefficients)) != 1:
+            raise ValueError('Inconsistent CPU power coefficients')
+        powers = {}
+        for opp in Path(f'/sys/kernel/debug/opp/cpu{cpus[0]}').glob('opp:*'):
+            if opp.joinpath('available').read_text().strip() != 'Y':
+                continue
+            hz = int(opp.joinpath('rate_hz').read_text())
+            uv = int(opp.joinpath('supply-0/u_volt_target').read_text())
+            if hz <= 0 or uv <= 0:
+                raise ValueError('Invalid CPU operating point')
+            # Same C * mV^2 * MHz model as dev_pm_opp_calc_power, in mW.
+            powers[hz // 1000] = coefficients[0] * (uv // 1000) ** 2 * (hz // 1000000) / 1e9
+        domains.append((cpus, policy.joinpath('stats/time_in_state'), powers))
+    return domains
+
+
 def cpu_power_snapshot():
     """Read the kernel's per-core dynamic power model and interval counters.
 
@@ -98,25 +127,33 @@ def cpu_power_snapshot():
                 'busy': sum(values) - values[3] - values[4], 'total': sum(values)}
     domains = []
     covered = set()
+    models = []
     for domain in sorted(Path('/sys/kernel/debug/energy_model').glob('cpu[0-9]*')):
-        if domain.joinpath('units').read_text().strip() != 'milliWatts':
-            raise ValueError('CPU energy model does not report milliwatts')
+        units = domain.joinpath('units').read_text().strip()
+        if units not in ('milliWatts', 'microWatts'):
+            raise ValueError('CPU energy model does not report physical power')
         cpus = []
         for part in domain.joinpath('cpus').read_text().strip().split(','):
             bounds = [int(v) for v in part.split('-')]
             if len(bounds) not in (1, 2) or not 0 <= bounds[0] <= bounds[-1] <= 4095:
                 raise ValueError('Invalid CPU domain')
             cpus.extend(range(bounds[0], bounds[-1] + 1))
+        residency = Path(f'/sys/devices/system/cpu/cpufreq/policy{cpus[0]}/stats/time_in_state') if cpus else None
+        powers = {int(state.name[3:]): int(state.joinpath('power').read_text()) /
+                  (1000 if units == 'microWatts' else 1) for state in domain.glob('ps:*')}
+        models.append((cpus, residency, powers))
+    if not models:
+        models = cpu_opp_domains()
+    for cpus, residency, powers in models:
         if not cpus or covered.intersection(cpus):
             raise ValueError('Overlapping CPU domains')
         online = [cpu for cpu in cpus if cpu in counters]
         if not online:
             continue
-        residency = Path(f'/sys/devices/system/cpu/cpufreq/policy{cpus[0]}/stats/time_in_state')
         states = {}
         for line in residency.read_text().splitlines():
             frequency, ticks = (int(v) for v in line.split())
-            power = int(domain.joinpath(f'ps:{frequency}', 'power').read_text())
+            power = powers.get(frequency, 0)
             if frequency <= 0 or ticks < 0 or power <= 0:
                 raise ValueError('Invalid CPU power state')
             states[str(frequency)] = {'ticks': ticks, 'milliwatts': power}
@@ -1497,7 +1534,31 @@ def wifi_dbus(action, identifier=None, settings=None):
         raise ValueError('无线网络配置失败，请检查 NetworkManager 状态') from None
 
 
+def wifi_key_management(device, ssid, existing=None):
+    networks = [n for n in wifi_access_points(device, [], False) if n['ssid'] == ssid]
+    # A mixed-mode AP remains usable by drivers without SAE. Only WPA3-only
+    # personal networks require SAE; do not let NM scan until its timeout.
+    sae_only = bool(networks) and all('WPA3' in n['security'] and
+                                    not any(v in n['security'].split() for v in ('WPA1', 'WPA2'))
+                                    for n in networks)
+    if not networks and existing:
+        settings = wifi_dbus('read', existing['id'])
+        sae_only = settings.get('802-11-wireless-security', {}).get('key-mgmt') == 'sae'
+    if not sae_only:
+        return 'wpa-psk'
+    try:
+        capabilities = subprocess.check_output(
+            ['wpa_cli', '-i', device, 'get_capability', 'key_mgmt'],
+            text=True, stderr=subprocess.DEVNULL, timeout=3, env=WIFI_ENV)
+    except (OSError, subprocess.SubprocessError):
+        raise ValueError('无法确认 WPA3 支持，原无线连接未改动') from None
+    if 'SAE' not in capabilities.split():
+        raise ValueError('该网络仅支持 WPA3，当前无线驱动未提供 SAE；请使用 WPA2/WPA3 混合模式或 WPA2 网络。原无线连接未改动')
+    return 'sae'
+
+
 def wifi_profile_config(device, data, existing=None, hotspot=False):
+    key_management = 'wpa-psk' if hotspot or not data.get('password') else wifi_key_management(device, data['ssid'], existing)
     if existing:
         previous = wifi_dbus('read', existing['id'])
         # Copy sections only: deepcopy drops the D-Bus signature of empty
@@ -1529,7 +1590,9 @@ def wifi_profile_config(device, data, existing=None, hotspot=False):
             config['ipv6'] = {'method': 'auto'}
     if data.get('password'):
         security = config.setdefault('802-11-wireless-security', {})
-        security.update({'key-mgmt': 'wpa-psk', 'psk': data['password'], 'psk-flags': 0})
+        security.update({'key-mgmt': key_management, 'psk': data['password'], 'psk-flags': 0})
+        if key_management == 'sae':
+            security['pmf'] = 3  # NM_SETTING_WIRELESS_SECURITY_PMF_REQUIRED
         if hotspot:
             security.update({'proto': ['rsn'], 'pairwise': ['ccmp']})
     elif not hotspot and 'password' in data:

@@ -34,6 +34,13 @@ try {
   await chart.getByText("—", { exact: true }).waitFor();
   assert.equal(await chart.locator(".chart-dot").count(), 0, "unavailable current sample does not show a stale last dot");
   assert.match(await chart.getByRole("img").getAttribute("aria-label"), /当前\s*暂无数据/);
+  status.hardware.kernel = "7.3.0-rc7-vim4kvm-uhd1+";
+  status.power.bootContract = null;
+  status.history = status.history.map(sample => ({ ...sample, cpuPowerW: null, cpuPowerAvailable: false }));
+  await page.reload();
+  await page.getByText("已检测到 USB-C 电压", { exact: true }).waitFor();
+  await chart.getByText("暂无法估算", { exact: true }).waitFor();
+  assert.equal(await chart.getByText("正在采样…", { exact: true }).count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/power-phone.png`, fullPage: true });

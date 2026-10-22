@@ -15,10 +15,11 @@ type Sample struct {
 	UnixMs int64   `json:"t"`
 	CPU    float64 `json:"cpu"`
 	// Null means unavailable; zero is a valid idle dynamic-power estimate.
-	CPUPowerW *float64 `json:"cpuPowerW"`
-	Mem       float64  `json:"mem"`
-	TempC     float64  `json:"tempC"`
-	FanPct    int      `json:"fan"`
+	CPUPowerW         *float64 `json:"cpuPowerW"`
+	CPUPowerAvailable bool     `json:"cpuPowerAvailable"`
+	Mem               float64  `json:"mem"`
+	TempC             float64  `json:"tempC"`
+	FanPct            int      `json:"fan"`
 	// Physical-link throughput since the previous sample, in bits per second.
 	RxBps float64 `json:"rxBps"`
 	TxBps float64 `json:"txBps"`
@@ -79,6 +80,7 @@ func (h *History) Sample(now time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	s.CPUPowerW = estimateCPUPower(h.cpuPower, currentPower)
+	s.CPUPowerAvailable = len(currentPower) > 0
 	h.cpuPower = currentPower
 	primed := h.total > 0 && total > h.total
 	if primed {

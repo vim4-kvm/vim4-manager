@@ -53,6 +53,7 @@ export function TrendChart({
   onHover,
   maxGapMs = Infinity,
   currentAvailable = true,
+  emptyMessage = "正在采样…",
   height = 112,
   sampledFrom,
   sampledMinutes = Math.round(windowMs / 60000),
@@ -72,6 +73,7 @@ export function TrendChart({
   /** Do not connect across unavailable sampling intervals. */
   maxGapMs?: number;
   currentAvailable?: boolean;
+  emptyMessage?: string;
   height?: number;
   /** History start, including samples whose value is unavailable for this series. */
   sampledFrom?: number;
@@ -133,7 +135,7 @@ export function TrendChart({
   const values = visible.map((p) => p.v);
   const summary = visible.length
     ? `${label}，最近 ${sampledMinutes} 分钟：当前 ${currentAvailable ? format(last.v) : "暂无数据"}，最低 ${format(Math.min(...values))}，最高 ${format(Math.max(...values))}`
-    : `${label}：正在采样`;
+    : `${label}：${emptyMessage}`;
 
   const minutes = Math.round(windowMs / 60000);
   const xTicks = [minutes, (minutes * 2) / 3, minutes / 3, 0];
@@ -207,7 +209,7 @@ export function TrendChart({
           <span>{clock(active.t)}</span>
         </div>
       )}
-      {!visible.length && <div className="chart-empty">正在采样…</div>}
+      {!visible.length && <div className="chart-empty">{emptyMessage}</div>}
     </div>
   );
 }

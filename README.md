@@ -13,16 +13,21 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 未安装双内核清单时不显示可切换项。板级依赖为 `vim4-runtime-api-1`。
 
 概览在开机时长左侧显示本次开机的 PD 协商电压、电流与供电额度。
-API 中的实时电压存在检测依赖板级 `usb-pd-init --status`，旧版本或读取失败为未知；
+API 中的实时电压存在检测依赖板级 `usb-pd-init --status`，按 AO-A 控制器识别 I²C 总线，
+兼容 5.15 的 6 与 7.x 的 1；旧版本或读取失败为未知。
+7.x 当前沿用 U-Boot 初始化，没有 Linux TCPM 或新的启动协商记录，只展示 VBUS 检测与额度不可读；
 协商额度取当前 systemd 初始化实例的完成日志，不代表运行期间的实时合约。
 `GET /api/status` 的 `power.vbusPresent` 与 `power.bootContract` 可分别为 null。
 读取最多每 5 秒一次，失败清除旧读数。当前不测实际电流、功耗或 USB-C/VIN 供电分担。
 
 趋势图的「CPU 动态功耗（估算）」复用 5 秒采样和 15 分钟内存历史。
-限定助手 `cpu-power-snapshot` 读取内核 Energy Model（必须标记 milliWatts）、
+限定助手 `cpu-power-snapshot` 读取内核 Energy Model（必须标记 milliWatts 或 microWatts）、
 各频率 time_in_state 和各核 /proc/stat。每个 CPU 簇按区间频率驻留加权模型功率，
 乘以各核忙碌比例之和，再汇总成瓦数。频率与负载的区间内相关性未知，因此只是
 动态功耗近似，不含漏电、GPU、编码器、内存或供电损耗，未经仪表校准。
+未注册 Energy Model 时，读取设备树 `dynamic-power-coefficient` 和 debugfs 中经过
+速度分档调整的实际 OPP 电压，按内核的 C×V²×f 模型计算各频率功率，不使用额定电压代替。
+模型或计数器缺失时 `history[].cpuPowerAvailable=false`，网页显示「暂无法估算」。
 `history[].cpuPowerW` 为 null 表示缺失、计数器重置或模型/在线核变化；
 恢复后需要两次连续有效采样，图表缺口不连线。零值仅代表估算的动态功耗为零。
 浏览器回归：`node web/tests/power.mjs`（本地前端默认 5188，可用 TEST_URL 覆盖）。

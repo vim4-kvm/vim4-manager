@@ -22,6 +22,33 @@ loader.exec_module(helper)
 class PowerTest(unittest.TestCase):
     COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
 
+    def test_opp_fallback_uses_live_voltage_and_requires_complete_counters(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def write(path, value):
+                dest = root / path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(value if isinstance(value, bytes) else value.encode())
+            write('proc/stat', 'cpu0 20 0 10 70 0 0 0 0\n')
+            policy = 'sys/devices/system/cpu/cpufreq/policy0/'
+            write(policy + 'related_cpus', '0\n')
+            write(policy + 'stats/time_in_state', '2000000 150\n')
+            write('sys/devices/system/cpu/cpu0/of_node/dynamic-power-coefficient', (550).to_bytes(4, 'big'))
+            opp = 'sys/kernel/debug/opp/cpu0/opp:2000000000/'
+            write(opp + 'available', 'Y\n')
+            write(opp + 'rate_hz', '2000000000\n')
+            write(opp + 'supply-0/u_volt_target', '900000\n')
+            with patch.object(helper, 'Path', side_effect=lambda p: root / str(p).lstrip('/')):
+                result = helper.cpu_power_snapshot()
+                self.assertAlmostEqual(result[0]['states']['2000000']['milliwatts'], 891)
+                write(opp + 'available', 'N\n')
+                with self.assertRaises(ValueError):
+                    helper.cpu_power_snapshot()
+                write(opp + 'available', 'Y\n')
+                write(opp + 'supply-0/u_volt_target', '0\n')
+                with self.assertRaises(ValueError):
+                    helper.cpu_power_snapshot()
+
     def test_cpu_snapshot_requires_complete_model_with_physical_units(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -39,6 +66,9 @@ class PowerTest(unittest.TestCase):
                 snapshot = helper.cpu_power_snapshot()
                 self.assertEqual(snapshot[0]['cpus']['0'], {'busy': 30, 'total': 105})
                 self.assertEqual(snapshot[0]['states']['1000000'], {'ticks': 200, 'milliwatts': 351})
+                write(base + 'units', 'microWatts\n')
+                write(base + 'ps:1000000/power', '351000\n')
+                self.assertEqual(helper.cpu_power_snapshot(), snapshot)
                 write(base + 'units', 'bogoWatts\n')
                 with self.assertRaises(ValueError):
                     helper.cpu_power_snapshot()
@@ -190,6 +220,28 @@ class WifiTest(unittest.TestCase):
     def request(self, action, body):
         with patch('sys.stdin', io.StringIO(json.dumps(body))):
             return helper.wifi_command([action])
+
+    def test_wpa3_only_rejected_without_changing_existing_hotspot(self):
+        self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
+        self.active = self.HOTSPOT
+        self.scan = 'Home:90:WPA3:5200 MHz: \n'
+        with patch.object(helper.subprocess, 'check_output', return_value='WPA-PSK OWE\n'):
+            with self.assertRaisesRegex(ValueError, 'WPA3.*SAE'):
+                self.request('wifi-connect', {'ssid': 'Home', 'password': 'newsecret'})
+        self.assertEqual(self.active, self.HOTSPOT)
+        self.assertEqual(set(self.profiles), {self.HOTSPOT})
+        self.assertFalse(any('up' in args or 'disconnect' in args for args, _ in self.calls))
+
+    def test_wpa3_uses_sae_and_mixed_mode_remains_compatible(self):
+        self.scan = 'Home:90:WPA3:5200 MHz: \n'
+        with patch.object(helper.subprocess, 'check_output', return_value='WPA-PSK SAE\n'):
+            self.request('wifi-connect', {'ssid': 'Home', 'password': 'newsecret'})
+        security = self.settings[self.active]['802-11-wireless-security']
+        self.assertEqual(security['key-mgmt'], 'sae')
+        self.assertEqual(security['pmf'], 3)
+        self.scan = 'Mixed:90:WPA2 WPA3:5180 MHz: \n'
+        self.request('wifi-connect', {'ssid': 'Mixed', 'password': 'newsecret'})
+        self.assertEqual(self.settings[self.active]['802-11-wireless-security']['key-mgmt'], 'wpa-psk')
 
     def test_escaped_fields_scan_dedup_and_current(self):
         self.assertEqual(helper.nm_fields(r'Home\:5G:a\\b::end'), ['Home:5G', 'a\\b', '', 'end'])

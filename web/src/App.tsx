@@ -220,8 +220,8 @@ function LinkTiles({ hw, power, now }: { hw: Hardware; power: Status["power"]; n
         tone={usbConfigured ? "good" : "warning"}
       />
       <Readout label="PD 协商" href="#/services" destination="底层服务"
-        value={contract ? `${contract.voltageV} V / ${contract.currentA} A` : "暂无记录"}
-        detail={contract ? `供电额度 ${contract.voltageV * contract.currentA} W · 本次开机` : "尚无可确认的协商结果"} />
+        value={contract ? `${contract.voltageV} V / ${contract.currentA} A` : power?.vbusPresent === true ? "已检测到 USB-C 电压" : power?.vbusPresent === false ? "未检测到 USB-C 电压" : "状态不可读"}
+        detail={contract ? `供电额度 ${contract.voltageV * contract.currentA} W · 本次开机` : hw.kernel.startsWith("7.") ? "沿用启动固件初始化 · 协商额度不可读" : "本次开机无可确认的协商额度"} />
       <Readout label="开机时长" value={duration(hw.uptimeSeconds)} detail={`开机于 ${clockTime(now - hw.uptimeSeconds * 1000, now).slice(0, -3)}`} />
     </div>
   );
@@ -305,6 +305,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const cpu = series((s) => s.cpu);
   const cpuPower = history.flatMap((s) => s.cpuPowerW == null ? [] : [{ t: s.t, v: s.cpuPowerW }]);
   const lastPower = history.at(-1)?.cpuPowerW;
+  const powerUnavailable = history.at(-1)?.cpuPowerAvailable === false;
   const powerMax = niceCeil(Math.max(1, ...cpuPower.map((p) => p.v)));
   const mem = series((s) => s.mem);
   const temp = series((s) => s.tempC);
@@ -343,10 +344,10 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
           domain={[0, netMax]} ticks={[0, netMax]} format={bitrate} tickFormat={bitrateTick} {...shared} />
       </TrendCard>
       <TrendCard title="CPU 动态功耗（估算）" value={lastPower == null ? "—" : watts(lastPower)}
-        detail={lastPower == null ? "暂无估算数据 · 需要连续两次有效采样" : "按频率驻留与各核利用率估算 · 不含静态功耗"}>
+        detail={powerUnavailable ? "功耗模型或计数器不可用" : lastPower == null ? "需要连续两次有效采样" : "按频率驻留与各核利用率估算 · 不含静态功耗"}>
         <TrendChart label="CPU 动态功耗估算" points={cpuPower} domain={[0, powerMax]}
           ticks={[0, powerMax]} format={watts} maxGapMs={7500}
-          currentAvailable={lastPower != null} {...shared} />
+          currentAvailable={lastPower != null} emptyMessage={powerUnavailable ? "暂无法估算" : "正在采样…"} {...shared} />
       </TrendCard>
       <TrendCard
         title="SoC 温度"
