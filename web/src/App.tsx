@@ -19,6 +19,7 @@ import {
   type System,
   type Zone,
   type Status,
+  type PowerCapability,
   type Unit,
 } from "./api";
 import { HDRPanel } from "./HDRPanel";
@@ -169,8 +170,8 @@ function AppRow({
   );
 }
 
-function Readout({ label, value, detail, tone, href, destination }: {
-  label: string; value: ReactNode; detail?: string; tone?: Tone; href?: string; destination?: string;
+function Readout({ label, value, detail, tone, href, destination, children }: {
+  label: string; value: ReactNode; detail?: string; tone?: Tone; href?: string; destination?: string; children?: ReactNode;
 }) {
   const content = (
     <dl>
@@ -190,7 +191,42 @@ function Readout({ label, value, detail, tone, href, destination }: {
       <span className="readout-chevron" aria-hidden="true">›</span>
       <span className="visually-hidden">，查看{destination}</span>
     </a>
-  ) : <div className="readout">{content}</div>;
+  ) : <div className="readout">{content}{children}</div>;
+}
+
+function capabilityLabel(pdo: PowerCapability): string {
+  const voltage = pdo.minVoltageV === pdo.maxVoltageV ? `${pdo.maxVoltageV}V` : `${pdo.minVoltageV}–${pdo.maxVoltageV}V`;
+  if (pdo.maxPowerW != null) return `${pdo.type} · ${voltage} ${pdo.maxPowerW}W`;
+  if (pdo.maxCurrentA != null) return `${pdo.type} · ${voltage} ${pdo.maxCurrentA}A`;
+  return pdo.type;
+}
+
+function PowerTile({ power, kernel }: { power: Status["power"]; kernel: string }) {
+  const fw = power?.firmwarePD;
+  const linux = power?.bootContract;
+  const contract = linux || fw?.contract;
+  const allowance = contract ? `${contract.voltageV}V ${contract.currentA}A` : "";
+  const value = contract ? (linux ? `${contract.voltageV} V / ${contract.currentA} A` : `PD 合同 · ${allowance}`)
+    : fw ? (fw.psReady && !fw.ioError && !fw.typecFallback ? "PD 已就绪 · 额度不可确认" : fw.typecFallback ? "Type-C · 无确认的 PD 合同" : "无确认的 PD 合同")
+    : power?.vbusPresent === true ? "已检测到 USB-C 电压" : power?.vbusPresent === false ? "未检测到 USB-C 电压" : "状态不可读";
+  const detail = contract ? `供电额度 ${+(contract.voltageV * contract.currentA).toFixed(2)} W · ${linux ? "Linux 初始化" : "启动固件协商"}`
+    : fw ? `启动固件 · Rp ${fw.rp === "default" ? "默认电流" : fw.rp === "unknown" ? "未知" : fw.rp}`
+    : kernel.startsWith("7.") ? "沿用启动固件初始化 · 协商额度不可读" : "本次开机无可确认的协商额度";
+  return <Readout label="PD 协商" value={value} detail={detail} href={fw ? undefined : "#/services"} destination="底层服务">
+    {fw && <details className="pd-capabilities">
+      <summary>来源能力 · {fw.sourceCapabilities.length} 项</summary>
+      <p>启动固件 · {fw.contract ? `${fw.contract.voltageV}V ${fw.contract.currentA}A` : fw.psReady ? "已收到 PS_RDY" : "未完成 PD 合同"}</p>
+      {fw.sourceRevision && <p>来源 PD {fw.sourceRevision} · 请求 PD {fw.requestRevision || "未知"}</p>}
+      {fw.requestedCurrentA != null && <p>工作请求 {fw.requestedCurrentA}A · 最大请求 {fw.requestedMaxCurrentA}A</p>}
+      {fw.requestedPowerW != null && <p>工作请求 {fw.requestedPowerW}W · 最大请求 {fw.requestedMaxPowerW}W</p>}
+      {(fw.hardReset || fw.requestFailed || fw.timedOut || fw.ioError) && <p>{[fw.hardReset && "发生硬复位", fw.requestFailed && "请求失败/延后", fw.timedOut && "初始化超时", fw.ioError && "读取异常"].filter(Boolean).join(" · ")}</p>}
+      <ul>{fw.sourceCapabilities.map(pdo => <li key={pdo.position}>
+        <span>PDO {pdo.position}{fw.selectedPosition === pdo.position ? " · 已请求" : ""}</span>
+        <span>{capabilityLabel(pdo)}</span><code>0x{pdo.raw}</code>
+      </li>)}</ul>
+      <p>启动协商记录；不代表实时电流或功耗</p>
+    </details>}
+  </Readout>;
 }
 
 function tempTone(c: number): Tone {
@@ -198,7 +234,6 @@ function tempTone(c: number): Tone {
 }
 
 function LinkTiles({ hw, power, now }: { hw: Hardware; power: Status["power"]; now: number }) {
-  const contract = power?.bootContract;
   const h = hw.hdmi;
   const hdmiValue = h.signal ? <>{h.width}×<wbr />{h.height}</> : "无信号";
   const hdmiDetail = h.signal
@@ -219,9 +254,7 @@ function LinkTiles({ hw, power, now }: { hw: Hardware; power: Status["power"]; n
         detail={usbConfigured ? "键盘与鼠标已枚举" : "等待被控机枚举"}
         tone={usbConfigured ? "good" : "warning"}
       />
-      <Readout label="PD 协商" href="#/services" destination="底层服务"
-        value={contract ? `${contract.voltageV} V / ${contract.currentA} A` : power?.vbusPresent === true ? "已检测到 USB-C 电压" : power?.vbusPresent === false ? "未检测到 USB-C 电压" : "状态不可读"}
-        detail={contract ? `供电额度 ${contract.voltageV * contract.currentA} W · 本次开机` : hw.kernel.startsWith("7.") ? "沿用启动固件初始化 · 协商额度不可读" : "本次开机无可确认的协商额度"} />
+      <PowerTile power={power} kernel={hw.kernel} />
       <Readout label="开机时长" value={duration(hw.uptimeSeconds)} detail={`开机于 ${clockTime(now - hw.uptimeSeconds * 1000, now).slice(0, -3)}`} />
     </div>
   );

@@ -15,7 +15,11 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 概览在开机时长左侧显示本次开机的 PD 协商电压、电流与供电额度。
 API 中的实时电压存在检测依赖板级 `usb-pd-init --status`，按 AO-A 控制器识别 I²C 总线，
 兼容 5.15 的 6 与 7.x 的 1；旧版本或读取失败为未知。
-7.x 当前沿用 U-Boot 初始化，没有 Linux TCPM 或新的启动协商记录，只展示 VBUS 检测与额度不可读；
+支持读取 `/proc/device-tree/chosen/khadas,usb-pd-boot` 的 v1 启动固件快照，
+`power.firmwarePD` 独立保留 PS_RDY、原始 PDO/RDO、规范版本、Rp 和失败/硬复位标记。
+来源能力列表展示额定值，合同额度按实际 RDO 最大请求解析，同时保留工作请求；不直接使用 PDO 电流上限。
+5.15 的 `bootContract`（Linux 初始化）优先展示，固件记录在来源能力内并列保留。
+旧 U-Boot 缺少属性时保持原显示。7.x 没有 Linux TCPM 或新的 Linux 启动协商记录；
 协商额度取当前 systemd 初始化实例的完成日志，不代表运行期间的实时合约。
 `GET /api/status` 的 `power.vbusPresent` 与 `power.bootContract` 可分别为 null。
 读取最多每 5 秒一次，失败清除旧读数。当前不测实际电流、功耗或 USB-C/VIN 供电分担。

@@ -11,6 +11,45 @@ import (
 type Power struct {
 	VBUSPresent  *bool          `json:"vbusPresent"`
 	BootContract *PowerContract `json:"bootContract"`
+	FirmwarePD   *FirmwarePD    `json:"firmwarePD,omitempty"`
+}
+
+// FirmwarePD is a historical U-Boot observation, independent of Linux bootstrap.
+type FirmwarePD struct {
+	PSReady              bool              `json:"psReady"`
+	Flags                uint32            `json:"flags"`
+	HardReset            bool              `json:"hardReset"`
+	RequestFailed        bool              `json:"requestFailed"`
+	TimedOut             bool              `json:"timedOut"`
+	IOError              bool              `json:"ioError"`
+	TypeCFallback        bool              `json:"typecFallback"`
+	RP                   string            `json:"rp"`
+	SourceRevision       *string           `json:"sourceRevision"`
+	RequestRevision      *string           `json:"requestRevision"`
+	SourceHeader         string            `json:"sourceHeader"`
+	RequestHeader        string            `json:"requestHeader"`
+	RDO                  string            `json:"rdo"`
+	SelectedPosition     *int              `json:"selectedPosition"`
+	SelectedType         *string           `json:"selectedType"`
+	RequestedVoltageV    *float64          `json:"requestedVoltageV"`
+	RequestedCurrentA    *float64          `json:"requestedCurrentA"`
+	RequestedMaxCurrentA *float64          `json:"requestedMaxCurrentA"`
+	RequestedMaxPowerW   *float64          `json:"requestedMaxPowerW"`
+	RequestedPowerW      *float64          `json:"requestedPowerW"`
+	PolicyVoltageV       float64           `json:"policyVoltageV"`
+	PolicyCurrentA       float64           `json:"policyCurrentA"`
+	Contract             *PowerContract    `json:"contract"`
+	SourceCapabilities   []PowerCapability `json:"sourceCapabilities"`
+}
+
+type PowerCapability struct {
+	Position    int      `json:"position"`
+	Raw         string   `json:"raw"`
+	Type        string   `json:"type"`
+	MinVoltageV float64  `json:"minVoltageV,omitempty"`
+	MaxVoltageV float64  `json:"maxVoltageV,omitempty"`
+	MaxCurrentA *float64 `json:"maxCurrentA,omitempty"`
+	MaxPowerW   *float64 `json:"maxPowerW,omitempty"`
 }
 
 type PowerContract struct {

@@ -1933,6 +1933,18 @@ a.readout:hover .readout-chevron {
   overflow: hidden;
 }
 
+.pd-capabilities {
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.pd-capabilities summary { cursor: pointer; }
+.pd-capabilities p { margin: 8px 0; }
+.pd-capabilities ul { list-style: none; margin: 8px 0; padding: 0; }
+.pd-capabilities li { display: grid; gap: 3px; padding: 6px 0; border-top: 1px solid var(--rule); }
+
 /* Trends share the parent card's dividers. */
 .trends {
   display: grid;

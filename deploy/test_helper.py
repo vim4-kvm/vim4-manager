@@ -22,6 +22,80 @@ loader.exec_module(helper)
 class PowerTest(unittest.TestCase):
     COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
 
+    def firmware(self, root, *, flags=65, source=0x1061, request=0x1042,
+                 rdo=0x1401912c, rp=3, pdos=(0x3e01912c,)):
+        cells = [1, flags, source, request, rdo, len(pdos), rp, 5000, 3000, *pdos]
+        data = b''.join(v.to_bytes(4, 'big') for v in cells + [0] * (16 - len(cells)))
+        root.joinpath('khadas,usb-pd-boot').write_bytes(data)
+        return helper.firmware_power(root)
+
+    def test_firmware_keeps_source_rating_distinct_from_actual_request(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Vendor RDO requests 1 A operating / 3 A maximum from a 3 A PDO.
+            result = self.firmware(root)
+            self.assertEqual(result['contract'], {'voltageV': 5, 'currentA': 3})
+            self.assertEqual(result['requestedCurrentA'], 1)
+            self.assertEqual(result['sourceCapabilities'][0]['maxCurrentA'], 3)
+            self.assertEqual(result['policyCurrentA'], 3)
+            self.assertEqual(result['sourceRevision'], '2.0')
+            self.assertEqual(result['selectedPosition'], 1)
+            self.assertEqual(result['sourceCapabilities'][0]['raw'], '3e01912c')
+            limited = self.firmware(root, rdo=0x14019096)
+            self.assertEqual(limited['contract'], {'voltageV': 5, 'currentA': 1.5})
+            self.assertEqual(limited['sourceCapabilities'][0]['maxCurrentA'], 3)
+
+    def test_firmware_never_promotes_capabilities_or_failed_requests_to_contract(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for flags in (64, 64 | 8 | 16 | 128, 65 | 32, 1, 65 | 128):
+                with self.subTest(flags=flags):
+                    self.assertIsNone(self.firmware(root, flags=flags)['contract'])
+            self.assertIsNone(self.firmware(root, rdo=0x2401912c)['contract'])
+            self.assertIsNone(self.firmware(root, rdo=0x1406412c)['contract'])
+            self.assertIsNone(self.firmware(root, request=0)['contract'])
+            result = self.firmware(root, flags=64 | 2 | 16 | 128, rp=1)
+            self.assertTrue(result['hardReset'])
+            self.assertTrue(result['typecFallback'])
+            self.assertEqual(result['rp'], 'default')
+
+    def test_firmware_handles_pdo_types_without_inventing_battery_current(self):
+        pdos = (0x3e01912c, (1 << 30) | (240 << 20) | (100 << 10) | 180,
+                (2 << 30) | (240 << 20) | (100 << 10) | 300,
+                (3 << 30) | (110 << 17) | (33 << 8) | 60)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = self.firmware(root, source=0x4081, pdos=pdos, rdo=(2 << 28) | (100 << 10) | 180)
+            self.assertEqual([p['type'] for p in result['sourceCapabilities']], ['Fixed', 'Battery', 'Variable', 'PPS'])
+            self.assertEqual(result['requestedPowerW'], 25)
+            self.assertIsNone(result['requestedCurrentA'])
+            self.assertIsNone(result['contract'])
+            self.assertEqual(result['sourceCapabilities'][3]['minVoltageV'], 3.3)
+            pps = self.firmware(root, source=0x4081, pdos=pdos,
+                                rdo=(4 << 28) | (250 << 9) | 40)
+            self.assertEqual(pps['contract'], {'voltageV': 5, 'currentA': 2})
+
+    def test_missing_truncated_or_unknown_firmware_format_is_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertIsNone(helper.firmware_power(root))
+            for data in (b'', b'1' * 63, b'1' * 65, (2).to_bytes(4, 'big') + b'\0' * 60):
+                root.joinpath('khadas,usb-pd-boot').write_bytes(data)
+                self.assertIsNone(helper.firmware_power(root))
+            self.assertIsNone(self.firmware(root, source=0x2061))
+            self.assertIsNone(self.firmware(root, rp=4))
+
+    def test_linux_bootstrap_and_firmware_observations_coexist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            firmware = self.firmware(Path(directory), rdo=0x14019096)
+            with patch.object(helper, 'firmware_power', return_value=firmware), patch.object(
+                    helper.Path, 'is_file', return_value=False), patch.object(
+                    helper.subprocess, 'check_output', side_effect=[
+                        'a' * 32, 'Request rdo 1304b12c: tx 0\n' + self.COMPLETE]):
+                result = helper.power_status()
+            self.assertEqual(result['bootContract'], {'voltageV': 5, 'currentA': 3})
+            self.assertEqual(result['firmwarePD']['contract'], {'voltageV': 5, 'currentA': 1.5})
+
     def test_opp_fallback_uses_live_voltage_and_requires_complete_counters(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

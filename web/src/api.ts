@@ -110,10 +110,29 @@ export interface Hardware {
   hdrCurve: HDRCurve;
 }
 
+export interface PowerCapability {
+  position: number; raw: string; type: string;
+  minVoltageV?: number; maxVoltageV?: number; maxCurrentA?: number; maxPowerW?: number;
+}
+
+export interface FirmwarePD {
+  psReady: boolean; flags: number; hardReset: boolean; requestFailed: boolean;
+  timedOut: boolean; ioError: boolean; typecFallback: boolean; rp: string;
+  sourceRevision: string | null; requestRevision: string | null;
+  sourceHeader: string; requestHeader: string; rdo: string;
+  selectedPosition: number | null; selectedType: string | null;
+  requestedVoltageV: number | null; requestedCurrentA: number | null; requestedPowerW: number | null;
+  requestedMaxCurrentA: number | null; requestedMaxPowerW: number | null;
+  policyVoltageV: number; policyCurrentA: number;
+  contract: { voltageV: number; currentA: number } | null;
+  sourceCapabilities: PowerCapability[];
+}
+
 export interface Status {
   power?: {
     vbusPresent: boolean | null;
     bootContract: { voltageV: number; currentA: number } | null;
+    firmwarePD?: FirmwarePD;
   };
   media?: Media;
   active: string;
