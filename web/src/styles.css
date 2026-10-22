@@ -3498,6 +3498,14 @@ a.readout:hover .readout-chevron {
   .lead .button { white-space: nowrap; }
 }
 
+@media (max-width: 400px) {
+  .power-readout,
+  .power-readout + .readout {
+    grid-column: 1 / -1;
+    border-left: 0;
+  }
+}
+
 /* Narrow screens: the sidebar becomes a top bar with scrolling tabs. */
 @media (max-width: 760px) {
   /* Keyboard focus must clear the sticky mobile navigation. */

@@ -28,7 +28,9 @@ PS_RDY 合同缺少 USB comm 位时做一次 USB-capable 5V 协商，其完成�
 板级 `vim4pd.py` 在本次合同确认后原子保存 `/var/lib/vim4-kvm/pd-last-contract.json`，
 Linux 初始化结果覆盖更早的固件合同。`power.lastContract` 仅提供其他 bootId 的完整历史记录，
 不把历史记录当作实时检测。同次启动优先显示 Linux、固件合同；固件超时、没有收到 PDO
-且 VBUS 存在时，显示「沿用上次合同」及板端本地时间，无记录时显示「本次未重新协商」。
+且 VBUS 存在时，主值按「5V 3A · 沿用」显示额度，detail 保留板端本地时间；
+无记录时主值为「仅 Type-C」，detail 为「本次未重新协商 · Rp …」。
+≤400px 时 PD 与开机时长各占整行，保留其他状态的完整主值。空图只显示一条占位文案。
 安装此版 helper 前必须先安装配套板级 `vim4pd.py`，安装过程不重启 PD 服务。
 读取最多每 5 秒一次，失败清除旧读数。当前不测实际电流、功耗或 USB-C/VIN 供电分担。
 

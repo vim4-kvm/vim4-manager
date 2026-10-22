@@ -161,7 +161,7 @@ export function TrendChart({
           </defs>
           {unsampledWidth > 0 && <>
             <rect className="chart-unsampled" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} fill="var(--hover)" />
-            {unsampledWidth >= 96 && <text className="chart-tick" x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">尚未采样</text>}
+            {visible.length > 0 && unsampledWidth >= 96 && <text className="chart-tick" x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">尚未采样</text>}
           </>}
           {ticks.map((v) => (
             <g key={v}>

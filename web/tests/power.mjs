@@ -46,6 +46,7 @@ try {
   await page.getByText("已检测到 USB-C 电压", { exact: true }).waitFor();
   await chart.getByText("暂无法估算", { exact: true }).waitFor();
   assert.equal(await chart.getByText("正在采样…", { exact: true }).count(), 0);
+  assert.equal(await chart.getByText("尚未采样", { exact: true }).count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   status.power.firmwarePD = {
@@ -69,10 +70,10 @@ try {
   await page.getByText("0x3e01912c", { exact: true }).waitFor();
   await page.getByText("工作请求 1A · 最大请求 1.5A", { exact: true }).waitFor();
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/power-phone.png`, fullPage: true });
+  await page.screenshot({ path: `${screenshots}/r2-firmware-390.png`, fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/power-desktop.png`, fullPage: true });
+  await page.screenshot({ path: `${screenshots}/r2-firmware-1280.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   status.hardware.kernel = "5.15.137-vim4kvm";
   status.power.bootContract = { voltageV: 5, currentA: 3 };
@@ -96,6 +97,23 @@ try {
   Object.assign(status.power.firmwarePD, { rp: "3A", hardReset: false });
   status.power.lastContract = { voltageV: 5, currentA: 3, usbComm: true, rdo: "1304b12c",
     origin: "linux", bootId: "previous", establishedAt: `${boardYear}-01-02T03:04:05+08:00` };
+  async function captureWidths(name) {
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+      const metrics = await tile.locator('.readout-value > span').evaluate(el => ({
+        scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, whiteSpace: getComputedStyle(el).whiteSpace,
+      }));
+      assert(metrics.clientWidth > 0 && metrics.scrollWidth <= metrics.clientWidth,
+        `${name} at ${width}px must show its full main value: ${JSON.stringify(metrics)}`);
+      assert.equal(metrics.whiteSpace, 'nowrap');
+      await chart.getByText('暂无法估算', { exact: true }).waitFor();
+      assert.equal(await chart.getByText('尚未采样', { exact: true }).count(), 0);
+      assert.equal(await chart.locator('.chart-empty').count(), 1);
+      await page.screenshot({ path: `${screenshots}/r2-${name}-${width}.png`, fullPage: true });
+      if (name === 's4') await chart.screenshot({ path: `${screenshots}/r2-power-empty-${width}.png` });
+    }
+  }
   async function checkWarm(name, value, detail, secondLine) {
     await page.reload();
     await tile.getByText(value, { exact: true }).waitFor();
@@ -108,26 +126,17 @@ try {
     ]);
     assert.equal(await tile.locator('ul').count(), 0);
     assert.equal(await tile.locator('.lamp').count(), 0);
-    await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-    const metrics = await tile.locator('.readout-value > span').evaluate(el => {
-      const css = getComputedStyle(el);
-      return { whiteSpace: css.whiteSpace, overflow: css.overflow, ellipsis: css.textOverflow,
-        height: el.getBoundingClientRect().height, lineHeight: parseFloat(css.lineHeight) };
-    });
-    assert.equal(metrics.whiteSpace, 'nowrap');
-    assert.equal(metrics.overflow, 'hidden');
-    assert.equal(metrics.ellipsis, 'ellipsis');
-    await page.screenshot({ path: `${screenshots}/${name}-390.png`, fullPage: true });
+    await captureWidths(name);
   }
-  await checkWarm('s3', '沿用上次合同 · 5V 3A', '本次未重新协商 · 上次 01-02 03:04',
+  await checkWarm('s3', '5V 3A · 沿用', '本次未重新协商 · 上次 01-02 03:04',
     '上次合同 · 5V 3A · USB 数据 · Linux 初始化 · 01-02 03:04');
   // Earlier year, firmware origin and no USB comm use board time despite browser zone.
   Object.assign(status.power.lastContract, { establishedAt: `${boardYear - 1}-12-31T23:59:00+08:00`,
     origin: 'firmware', usbComm: false });
-  await checkWarm('s3-previous-year', '沿用上次合同 · 5V 3A', `本次未重新协商 · 上次 ${boardYear - 1}-12-31 23:59`,
+  await checkWarm('s3-previous-year', '5V 3A · 沿用', `本次未重新协商 · 上次 ${boardYear - 1}-12-31 23:59`,
     `上次合同 · 5V 3A · 启动固件协商 · ${boardYear - 1}-12-31 23:59`);
   delete status.power.lastContract;
-  await checkWarm('s4', 'Type-C · 本次未重新协商', '启动固件 · Rp 3A', '冷插拔 USB-C 后可读取完整协商');
+  await checkWarm('s4', '仅 Type-C', '本次未重新协商 · Rp 3A', '冷插拔 USB-C 后可读取完整协商');
   Object.assign(status.power.firmwarePD, { hardReset: true, requestFailed: true, ioError: true });
   await page.reload();
   await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
@@ -139,9 +148,24 @@ try {
   await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
   await tile.getByText('启动固件 · 未完成 PD 合同', { exact: true }).waitFor();
   assert.equal(await tile.getByText('冷插拔 USB-C 后可读取完整协商', { exact: true }).count(), 0);
-  await page.screenshot({ path: `${screenshots}/s5-empty-pdo-390.png`, fullPage: true });
+  await captureWidths('s5-empty-pdo');
+  // Empty charts all use the same component; none should layer two placeholders.
+  status.history = [];
+  await page.reload();
+  await chart.getByText('正在采样…', { exact: true }).waitFor();
+  const emptyCharts = await page.locator('.trends figure').all();
+  assert.equal(emptyCharts.length, 6);
+  for (const figure of emptyCharts) {
+    assert.equal(await figure.locator('.chart-empty').count(), 1);
+    assert.equal(await figure.getByText('尚未采样', { exact: true }).count(), 0);
+    await figure.getByText('正在采样…', { exact: true }).waitFor();
+  }
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await page.screenshot({ path: `${screenshots}/r2-empty-charts-${width}.png`, fullPage: true });
+  }
   assert.deepEqual(errors, [], "no browser exceptions");
-  console.log("PASS: S1–S5 PD states, board-local history time/year, independent failures, exact text, CPU watts and 390px screenshots");
+  console.log("PASS: S1–S5 exact text, full main values at 390/1280px, board-local time, CPU watts and one placeholder per empty chart");
 } finally {
   await browser.close();
 }

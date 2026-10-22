@@ -170,9 +170,10 @@ function AppRow({
   );
 }
 
-function Readout({ label, value, detail, tone, href, destination, children }: {
-  label: string; value: ReactNode; detail?: string; tone?: Tone; href?: string; destination?: string; children?: ReactNode;
+function Readout({ label, value, detail, tone, href, destination, children, className }: {
+  label: string; value: ReactNode; detail?: string; tone?: Tone; href?: string; destination?: string; children?: ReactNode; className?: string;
 }) {
+  const readoutClass = className ? `readout ${className}` : "readout";
   const content = (
     <dl>
       <dt>{label}</dt>
@@ -186,12 +187,12 @@ function Readout({ label, value, detail, tone, href, destination, children }: {
     </dl>
   );
   return href ? (
-    <a className="readout" href={href}>
+    <a className={readoutClass} href={href}>
       {content}
       <span className="readout-chevron" aria-hidden="true">›</span>
       <span className="visually-hidden">，查看{destination}</span>
     </a>
-  ) : <div className="readout">{content}{children}</div>;
+  ) : <div className={readoutClass}>{content}{children}</div>;
 }
 
 function capabilityLabel(pdo: PowerCapability): string {
@@ -217,14 +218,14 @@ function PowerTile({ power, kernel }: { power: Status["power"]; kernel: string }
   const lastTime = last ? contractTime(last.establishedAt) : "";
   const allowance = contract ? `${contract.voltageV}V ${contract.currentA}A` : "";
   const value = contract ? (linux ? `${contract.voltageV} V / ${contract.currentA} A` : `PD 合同 · ${allowance}`)
-    : warm ? last ? `沿用上次合同 · ${last.voltageV}V ${last.currentA}A` : "Type-C · 本次未重新协商"
+    : warm ? last ? `${last.voltageV}V ${last.currentA}A · 沿用` : "仅 Type-C"
     : fw ? (fw.psReady && !fw.ioError && !fw.typecFallback ? "PD 已就绪 · 额度不可确认" : fw.typecFallback ? "Type-C · 无确认的 PD 合同" : "无确认的 PD 合同")
     : power?.vbusPresent === true ? "已检测到 USB-C 电压" : power?.vbusPresent === false ? "未检测到 USB-C 电压" : "状态不可读";
   const detail = contract ? `供电额度 ${+(contract.voltageV * contract.currentA).toFixed(2)} W · ${linux ? "Linux 初始化" : "启动固件协商"}`
     : last ? `本次未重新协商 · 上次 ${lastTime}`
-    : fw ? `启动固件 · Rp ${fw.rp === "default" ? "默认电流" : fw.rp === "unknown" ? "未知" : fw.rp}`
+    : fw ? `${warm ? "本次未重新协商" : "启动固件"} · Rp ${fw.rp === "default" ? "默认电流" : fw.rp === "unknown" ? "未知" : fw.rp}`
     : kernel.startsWith("7.") ? "沿用启动固件初始化 · 协商额度不可读" : "本次开机无可确认的协商额度";
-  return <Readout label="PD 协商" value={value} detail={detail} href={fw ? undefined : "#/services"} destination="底层服务">
+  return <Readout label="PD 协商" className="power-readout" value={value} detail={detail} href={fw ? undefined : "#/services"} destination="底层服务">
     {fw && <details className="pd-capabilities">
       <summary>来源能力 · {fw.sourceCapabilities.length ? `${fw.sourceCapabilities.length} 项` : "本次未收到"}</summary>
       {warm ? <>
