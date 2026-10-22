@@ -158,6 +158,17 @@ class PowerTest(unittest.TestCase):
                          {'voltageV': 5, 'currentA': 1.5})
         self.assertIsNone(helper.boot_power_contract(log.replace('tx 0', 'tx -1') + self.COMPLETE))
 
+    def test_mainline_boot_repair_keeps_firmware_snapshot_and_linux_contract_separate(self):
+        firmware = {'contract': {'voltageV': 5, 'currentA': 3}, 'rdo': '1401912c'}
+        log = ('PD bootstrap repair: PS_RDY contract lacks USB Communications Capable\n'
+               'Request rdo 13025896: tx 0\n' + self.COMPLETE)
+        with patch.object(helper, 'firmware_power', return_value=firmware), \
+                patch.object(helper.Path, 'is_file', return_value=False), \
+                patch.object(helper.subprocess, 'check_output', side_effect=['a' * 32, log]):
+            status = helper.power_status()
+        self.assertEqual(status['bootContract'], {'voltageV': 5, 'currentA': 1.5})
+        self.assertEqual(status['firmwarePD'], firmware)
+
     def test_legacy_renegotiation_is_not_mistaken_for_initial_request(self):
         log = 'Request rdo 1304b12c: tx 0\n100 rx hdr 1261 data 1 n 1 : 2e019096\n' + self.COMPLETE
         self.assertIsNone(helper.boot_power_contract(log))

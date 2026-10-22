@@ -17,14 +17,15 @@ try {
   let pikvm = "2.5.1+vim4.20261015.63";
   const installs = [];
   const switches = [];
+  let kernelRelease = "7.3.0-vim4kvm-uhd1+";
   await page.route("**/api/kernel", async route => {
     if (route.request().method() === "POST") {
       switches.push(route.request().postDataJSON());
       return route.fulfill({ json: { ok: true } });
     }
-    return route.fulfill({ json: { running: "7.3.0-rc7-vim4kvm-uhd1+", kernels: [
+    return route.fulfill({ json: { running: kernelRelease, kernels: [
       { id: "vendor", name: "Linux 5.15", release: "5.15.137", selected: false, available: true, error: "" },
-      { id: "mainline", name: "Linux 7.x", release: "7.3.0-rc7-vim4kvm-uhd1+", selected: true, available: true, error: "" },
+      { id: "mainline", name: "Linux 7.x", release: kernelRelease, selected: true, available: true, error: "" },
     ] } });
   });
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
@@ -49,6 +50,15 @@ try {
   await page.getByRole("heading", { name: "更新", exact: true }).waitFor();
   const kernelPanel = page.locator(".kernel-panel");
   await kernelPanel.getByText("正在运行", { exact: true }).waitFor();
+  await kernelPanel.getByText("正式版", { exact: true }).waitFor();
+  await kernelPanel.getByRole("button", { name: "重启此内核", exact: true }).waitFor();
+  kernelRelease = "7.3.0-rc7-vim4kvm-uhd1+";
+  await page.reload();
+  await kernelPanel.locator("p.mono").getByText(kernelRelease, { exact: true }).waitFor();
+  assert.equal(await kernelPanel.getByText("正式版", { exact: true }).count(), 0);
+  kernelRelease = "7.3.0-vim4kvm-uhd1+";
+  await page.reload();
+  await kernelPanel.getByText("正式版", { exact: true }).waitFor();
   await kernelPanel.getByRole("button", { name: "切换并重启", exact: true }).click();
   await kernelPanel.getByRole("alertdialog").waitFor();
   assert.deepEqual(switches, [], "choosing a kernel cannot immediately reboot");

@@ -45,7 +45,7 @@ export function KernelPanel({ busy, run }: {
     {state && state.kernels.length > 0 && <ul className="apps">
       {state.kernels.map(kernel => <li key={kernel.id} className={`app-row${kernel.selected ? " is-selected" : ""}`}>
         <div className="app-name">
-          <h3>{kernel.name}{kernel.selected && <span className="tag">默认启动</span>}</h3>
+          <h3>{kernel.name}{kernel.release === "7.3.0-vim4kvm-uhd1+" && <span className="tag">正式版</span>}{kernel.selected && <span className="tag">默认启动</span>}</h3>
           <p className="mono">{kernel.release}</p>
         </div>
         <div className="app-state">
