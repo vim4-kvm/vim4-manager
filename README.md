@@ -55,6 +55,11 @@ PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 
 ## 结构
 
+`GET /api/status` 的 `encoder` 提供 Wave5 内核隔离告警：`known` 区分旧内核或
+读取失败，`isolated`、`needsReboot` 表示必须重启，`reason` 保留内核原因，
+`timeBoottimeNs` 是十进制字符串，按本次启动的 CLOCK_BOOTTIME 纳秒计时。
+前端告警另行实现；此接口不触发自动重启。
+
 更新页和概览的组件列表为 `.dev.N.g<提交号>[.dirty]` 版本显示「开发版」。
 开发版只接收高于其基础正式版的后续正式更新，不将基础正式版误报为更新。
 

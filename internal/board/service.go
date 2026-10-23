@@ -50,6 +50,7 @@ type Service struct {
 
 // Status is the complete dashboard state.
 type Status struct {
+	Encoder  Encoder    `json:"encoder"`
 	Power    Power      `json:"power"`
 	Media    Media      `json:"media"`
 	Active   string     `json:"active"`
@@ -99,6 +100,7 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 		return Status{}, err
 	}
 	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List(), Media: s.media(ctx)}
+	status.Encoder = readEncoder(s.Root)
 	if strings.HasPrefix(status.Hardware.Kernel, "7.") {
 		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		data, err := s.Run(probeCtx, "sudo", "-n", Helper, "mainline-hardware")
