@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Control an already qualified vendor VDIN/VFM tee without owning capture."""
 import fcntl
+from collections import deque
 import hashlib
 import json
 import os
@@ -8,6 +9,7 @@ from pathlib import Path
 import platform
 import re
 import subprocess
+from statistics import median
 import sys
 import tempfile
 import time
@@ -47,10 +49,29 @@ def display_modes(text):
     return modes
 
 
-def select_mode(input_state, modes):
+def canonical_mode(value):
+    match = re.fullmatch(r'(?:1920x|3840x)?((?:720|1080|2160)p(?:24|25|30|50|60)hz)\*?', value.strip().lower())
+    return match[1] if match else None
+
+
+def scalar(value):
+    match = re.search(r'(0x[0-9a-f]+|[0-9]+)\s*$', value.strip(), re.I)
+    return int(match[1], 16 if match[1].lower().startswith('0x') else 10) if match else None
+
+
+def canonical_color(value):
+    match = re.match(r'\s*(rgb|444|422|420)\s*,\s*(8|10|12)\s*bit\b', value, re.I)
+    return (match[1].lower(), int(match[2])) if match else None
+
+
+def select_mode(input_state, modes, preferred=None):
     rate, fractional = min(((60, False), (60, True), (50, False), (30, False),
                             (30, True), (25, False), (24, False), (24, True)),
                            key=lambda item: abs(input_state['refreshHz'] - item[0] / (1.001 if item[1] else 1)))
+    if preferred and preferred[0] == rate and rate in (24, 30, 60):
+        midpoint = (rate + rate / 1.001) / 2
+        if abs(input_state['refreshHz'] - midpoint) <= .005:
+            fractional = preferred[1]
     hz = rate / (1.001 if fractional else 1)
     if abs(input_state['refreshHz'] - hz) > 0.2:
         raise ValueError('输入刷新率尚未验证，保持黑屏')
@@ -69,6 +90,15 @@ class VendorPassthrough:
         self.blanked = None
         self.last_frame = None
         self.last_progress = None
+        self.mode_key = None
+        self.pending_key = None
+        self.pending_since = None
+        self.rate_choice = None
+        self.rate_samples = deque(maxlen=7)
+        self.rate_geometry = None
+        self.monitor_identity = None
+        self.readback_bad_since = None
+        self.last_mismatch = None
 
     def path(self, name):
         return self.root / name.lstrip('/')
@@ -149,6 +179,7 @@ class VendorPassthrough:
 
     def monitor(self):
         if self.read(TX + 'hpd_state') != '1':
+            self.monitor_identity = None
             return None
         modes = display_modes(self.read(TX + 'disp_cap'))
         if not modes:
@@ -164,6 +195,7 @@ class VendorPassthrough:
             descriptor = edid[offset:offset + 18]
             if descriptor[:5] == b'\0\0\0\xfc\0':
                 name = descriptor[5:18].decode('ascii', errors='replace').strip()
+        self.monitor_identity = hashlib.sha256(edid).hexdigest()
         return {'name': name, 'maxWidth': {720: 1280, 1080: 1920, 2160: 3840}[height],
                 'maxHeight': height, 'maxRefreshHz': rate,
                 'hdr': bool(re.search(r'(SMPTE ST 2084|Hybrid Log-Gamma):\s*1', self.read(TX + 'hdr_cap'))),
@@ -189,6 +221,66 @@ class VendorPassthrough:
                 self.write(path, int(blank))
         self.blanked = blank
 
+    def read_tx(self):
+        raw = {name: self.path(TX + name).read_text()
+               for name in ('disp_mode', 'attr', 'frac_rate_policy', 'ready')}
+        fields = parse_fields(raw['disp_mode'])
+        return {'mode': canonical_mode(fields.get('sname', fields.get('name', ''))),
+                'color': canonical_color(raw['attr']), 'fractional': scalar(raw['frac_rate_policy']),
+                'rate': scalar(fields.get('h/v_freq', '').split('/')[-1]),
+                'ready': scalar(raw['ready']), 'raw': raw}
+
+    def tx_mismatches(self, actual, mode, fractional):
+        expected_rate = round(int(re.search(r'p(\d+)hz', mode)[1]) * 1000 / (1.001 if fractional else 1))
+        expected = {'mode': mode, 'color': ('444', 8), 'fractional': int(fractional), 'ready': 1}
+        mismatch = {name: {'expected': value, 'actual': actual[name]} for name, value in expected.items()
+                    if actual[name] != value}
+        if actual['rate'] is None or abs(actual['rate'] - expected_rate) > 1:
+            mismatch['rate'] = {'expected': expected_rate, 'actual': actual['rate']}
+        return mismatch
+
+    def follow_mode(self, input_state, mode, fractional, actual):
+        now = time.monotonic()
+        key = (input_state['width'], input_state['height'], mode, fractional, self.monitor_identity)
+        mismatch = self.tx_mismatches(actual, mode, fractional)
+        if key != self.mode_key:
+            if not {name: value for name, value in mismatch.items() if name != 'ready'}:
+                self.mode_key = key
+                self.pending_key = None
+            else:
+                if key != self.pending_key:
+                    self.pending_key, self.pending_since = key, now
+                if now - self.pending_since < 2:
+                    return None
+                print(json.dumps({'event': 'modeset', 'reason': 'input-or-monitor-change',
+                                  'previous': self.mode_key, 'desired': key, 'input': input_state,
+                                  'mismatch': mismatch, 'raw': actual['raw']}), file=sys.stderr, flush=True)
+                self.mode_key, self.pending_key = key, None
+                self.write(VIDEO + 'disable_video', 1)
+                self.write(TX + 'frac_rate_policy', int(fractional))
+                self.write('/sys/class/display/mode', mode)
+                self.write(TX + 'test_attr', '444,8bit')
+                self.write(TX + 'disp_mode', mode)
+                actual = self.read_tx()
+                mismatch = self.tx_mismatches(actual, mode, fractional)
+        else:
+            self.pending_key = None
+        if mismatch != self.last_mismatch:
+            if mismatch:
+                print(json.dumps({'event': 'tx-readback-mismatch', 'mismatch': mismatch,
+                                  'raw': actual['raw']}), file=sys.stderr, flush=True)
+            self.last_mismatch = mismatch
+        if mismatch:
+            if self.readback_bad_since is None:
+                self.readback_bad_since = now
+            if now - self.readback_bad_since >= 2:
+                self.update(VIDEO + 'disable_video', 1)
+            if set(mismatch) != {'ready'} or now - self.readback_bad_since >= 2:
+                return None
+        else:
+            self.readback_bad_since = None
+        return actual
+
     def tick(self, enabled):
         state = self.snapshot(enabled)
         if not enabled:
@@ -197,29 +289,31 @@ class VendorPassthrough:
             return state
         self.blank(True)
         if state['state'] != 'starting':
+            self.mode_key = self.pending_key = self.rate_choice = None
+            self.rate_samples.clear()
+            self.readback_bad_since = None
             self.update(VIDEO + 'disable_video', 1)
             return state
         input_state = state['input']
         if input_state['hdr'] != 'SDR':
             raise ValueError('HDR 透传尚未验证，请使用 SDR 输入')
-        mode, width, height, fractional = select_mode(input_state, display_modes(self.read(TX + 'disp_cap')))
+        actual = self.read_tx()
+        preferred = self.rate_choice
+        if preferred is None and actual['mode'] and actual['fractional'] in (0, 1):
+            preferred = (int(re.search(r'p(\d+)hz', actual['mode'])[1]), bool(actual['fractional']))
+        geometry = (input_state['width'], input_state['height'])
+        if geometry != self.rate_geometry:
+            self.rate_samples.clear()
+            self.rate_geometry = geometry
+        self.rate_samples.append(input_state['refreshHz'])
+        stable_input = dict(input_state, refreshHz=median(self.rate_samples))
+        mode, width, height, fractional = select_mode(stable_input, display_modes(self.read(TX + 'disp_cap')), preferred)
         if '444,8bit' not in self.read(TX + 'dc_cap').splitlines():
             raise ValueError('显示器不支持已验证的 YCbCr444 8-bit 输出')
-        fields = parse_fields(self.read(TX + 'disp_mode'))
-        actual_rate = fields.get('h/v_freq', '').split('/')[-1]
-        expected_rate = round(int(re.search(r'p(\d+)hz', mode)[1]) * 1000 / (1.001 if fractional else 1))
-        if (fields.get('sname') != mode or self.read(TX + 'attr') != '444,8bit'
-                or self.read(TX + 'frac_rate_policy') != str(int(fractional))
-                or self.read(TX + 'ready') != '1'):
-            self.write(VIDEO + 'disable_video', 1)
-            self.write(TX + 'frac_rate_policy', int(fractional))
-            self.write('/sys/class/display/mode', mode)
-            self.write(TX + 'test_attr', '444,8bit')
-            self.write(TX + 'disp_mode', mode)
-            fields = parse_fields(self.read(TX + 'disp_mode'))
-            actual_rate = fields.get('h/v_freq', '').split('/')[-1]
-        if fields.get('sname') != mode or self.read(TX + 'attr') != '444,8bit' or abs(int(actual_rate or 0) - expected_rate) > 1:
-            raise ValueError('HDMI 输出读回与所选模式不符')
+        actual = self.follow_mode(input_state, mode, fractional, actual)
+        if actual is None:
+            return state
+        self.rate_choice = (int(re.search(r'p(\d+)hz', mode)[1]), fractional)
         self.update(VIDEO + 'axis', f'0 0 {width - 1} {height - 1}')
         self.update(VIDEO + 'disable_video', 0)
         frame = int(self.read('/sys/module/aml_media/parameters/display_frame_count'))
@@ -230,7 +324,7 @@ class VendorPassthrough:
         if self.last_progress is None or now - self.last_progress > 2:
             state['state'] = 'starting'
             return state
-        state['output'] = {'width': width, 'height': height, 'refreshHz': int(actual_rate) / 1000,
+        state['output'] = {'width': width, 'height': height, 'refreshHz': actual['rate'] / 1000,
                            'colorFormat': 'YCbCr444 8-bit limited',
                            'scaled': width != input_state['width'] or height != input_state['height'],
                            'hdrToSdr': False}
