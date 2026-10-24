@@ -354,14 +354,12 @@ class VendorPassthrough:
         return actual
 
     def tick(self, enabled):
-        self.blank(enabled)
         self.observe_hpd()
+        self.blank(enabled)
         state = self.snapshot(enabled)
         if not enabled:
             self.update(VIDEO + 'disable_video', 1)
-            self.blank(False)
             return state
-        self.blank(True)
         if state['state'] != 'starting':
             self.mode_key = self.pending_key = self.rate_choice = None
             self.rate_samples.clear()
