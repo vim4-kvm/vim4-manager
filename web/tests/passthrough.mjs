@@ -11,6 +11,7 @@ const output = { width: 3840, height: 2160, refreshHz: 60, colorFormat: "YCbCr 4
 const status = {
   active: "onekvm", apps: [{ id: "onekvm", name: "One-KVM", port: 8080,
     unit: { name: "vim4-onekvm.service", loaded: true, active: "active", sub: "running", enabled: "enabled" } }], platform: [],
+  media: { known: true, inserted: false, connected: false },
   hardware: { hostname: "vim4", kernel: "7.3.0", uptimeSeconds: 60, load1: 0, cpus: 8,
     memTotalKiB: 1024, memAvailableKiB: 512, tempC: 50, zones: [], fanAuto: true,
     fanPercent: 30, usb: "configured", hdrCurve: { white: 203, peak: 1000 } },
@@ -23,7 +24,7 @@ function fixture(state = "running") {
     output: state === "running" ? { ...output } : undefined };
 }
 const cases = [
-  ["unsupported", "当前内核不支持", false, true, "透传需要 7.3 内核，可在「更新 → 内核」中切换。"],
+  ["unsupported", "当前内核不支持", false, true, "当前内核没有透传功能，可在「更新 → 内核」中切换到支持透传的版本。"],
   ["off", "已关闭", false, false, "开启后显示器显示被控电脑的画面；关闭时显示系统控制台。"],
   ["starting", "正在开启…", true, true],
   ["stopping", "正在关闭…", false, true],
@@ -85,6 +86,46 @@ try {
     // Browser rendering settles independently of the mocked timer clock.
     await page.waitForFunction(() => !document.querySelector(".passthrough-card")?.textContent.includes("正在读取透传状态…"));
   };
+  const checkLayout = async device => {
+    assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "page must not overflow");
+    // Capture all alignment measurements in one frame, including both switch
+    // rows and wrapped secondary facts in the scaling/HDR screenshots.
+    const layout = await card.evaluate(el => {
+      const box = node => node.getBoundingClientRect().toJSON();
+      return {
+        rows: [...el.querySelectorAll(".wifi-row")].map(row => ({
+          title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
+          description: box(row.querySelector("p")), width: row.getBoundingClientRect().width,
+        })),
+        facts: [...el.querySelectorAll(".edid-fact")].map(fact => ({
+          box: box(fact), lamp: box(fact.querySelector(".lamp")), value: box(fact.querySelector("dd > span:last-child")),
+          detail: fact.querySelector(".passthrough-detail") ? box(fact.querySelector(".passthrough-detail")) : null,
+        })),
+        paragraphs: [...el.querySelectorAll("p")].map(p => getComputedStyle(p).textWrapStyle),
+      };
+    });
+    for (const row of layout.rows) {
+      assert(Math.abs(row.title.y + row.title.height / 2 - row.control.y - row.control.height / 2) < 0.5,
+        "each switch aligns vertically with its title");
+      assert(row.description.y >= row.control.y + row.control.height, "description sits below its switch");
+      assert(row.description.width > row.width - 60, "description spans the card");
+    }
+    assert(layout.paragraphs.every(style => style === "pretty"), "all explanatory paragraphs use pretty wrapping");
+    for (const [index, fact] of layout.facts.entries()) {
+      assert(Math.abs(fact.lamp.y + fact.lamp.height / 2 - fact.value.y - fact.value.height / 2) < 0.5,
+        "lamp centers vertically beside its primary value");
+      if (fact.detail) assert(Math.abs(fact.detail.x - fact.value.x) < 0.5, "secondary value shares the primary text's left edge");
+      if (device === "desktop") assert(fact.box.width >= 160 && fact.box.width <= 280, "desktop fact widths stay within content bounds");
+      if (index > 0) {
+        const previous = layout.facts[index - 1].box;
+        if (device === "mobile") assert(Math.abs(fact.box.y - previous.y - previous.height - 16) < 0.5, "mobile facts stack with consistent spacing");
+        else {
+          assert.equal(fact.box.y, previous.y, "desktop facts share a row");
+          assert(Math.abs(fact.box.x - previous.x - previous.width - 48) < 0.5, "desktop columns use a 48px gap");
+        }
+      }
+    }
+  };
   await reload();
   assert.deepEqual((await page.locator(".nav-label").allTextContents()).slice(5, 8), ["视频输入", "HDMI 输出", "散热"]);
   assert.equal(await page.locator(".page-head p").textContent(), "板子 HDMI OUT 口接的本地显示器。");
@@ -133,6 +174,20 @@ try {
         }
         if (description) assert.equal(await card.locator(".passthrough-description").textContent(), description);
         assert.equal(await audio.count(), name === "unsupported" ? 0 : 1);
+        if (name !== "unsupported") {
+          const strength = await audio.evaluate(el => {
+            const style = getComputedStyle(el);
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = style.backgroundColor;
+            ctx.fillRect(0, 0, 1, 1);
+            return ctx.getImageData(0, 0, 1, 1).data[3] / 255 * Number(style.opacity);
+          });
+          assert.equal(await audio.getAttribute("aria-checked"), "true", "saved audio remains on");
+          if (name === "running") assert.equal(strength, 1, "effective audio uses the full accent");
+          else assert(strength > 0 && strength < 0.6, "inactive audio uses a subdued accent in either theme");
+          if (["off", "no-monitor"].includes(name)) assert(await audio.isEnabled(), "inactive audio preference stays editable");
+        }
         const hint = page.locator('.nav-item[href="#/output"] .nav-hint');
         const hintText = { running: "透传", "no-signal": "等待信号", protected: "受保护" }[name];
         assert.equal(await hint.count(), hintText ? 1 : 0);
@@ -148,7 +203,9 @@ try {
           assert.equal(await card.locator("dl, .edid-fact").count(), 0, "unsupported hides the entire fact area");
           assert.equal(await card.locator(".passthrough-body").textContent(), cases[0][4]);
           assert.equal(await card.getByRole("link", { name: "更新 → 内核" }).getAttribute("href"), "#/updates");
+          assert.equal(await page.locator(".sidebar-foot > .mono").textContent(), "7.3.0");
         }
+        assert.equal(await page.locator('.nav-item[href="#/media"] .nav-hint').count(), 0, "normal empty media adds no unrelated warning");
         assert.equal(await page.locator('.nav-item[href="#/video"] .nav-hint').textContent(),
           state.input ? `${state.input.height}p` : "无信号", "overview HDMI fixture matches passthrough input");
         const typography = await card.locator(".edid-fact dd:not(.muted)").evaluateAll(elements => elements.map(el => {
@@ -157,30 +214,7 @@ try {
         }));
         if (device === "desktop") desktopTypography.set(`${theme}/${name}`, typography);
         else assert.deepEqual(typography, desktopTypography.get(`${theme}/${name}`), "mobile fact typography matches desktop");
-        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${device}/${theme}/${name} overflows`);
-        // Read geometry in one frame; the page entrance animation can finish
-        // between separate protocol calls even with reduced motion enabled.
-        const { title, control, rowDescription, cardWidth, inputBox, monitorBox } = await card.evaluate(el => {
-          const row = el.querySelector(".wifi-row");
-          const facts = el.querySelectorAll(".edid-fact");
-          const box = node => node ? node.getBoundingClientRect().toJSON() : null;
-          return { title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
-            rowDescription: box(row.querySelector("p")), cardWidth: el.getBoundingClientRect().width,
-            inputBox: box(facts[0]), monitorBox: box(facts[1]) };
-        });
-        assert(Math.abs(title.y + title.height / 2 - control.y - control.height / 2) < 2,
-          `${device}/${theme}/${name}: title and switch share a row: ${JSON.stringify({ title, control })}`);
-        assert(rowDescription.y >= control.y + control.height, "description is below the switch");
-        assert(rowDescription.width > cardWidth - 60, "description spans the card");
-        if (name === "unsupported") {
-          assert.equal(inputBox, null);
-          assert.equal(monitorBox, null);
-        } else if (device === "mobile") {
-          assert(monitorBox.y > inputBox.y + inputBox.height, "mobile facts stack vertically");
-        } else {
-          assert.equal(monitorBox.y, inputBox.y, "desktop facts share a row");
-          assert(monitorBox.x > inputBox.x + inputBox.width, "desktop facts occupy separate columns");
-        }
+        await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${name}.png`, fullPage: true });
       }
       for (const kind of ["scaled", "hdr-sdr"]) {
@@ -202,7 +236,7 @@ try {
         } else {
           assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR（使用视频输入页的曲线）");
         }
-        assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+        await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${kind}.png`, fullPage: true });
       }
     }

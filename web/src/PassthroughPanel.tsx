@@ -13,7 +13,7 @@ const labels: Record<PassthroughState["state"], string> = {
 };
 
 const descriptions = {
-  unsupported: <>透传需要 7.3 内核，可在「<a href="#/updates">更新 → 内核</a>」中切换。</>,
+  unsupported: <>当前内核没有透传功能，可在「<a href="#/updates">更新 → 内核</a>」中切换到支持透传的版本。</>,
   off: "开启后显示器显示被控电脑的画面；关闭时显示系统控制台。",
   running: "远程 KVM 不受影响。被控电脑切换分辨率时，显示器会短暂黑屏后跟随。",
   "no-signal": "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。",
@@ -39,14 +39,14 @@ function Fact({ label, value, detail, tone = "idle" }: {
   </div>;
 }
 
-function SwitchRow({ title, description, label, checked, disabled, pending, onToggle }: {
-  title: string; description: string; label: string; checked: boolean; disabled: boolean; pending?: boolean; onToggle: () => void;
+function SwitchRow({ title, description, label, checked, disabled, pending, inactive, onToggle }: {
+  title: string; description: string; label: string; checked: boolean; disabled: boolean; pending?: boolean; inactive?: boolean; onToggle: () => void;
 }) {
   return <div className="wifi-row passthrough-row">
     <h3>{title}</h3>
     <div className="wifi-action">
       <span className="muted" role="status">{pending && <span className="spinner" aria-hidden="true" />}{label}</span>
-      <button type="button" className="wifi-switch" role="switch" aria-label={title} aria-checked={checked}
+      <button type="button" className={`wifi-switch${inactive ? " is-inactive" : ""}`} role="switch" aria-label={title} aria-checked={checked}
         disabled={disabled} onClick={onToggle}><span /></button>
     </div>
     <p className="muted">{description}</p>
@@ -156,6 +156,7 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     outputTone = "idle";
   }
   const audioUnsupported = !!monitor && !monitor.audio;
+  const audioEffective = current === "running" && state.audio && !!input?.audio && !!monitor?.audio;
   const audioLabel = current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
     : !state.enabled ? "透传开启后生效" : audioUnsupported ? "显示器不支持音频"
     : !state.audio ? "已关闭" : !input?.audio ? "输入无声音" : "输出中";
@@ -177,7 +178,7 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
       {error && <p className="edid-error" role="alert">刷新失败：{error}，显示的是上次读取的状态。</p>}
     </div>
     {state.supported && <SwitchRow title="声音" description="把 HDMI IN 的声音送到显示器扬声器。"
-      label={audioLabel} checked={state.audio} disabled={locked || (state.enabled && audioUnsupported)}
+      label={audioLabel} checked={state.audio} inactive={!audioEffective} disabled={locked || (state.enabled && audioUnsupported)}
       onToggle={() => void change({ audio: !state.audio })} />}
   </div></section>;
 }
