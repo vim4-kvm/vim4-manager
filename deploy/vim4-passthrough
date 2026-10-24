@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Control an already qualified vendor VDIN/VFM tee without owning capture."""
 import fcntl
+import errno
 from collections import deque
 import hashlib
 import json
@@ -8,6 +9,7 @@ import os
 from pathlib import Path
 import platform
 import re
+import socket
 import subprocess
 from statistics import median
 import sys
@@ -19,6 +21,8 @@ TX = '/sys/class/amhdmitx/amhdmitx0/'
 VIDEO = '/sys/class/video/'
 RUNTIME = '/run/vim4-passthrough/'
 QUALIFICATION = '/etc/vim4-kvm/passthrough-5.15.json'
+OSD_BLANKS = tuple(f'/sys/class/drm/card0/osd{index}/blank' for index in (0, 1))
+OSD_SAVED = RUNTIME + 'osd-before.json'
 
 
 def atomic_json(path, value):
@@ -99,6 +103,10 @@ class VendorPassthrough:
         self.monitor_identity = None
         self.readback_bad_since = None
         self.last_mismatch = None
+        self.last_hpd = None
+        self.connected_identity = None
+        self.reconnecting = False
+        self.sink_changed_at = None
 
     def path(self, name):
         return self.root / name.lstrip('/')
@@ -142,7 +150,7 @@ class VendorPassthrough:
             route = self.read('/sys/class/vfm/map')
             if not re.search(r'tvpath\s*\{\s*vdin0(?:\(\d+\))?\s+vfm_cap(?:\(\d+\))?\s+amvideo\s*\}', route):
                 return False
-            return all(self.path(name).is_file() for name in (
+            return all(self.path(name).is_file() for name in (*OSD_BLANKS,
                 VIDEO + 'disable_video', VIDEO + 'axis', TX + 'disp_mode',
                 TX + 'test_attr', TX + 'hpd_state', '/sys/class/display/mode'))
         except (OSError, ValueError, TypeError, AttributeError):
@@ -154,7 +162,7 @@ class VendorPassthrough:
         self.write('/sys/class/vfm/map', 'rm tvpath')
         self.write('/sys/class/vfm/map', 'add tvpath vdin0 vfm_cap amvideo')
         self.update(VIDEO + 'disable_video', 1)
-        self.blank(False)
+        self.blank(self.load(RUNTIME + 'request.json', {'enabled': False})['enabled'])
 
     def input(self):
         captures = [path for path in self.path('/sys/class/video4linux').glob('video*')
@@ -178,6 +186,15 @@ class VendorPassthrough:
                 'audio': int(fields.get('audio receive data', 0)) != 0}
 
     def monitor(self):
+        try:
+            return self.read_monitor()
+        except (OSError, ValueError):
+            self.reconnecting = True
+            self.connected_identity = None
+            self.mode_key = self.pending_key = None
+            raise
+
+    def read_monitor(self):
         if self.read(TX + 'hpd_state') != '1':
             self.monitor_identity = None
             return None
@@ -213,6 +230,24 @@ class VendorPassthrough:
         return state
 
     def blank(self, blank):
+        saved = self.load(OSD_SAVED)
+        if blank and saved is None:
+            saved = {name: scalar(self.read(name)) for name in OSD_BLANKS}
+            if any(value not in (0, 1) for value in saved.values()):
+                raise ValueError('无法读取持久 OSD blank 状态')
+            atomic_json(self.path(OSD_SAVED), saved)
+        if saved is not None:
+            if set(saved) != set(OSD_BLANKS) or any(type(value) is not int or value not in (0, 1) for value in saved.values()):
+                raise ValueError('OSD 恢复状态无效')
+            for name in OSD_BLANKS:
+                target = 1 if blank else saved[name]
+                current = scalar(self.read(name))
+                if current not in (0, 1):
+                    raise ValueError('无法读取持久 OSD blank 状态')
+                if current != target:
+                    self.write(name, target)
+            if not blank:
+                self.path(OSD_SAVED).unlink()
         if self.blanked == blank:
             return
         for name in ('fb0', 'fb1'):
@@ -220,6 +255,37 @@ class VendorPassthrough:
             if self.path(path).exists():
                 self.write(path, int(blank))
         self.blanked = blank
+
+    def observe_hpd(self):
+        hpd = scalar(self.read(TX + 'hpd_state'))
+        if hpd not in (0, 1):
+            raise ValueError('无法读取 HDMI OUT HPD')
+        if self.last_hpd is not None and hpd != self.last_hpd:
+            self.sink_changed()
+        self.last_hpd = hpd
+
+    def sink_changed(self):
+        self.reconnecting = True
+        self.connected_identity = None
+        self.mode_key = self.pending_key = self.rate_choice = None
+        self.rate_samples.clear()
+        self.readback_bad_since = None
+        self.blanked = None
+
+    def drain_hotplug(self, events):
+        for unused in range(256):
+            try:
+                payload, sender = events.recvfrom(8192)
+            except BlockingIOError:
+                return
+            except OSError as error:
+                if error.errno == errno.ENOBUFS:
+                    self.sink_changed()
+                print(str(error), file=sys.stderr, flush=True)
+                return
+            fields = dict(item.split('=', 1) for item in payload.decode('utf-8', errors='replace').split('\0') if '=' in item)
+            if sender[0] == 0 and fields.get('SUBSYSTEM') == 'amhdmitx' and fields.get('hdmitx_hpd') in ('0', '1'):
+                self.sink_changed()
 
     def read_tx(self):
         raw = {name: self.path(TX + name).read_text()
@@ -282,6 +348,8 @@ class VendorPassthrough:
         return actual
 
     def tick(self, enabled):
+        self.blank(enabled)
+        self.observe_hpd()
         state = self.snapshot(enabled)
         if not enabled:
             self.update(VIDEO + 'disable_video', 1)
@@ -295,6 +363,14 @@ class VendorPassthrough:
             self.update(VIDEO + 'disable_video', 1)
             return state
         input_state = state['input']
+        if self.reconnecting or (self.connected_identity is not None and self.connected_identity != self.monitor_identity):
+            self.mode_key = self.pending_key = None
+            self.sink_changed_at = time.monotonic()
+            self.reconnecting = False
+        self.connected_identity = self.monitor_identity
+        if self.sink_changed_at is not None and time.monotonic() - self.sink_changed_at < 2:
+            self.update(VIDEO + 'disable_video', 1)
+            return state
         if input_state['hdr'] != 'SDR':
             raise ValueError('HDR 透传尚未验证，请使用 SDR 输入')
         actual = self.read_tx()
@@ -373,30 +449,46 @@ class VendorPassthrough:
                 time.sleep(.05)
             raise
 
+    def cycle(self, request):
+        observed = {'revision': request['revision']}
+        try:
+            observed['state'] = self.tick(request['enabled'])
+        except (OSError, ValueError) as error:
+            for recover in (lambda: self.blank(request['enabled']),
+                            lambda: self.update(VIDEO + 'disable_video', 1)):
+                try:
+                    recover()
+                except (OSError, ValueError) as recovery_error:
+                    print(str(recovery_error), file=sys.stderr, flush=True)
+            observed['error'] = str(error)
+            observed['state'] = {'supported': True, 'enabled': request['enabled'], 'audio': False,
+                                 'state': 'starting' if request['enabled'] else 'off'}
+            print(str(error), file=sys.stderr, flush=True)
+        observed['heartbeat'] = time.monotonic()
+        return observed
+
     def watch(self):
         with self.path(RUNTIME + 'watch.lock').open('w') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            while True:
-                request = self.load(RUNTIME + 'request.json', {'enabled': False, 'revision': 0})
-                if not self.supported():
-                    atomic_json(self.path(RUNTIME + 'state.json'), {
-                        'revision': request['revision'], 'heartbeat': time.monotonic(),
-                        'state': {'supported': False, 'enabled': False, 'audio': False, 'state': 'unsupported'},
-                    })
-                    time.sleep(.5)
-                    continue
-                observed = {'revision': request['revision'], 'heartbeat': time.monotonic()}
-                try:
-                    observed['state'] = self.tick(request['enabled'])
-                except (OSError, ValueError) as error:
-                    self.update(VIDEO + 'disable_video', 1)
-                    observed['error'] = str(error)
-                    observed['state'] = {'supported': True, 'enabled': request['enabled'], 'audio': False,
-                                         'state': 'starting' if request['enabled'] else 'off'}
-                    print(str(error), file=sys.stderr, flush=True)
-                observed['heartbeat'] = time.monotonic()
-                atomic_json(self.path(RUNTIME + 'state.json'), observed)
+            with socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM, 15) as events:
+                events.bind((0, 1))
+                events.setblocking(False)
+                self.watch_loop(events)
+
+    def watch_loop(self, events):
+        while True:
+            self.drain_hotplug(events)
+            request = self.load(RUNTIME + 'request.json', {'enabled': False, 'revision': 0})
+            if not self.supported():
+                atomic_json(self.path(RUNTIME + 'state.json'), {
+                    'revision': request['revision'], 'heartbeat': time.monotonic(),
+                    'state': {'supported': False, 'enabled': False, 'audio': False, 'state': 'unsupported'},
+                })
                 time.sleep(.5)
+                continue
+            observed = self.cycle(request)
+            atomic_json(self.path(RUNTIME + 'state.json'), observed)
+            time.sleep(.5)
 
 
 def main(args):
