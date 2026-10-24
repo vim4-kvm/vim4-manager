@@ -71,26 +71,48 @@ type PassthroughProvider interface {
 	Apply(context.Context, PassthroughPreferences) (PassthroughState, error)
 }
 
-type kernelPassthroughProvider struct{}
-
-func probePassthroughCapability() bool {
-	// TODO: wire the capability contract from the main repository's HDMI
-	// passthrough design document (being produced by the kernel task in
-	// ../docs/). Replace this single probe once that document defines the ABI.
-	// A kernel version alone is not evidence of the passthrough capability.
-	return false
+type kernelPassthroughProvider struct {
+	run Runner
 }
 
-func (kernelPassthroughProvider) Status(context.Context) (PassthroughState, error) {
-	return PassthroughState{Supported: probePassthroughCapability(), State: "unsupported"}, nil
+func (p kernelPassthroughProvider) command(ctx context.Context, args ...string) (PassthroughState, error) {
+	run := p.run
+	if run == nil {
+		run = Exec
+	}
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+	output, err := run(ctx, "sudo", append([]string{"-n", Helper}, args...)...)
+	if err != nil {
+		return PassthroughState{}, err
+	}
+	var state PassthroughState
+	if err := json.Unmarshal([]byte(output), &state); err != nil || state.State == "" {
+		return state, errors.New("透传助手返回无效状态")
+	}
+	return state, nil
 }
 
-func (p kernelPassthroughProvider) Apply(ctx context.Context, _ PassthroughPreferences) (PassthroughState, error) {
+func (p kernelPassthroughProvider) Status(ctx context.Context) (PassthroughState, error) {
+	return p.command(ctx, "passthrough-status")
+}
+
+func (p kernelPassthroughProvider) Apply(ctx context.Context, prefs PassthroughPreferences) (PassthroughState, error) {
 	state, err := p.Status(ctx)
 	if err != nil {
 		return state, err
 	}
-	return state, ErrPassthroughUnsupported
+	if !state.Supported {
+		return state, ErrPassthroughUnsupported
+	}
+	actual, err := p.command(ctx, "passthrough-set", strconv.FormatBool(prefs.Enabled), strconv.FormatBool(prefs.Audio))
+	if err != nil {
+		if after, readErr := p.Status(ctx); readErr == nil {
+			state = after
+		}
+		return state, err
+	}
+	return actual, nil
 }
 
 // Passthrough owns preferences and serializes kernel operations separately
@@ -105,7 +127,7 @@ type Passthrough struct {
 
 // OpenPassthrough restores saved preferences only when the provider supports
 // them. Unsupported kernels preserve the file but report enabled=false.
-// A nil provider selects the real, currently unsupported kernel provider.
+// A nil provider selects the installed privileged kernel provider.
 func OpenPassthrough(ctx context.Context, dir string, provider PassthroughProvider, events *Events) (*Passthrough, error) {
 	if provider == nil {
 		provider = kernelPassthroughProvider{}

@@ -2844,6 +2844,18 @@ def main(argv):
         case ['kernel-status']:
             import vim4boot
             print(json.dumps(vim4boot.status()))
+        case ['passthrough-status']:
+            result = subprocess.run(['/usr/libexec/vim4-passthrough', 'status'],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode:
+                raise ValueError(result.stderr.strip() or '透传状态读取失败')
+            print(result.stdout.strip())
+        case ['passthrough-set', enabled, audio] if enabled in ('true', 'false') and audio in ('true', 'false'):
+            result = subprocess.run(['/usr/libexec/vim4-passthrough', 'set', enabled, audio],
+                                    capture_output=True, text=True, timeout=10)
+            if result.returncode:
+                raise ValueError(result.stderr.strip() or '透传设置失败')
+            print(result.stdout.strip())
         case ['kernel-select', identifier, reboot] if reboot in ('true', 'false'):
             import vim4boot
             check_pikvm_media(entering=True)
@@ -2891,7 +2903,7 @@ def main(argv):
 def operation_lock(argv):
     action = argv[0] if argv else ''
     if action.startswith('disk-') or action in ('nasdisk-status', 'nasdisk-lun-attach', 'storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
-                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'mainline-hardware', 'kernel-status'):
+                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'mainline-hardware', 'kernel-status', 'passthrough-status'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'

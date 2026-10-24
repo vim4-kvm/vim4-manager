@@ -65,7 +65,7 @@ func TestPassthroughPreferencesSurviveRestartAndUnsupportedKernel(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	unsupported, err := OpenPassthrough(ctx, dir, nil, events)
+	unsupported, err := OpenPassthrough(ctx, dir, &fakePassthroughProvider{state: PassthroughState{State: "unsupported"}}, events)
 	if err != nil {
 		t.Fatal(err)
 	}

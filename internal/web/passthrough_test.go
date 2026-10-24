@@ -89,7 +89,12 @@ func TestPassthroughAPI(t *testing.T) {
 }
 
 func TestPassthroughAPIUnsupported(t *testing.T) {
-	h := Handler(&board.Service{}, fstest.MapFS{})
+	provider := &fakePassthrough{state: board.PassthroughState{State: "unsupported"}}
+	passthrough, err := board.OpenPassthrough(context.Background(), t.TempDir(), provider, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := Handler(&board.Service{Passthrough: passthrough}, fstest.MapFS{})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/passthrough", nil))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), `"supported":false`) || !strings.Contains(w.Body.String(), `"state":"unsupported"`) {

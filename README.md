@@ -393,10 +393,23 @@ Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev
 声音默认关闭；支持的 provider 在管理器启动时恢复设置。操作失败不保存新偏好，保存失败尝试恢复旧设置。
 `/api/status` 同时提供 `passthrough` 摘要供其他页面的导航提示使用。
 
-当前仅交付界面和 API 骨架，真实 provider 的单一能力探测函数固定返回不支持，
-GET 返回 `supported:false,state:"unsupported",enabled:false`，POST 返回 409。
-已有偏好文件保留，切回支持该能力的 provider 后恢复；不会写 sysfs、修改 EDID 或启停硬件服务。
-待主仓透传设计文档确定内核 ABI 后，再接入 `internal/board/passthrough.go` 的 provider。
+`passthrough-5.15` 分支通过限定助手接入厂商 VFM TEE：`vdin0 vfm_cap amvideo`。
+能力探测同时要求 5.15、精确路由、sysfs 和 root 管理的
+`/etc/vim4-kvm/passthrough-5.15.json`（`abi:1`、`release`、`moduleNoteSha256`）。
+最后一项为运行模块 `/sys/module/aml_media/notes/.note.gnu.build-id` 的 SHA-256，
+只在已验证 VDIN `VFRAME_FLAG_VIDEO_LINEAR` 补丁的模块上登记，不能仅凭内核版本宣称支持。
+未通过探测时 GET 返回 `supported:false,state:"unsupported",enabled:false`、POST 返回 409，保留偏好。
+板级 HDMI 服务单独读取 `/etc/default/vim4-kvm-passthrough` 的 `HDMI_DISPLAY_TEE=1`；
+`vim4-passthrough prepare` 在 HDMI 源启动前核验模块并建立 TEE，未通过时保留独立采集。
+这不会改动 KVM 的采集尺寸、格式、游戏模式或源 EDID，也不会增加第二个 VDIN 所有者。
+
+`vim4-passthrough.service` 独立于浏览器跟随逐行 SDR 输入和 OUT HPD，取输入与显示器模式交集，
+首选 1:1、否则明确 `scaled`，只用 sink 声明的 YCbCr444 8-bit，不走有已知误差的 RGB。
+实际输出模式、格式、帧率读回和显示计数推进后才报告 `running`；不依赖静止像素判断失锁。
+关闭透传只隐藏 VD1、恢复 OSD，保留 TEE 消费及 KVM；HDMI 服务重启后自动重新探测。
+支持普通/1000:1001 刷新率的 720p/1080p/2160p 已枚举模式，HDR、隔行和其他刷新率明确拒绝。
+音频直通尚未验证，开启声音返回明确错误、不保存偏好，不抢占 One-KVM 的 RX PCM。
+异常请求回退旧设置；控制进程无响应或状态过期不伪造成功。
 API 用 `input`、`monitor` 对象是否存在表示有输入信号、显示器已连接；无此对象时前端不推测参数。
 
 浏览器回归：`node web/tests/passthrough.mjs`，沿用 `PLAYWRIGHT_MODULE` 和 `TEST_URL`；
