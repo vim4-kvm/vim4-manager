@@ -230,6 +230,12 @@ class VendorPassthrough:
         return state
 
     def blank(self, blank):
+        self.path(RUNTIME).mkdir(mode=0o700, parents=True, exist_ok=True)
+        with self.path(RUNTIME + 'osd.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.apply_blank(blank)
+
+    def apply_blank(self, blank):
         saved = self.load(OSD_SAVED)
         if blank and saved is None:
             saved = {name: scalar(self.read(name)) for name in OSD_BLANKS}
