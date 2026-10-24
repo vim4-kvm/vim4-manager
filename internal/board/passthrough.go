@@ -99,7 +99,6 @@ type Passthrough struct {
 	mu       sync.Mutex
 	provider PassthroughProvider
 	path     string
-	prefs    PassthroughPreferences
 	events   *Events
 	last     *PassthroughState
 }
@@ -117,7 +116,8 @@ func OpenPassthrough(ctx context.Context, dir string, provider PassthroughProvid
 		return nil, fmt.Errorf("读取透传设置失败：%w", err)
 	}
 	if err == nil {
-		if err = json.Unmarshal(data, &p.prefs); err != nil {
+		var prefs PassthroughPreferences
+		if err = json.Unmarshal(data, &prefs); err != nil {
 			return nil, fmt.Errorf("透传设置无效：%w", err)
 		}
 		state, readErr := provider.Status(ctx)
@@ -125,7 +125,8 @@ func OpenPassthrough(ctx context.Context, dir string, provider PassthroughProvid
 			return nil, readErr
 		}
 		if state.Supported {
-			state, err = provider.Apply(ctx, p.prefs)
+			p.observe(state)
+			state, err = provider.Apply(ctx, prefs)
 			if err != nil {
 				p.events.Add("critical", "透传失败：%s", err)
 				return nil, err
@@ -159,7 +160,8 @@ func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (Passth
 	if !before.Supported {
 		return before, p.failure(ErrPassthroughUnsupported)
 	}
-	next := p.prefs
+	previous := PassthroughPreferences{Enabled: before.Enabled, Audio: before.Audio}
+	next := previous
 	if change.Enabled != nil {
 		next.Enabled = *change.Enabled
 	}
@@ -175,7 +177,7 @@ func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (Passth
 		// Restore the old preference in the kernel when saving fails, so a
 		// reported failure does not silently change what survives a restart.
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-		actual, rollbackErr := p.provider.Apply(rollbackCtx, p.prefs)
+		actual, rollbackErr := p.provider.Apply(rollbackCtx, previous)
 		cancel()
 		p.observe(actual)
 		err = fmt.Errorf("保存透传设置失败：%w", err)
@@ -184,7 +186,6 @@ func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (Passth
 		}
 		return actual, p.failure(err)
 	}
-	p.prefs = next
 	return state, nil
 }
 

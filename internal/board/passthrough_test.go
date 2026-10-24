@@ -10,9 +10,11 @@ import (
 )
 
 type fakePassthroughProvider struct {
-	state PassthroughState
-	err   error
-	calls int
+	state   PassthroughState
+	err     error
+	calls   int
+	started chan struct{}
+	release chan struct{}
 }
 
 func (f *fakePassthroughProvider) Status(context.Context) (PassthroughState, error) {
@@ -21,6 +23,10 @@ func (f *fakePassthroughProvider) Status(context.Context) (PassthroughState, err
 
 func (f *fakePassthroughProvider) Apply(_ context.Context, prefs PassthroughPreferences) (PassthroughState, error) {
 	f.calls++
+	if f.started != nil {
+		close(f.started)
+		<-f.release
+	}
 	if f.err != nil {
 		return f.state, f.err
 	}
@@ -160,5 +166,39 @@ func TestPassthroughRejectsCorruptPreferences(t *testing.T) {
 	}
 	if _, err := OpenPassthrough(context.Background(), dir, nil, nil); err == nil {
 		t.Fatal("silently ignored corrupt preferences")
+	}
+}
+
+func TestPassthroughPartialChangePreservesActualSettings(t *testing.T) {
+	fake := &fakePassthroughProvider{state: PassthroughState{Supported: true, Enabled: true, Audio: true, State: "running"}}
+	p, err := OpenPassthrough(context.Background(), t.TempDir(), fake, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := p.Set(context.Background(), PassthroughChange{Audio: boolPointer(false)})
+	if err != nil || !state.Enabled || state.Audio {
+		t.Fatalf("audio-only change stopped video: %+v %v", state, err)
+	}
+}
+
+func TestPassthroughConcurrentWritesAreRejected(t *testing.T) {
+	fake := &fakePassthroughProvider{state: PassthroughState{Supported: true, State: "off"}, started: make(chan struct{}), release: make(chan struct{})}
+	p, err := OpenPassthrough(context.Background(), t.TempDir(), fake, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := p.Set(context.Background(), PassthroughChange{Enabled: boolPointer(true)})
+		done <- err
+	}()
+	<-fake.started
+	_, concurrentErr := p.Set(context.Background(), PassthroughChange{Enabled: boolPointer(false)})
+	close(fake.release)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(concurrentErr, ErrBusy) || !fake.state.Enabled || fake.calls != 1 {
+		t.Fatalf("concurrent change reached provider: %+v %v", fake, concurrentErr)
 	}
 }

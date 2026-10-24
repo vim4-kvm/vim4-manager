@@ -14,8 +14,9 @@ import (
 )
 
 type fakePassthrough struct {
-	state board.PassthroughState
-	err   error
+	state    board.PassthroughState
+	err      error
+	writeErr error
 }
 
 func (f *fakePassthrough) Status(context.Context) (board.PassthroughState, error) {
@@ -23,6 +24,9 @@ func (f *fakePassthrough) Status(context.Context) (board.PassthroughState, error
 }
 
 func (f *fakePassthrough) Apply(_ context.Context, prefs board.PassthroughPreferences) (board.PassthroughState, error) {
+	if f.writeErr != nil {
+		return f.state, f.writeErr
+	}
 	f.state.Enabled, f.state.Audio = prefs.Enabled, prefs.Audio
 	f.state.State = "no-signal"
 	return f.state, f.err
@@ -63,6 +67,15 @@ func TestPassthroughAPI(t *testing.T) {
 			}
 		}
 	}
+	fake.writeErr = errors.New("apply failed")
+	r := httptest.NewRequest("POST", "/api/passthrough", strings.NewReader(`{"enabled":false}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 500 || !strings.Contains(w.Body.String(), "apply failed") {
+		t.Fatalf("apply failure: %d %s", w.Code, w.Body.String())
+	}
+	fake.writeErr = nil
 	fake.err = errors.New("read failed")
 	for _, method := range []string{"GET", "POST"} {
 		r := httptest.NewRequest(method, "/api/passthrough", strings.NewReader(`{"enabled":true}`))
