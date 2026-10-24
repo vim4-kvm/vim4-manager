@@ -2,7 +2,7 @@
 
 VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM、One-KVM 或 PiKVM），
 查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
-页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
+页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
 网络存储页路由约定为 `#/storage`，使用下述 SMB/NFS 后端 API（前端另行实现）。
 
 匹配的 5.15 / 7.x 共用完整管理器、应用数据和 8080 网关，公共启动器按内核选择硬件接口。
@@ -384,6 +384,23 @@ SMB/NFS 恢复、真实 USB eject 和电源中断仍需实板验证。
 Go 依赖固定在 `go.mod/go.sum`，同时提交 vendor，Go 构建无需下载模块。
 Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev/fuse`、dosfstools、mtools 的 VM
 运行测试二进制；FUSE 测试覆盖 fsck、主机文件操作、解析、回写与 trash，不使用真实 USB LUN。
+
+## HDMI 输出
+
+`#/output` 提供透传和声音开关，每 2 秒读取 `GET /api/passthrough`，操作期间及离页停止轮询。
+`POST /api/passthrough` 接受可选的 `enabled`、`audio` 布尔值，至少提供一项，返回实际状态。
+偏好沿用管理器 `-state-dir`（默认 `/var/lib/vim4-manager`），原子保存到 `passthrough.json`，
+声音默认关闭；支持的 provider 在管理器启动时恢复设置。操作失败不保存新偏好，保存失败尝试恢复旧设置。
+`/api/status` 同时提供 `passthrough` 摘要供其他页面的导航提示使用。
+
+当前仅交付界面和 API 骨架，真实 provider 的单一能力探测函数固定返回不支持，
+GET 返回 `supported:false,state:"unsupported",enabled:false`，POST 返回 409。
+已有偏好文件保留，切回支持该能力的 provider 后恢复；不会写 sysfs、修改 EDID 或启停硬件服务。
+待主仓透传设计文档确定内核 ABI 后，再接入 `internal/board/passthrough.go` 的 provider。
+API 用 `input`、`monitor` 对象是否存在表示有输入信号、显示器已连接；无此对象时前端不推测参数。
+
+浏览器回归：`node web/tests/passthrough.mjs`，沿用 `PLAYWRIGHT_MODULE` 和 `TEST_URL`；
+默认在 `/tmp/codex-ui/passthrough-*.png` 输出桌面/手机、浅色/深色的 40 张状态截图。
 
 ## EDID 兼容性预设
 
