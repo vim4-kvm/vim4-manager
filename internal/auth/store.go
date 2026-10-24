@@ -13,6 +13,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/statefile"
 )
 
 const DefaultDirectory = "/var/lib/vim4-manager"
@@ -54,26 +56,7 @@ type Store struct {
 }
 
 func atomicJSON(path string, value any) error {
-	data, e := json.Marshal(value)
-	if e != nil {
-		return e
-	}
-	f, e := os.CreateTemp(filepath.Dir(path), ".auth-*")
-	if e != nil {
-		return e
-	}
-	defer os.Remove(f.Name())
-	if _, e = f.Write(data); e == nil {
-		e = f.Sync()
-	}
-	closeErr := f.Close()
-	if e != nil {
-		return e
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	return os.Rename(f.Name(), path)
+	return statefile.WriteJSON(path, value)
 }
 
 func Open(dir string) (*Store, error) {

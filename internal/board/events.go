@@ -85,6 +85,10 @@ func (s *Service) Watch(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Service) snapshot(ctx context.Context) (*snapshot, error) {
+	// Observe passthrough changes even when no browser has the output page open.
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	_, _ = s.PassthroughStatus(probeCtx)
+	cancel()
 	units, err := QueryUnits(ctx, s.Run, allUnits())
 	if err != nil {
 		return nil, err

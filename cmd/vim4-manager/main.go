@@ -48,6 +48,11 @@ func main() {
 		slog.Error("authentication", "error", err)
 		os.Exit(1)
 	}
+	service.Passthrough, err = board.OpenPassthrough(context.Background(), *stateDir, nil, service.Events)
+	if err != nil {
+		slog.Error("passthrough settings", "error", err)
+		os.Exit(1)
+	}
 	server := &http.Server{Addr: *listen, Handler: web.CheckHost(service, web.AuthenticatedHandler(service, assets, sessions), strings.Split(*allowedHosts, ",")), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

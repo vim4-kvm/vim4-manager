@@ -24,6 +24,7 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 	nasdiskRoutes(mux, service)
 	tailscaleRoutes(mux, service)
 	kernelRoutes(mux, service)
+	passthroughRoutes(mux, service)
 	mux.HandleFunc("GET /api/media", func(w http.ResponseWriter, r *http.Request) {
 		images, err := service.MediaImages(r.Context())
 		if err != nil {
