@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { TailscalePanel } from "./TailscalePanel";
 import { WifiControl } from "./WifiControl";
 import { EDIDPanel } from "./EDIDPanel";
+import { PassthroughPanel } from "./PassthroughPanel";
 import { KernelPanel } from "./KernelPanel";
 import {
   getStatus,
@@ -21,6 +22,7 @@ import {
   type Status,
   type PowerCapability,
   type Unit,
+  type PassthroughState,
 } from "./api";
 import { HDRPanel } from "./HDRPanel";
 import { TrendChart, tempDomain, samplingWindow, type Point } from "./Charts";
@@ -646,7 +648,7 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
-type PageId = "overview" | "apps" | "media" | "disks" | "storage" | "video" | "cooling" | "network" | "services" | "updates" | "account";
+type PageId = "overview" | "apps" | "media" | "disks" | "storage" | "video" | "output" | "cooling" | "network" | "services" | "updates" | "account";
 
 const ICONS: Record<PageId, ReactNode> = {
   overview: <path d="M4 13h6V4H4zm0 7h6v-5H4zm10 0h6v-9h-6zm0-16v5h6V4z" />,
@@ -681,6 +683,12 @@ const ICONS: Record<PageId, ReactNode> = {
       <path d="m16 10 5-3v10l-5-3" />
     </>
   ),
+  output: (
+    <>
+      <rect x="3" y="4" width="18" height="13" rx="2" />
+      <path d="M9 21h6M12 17v4M7 10.5h10m-3-3 3 3-3 3" />
+    </>
+  ),
   cooling: (
     <>
       <circle cx="12" cy="12" r="2" />
@@ -711,6 +719,7 @@ const PAGES: { id: PageId; title: string; description?: string }[] = [
   { id: "disks", title: "数据盘", description: "在板子上创建 U 盘镜像，上传或取回文件，挂载后被控电脑当作普通 U 盘使用。" },
   { id: "storage", title: "网络存储", description: "把 NAS 的 SMB/NFS 共享连接到板子，用来保存录屏，或把其中的文件夹作为 U 盘交给被控电脑。" },
   { id: "video", title: "视频输入" },
+  { id: "output", title: "HDMI 输出", description: "板子 HDMI OUT 口接的本地显示器。" },
   { id: "cooling", title: "散热" },
   { id: "network", title: "网络" },
   { id: "services", title: "底层服务", description: "重启 HDMI 采集会先暂停当前界面，完成后自动恢复。" },
@@ -732,7 +741,16 @@ function usePage() {
   return page;
 }
 
-function navHint(id: PageId, status: Status): { text: string; tone?: Tone } | undefined {
+function navHint(id: PageId, status?: Status, passthrough?: PassthroughState): { text: string; tone?: Tone } | undefined {
+  if (id === "output") {
+    switch (passthrough?.state) {
+      case "running": return { text: "透传", tone: "good" };
+      case "no-signal": return { text: "等待信号", tone: "warning" };
+      case "protected": return { text: "受保护", tone: "warning" };
+    }
+    return undefined;
+  }
+  if (!status) return undefined;
   const hw = status.hardware;
   switch (id) {
     case "apps": {
@@ -754,7 +772,7 @@ function navHint(id: PageId, status: Status): { text: string; tone?: Tone } | un
   return undefined;
 }
 
-function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale: boolean }) {
+function Sidebar({ page, status, stale, passthrough }: { page: PageId; status?: Status; stale: boolean; passthrough?: PassthroughState }) {
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -766,7 +784,7 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
       </div>
       <nav aria-label="页面">
         {PAGES.map((p) => {
-          const hint = status && navHint(p.id, status);
+          const hint = navHint(p.id, status, passthrough);
           return (
             <a key={p.id} href={`#/${p.id}`} className="nav-item" aria-current={page === p.id ? "page" : undefined}>
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -774,7 +792,7 @@ function Sidebar({ page, status, stale }: { page: PageId; status?: Status; stale
               </svg>
               <span className="nav-label">{p.title}</span>
               {hint && (
-                <span className={`nav-hint${hint.tone && hint.tone !== "good" ? ` status-${hint.tone}` : ""}`}>{hint.text}</span>
+                <span className={`nav-hint${hint.tone && (hint.tone !== "good" || p.id === "output") ? ` status-${hint.tone}` : ""}`}>{hint.text}</span>
               )}
             </a>
           );
@@ -834,6 +852,7 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
 export function App() {
   const page = usePage();
   const [status, setStatus] = useState<Status>();
+  const [passthrough, setPassthrough] = useState<PassthroughState>();
   const [error, setError] = useState<string>();
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState<string>();
@@ -847,7 +866,9 @@ export function App() {
 
   const refresh = useCallback(async () => {
     try {
-      setStatus(await getStatus());
+      const next = await getStatus();
+      setStatus(next);
+      if (next.passthrough) setPassthrough(next.passthrough);
       setStale(false);
       setNow(Date.now());
     } catch {
@@ -915,7 +936,7 @@ export function App() {
 
   return (
     <div className="layout">
-      <Sidebar page={page} status={status} stale={stale} />
+      <Sidebar page={page} status={status} stale={stale} passthrough={passthrough} />
       <main ref={main} tabIndex={-1} aria-labelledby="page-title">
         <header className="page-head">
           <h2 id="page-title">{meta.title}</h2>
@@ -936,6 +957,7 @@ export function App() {
 
         <div className="page-body" key={page}>
         {page === "account" && <AccountPanel />}
+        {page === "output" && <PassthroughPanel busy={!!busy} stale={stale} run={run} onState={setPassthrough} />}
         {page === "network" && (
           <>
             <WifiControl busy={!!busy} />
@@ -956,7 +978,7 @@ export function App() {
         )}
 
         {!status ? (
-          page !== "network" && page !== "video" && page !== "updates" && page !== "storage" && page !== "account" && <div className="skeleton" />
+          page !== "network" && page !== "video" && page !== "output" && page !== "updates" && page !== "storage" && page !== "account" && <div className="skeleton" />
         ) : (
           <>
             {page === "overview" && hw && (

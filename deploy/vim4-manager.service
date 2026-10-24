@@ -1,6 +1,6 @@
 [Unit]
 Description=VIM4 KVM management dashboard
-After=network-online.target
+After=network-online.target vim4-kvm-hdmi.service
 Wants=network-online.target
 
 [Service]

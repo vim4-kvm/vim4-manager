@@ -23,16 +23,17 @@ var ErrBusy = errors.New("另一项操作正在进行")
 
 // Service answers dashboard queries and serializes privileged operations.
 type Service struct {
-	Run        Runner
-	Stream     StreamRunner
-	Root       string
-	History    *History
-	Events     *Events
-	Updater    *Updater
-	mu         sync.Mutex
-	powerMu    sync.Mutex
-	powerAt    time.Time
-	powerState Power
+	Run         Runner
+	Stream      StreamRunner
+	Root        string
+	History     *History
+	Events      *Events
+	Updater     *Updater
+	Passthrough *Passthrough
+	mu          sync.Mutex
+	powerMu     sync.Mutex
+	powerAt     time.Time
+	powerState  Power
 
 	tailscaleMu       sync.Mutex
 	tailscaleJob      *TailscaleJob
@@ -50,16 +51,17 @@ type Service struct {
 
 // Status is the complete dashboard state.
 type Status struct {
-	Encoder  Encoder    `json:"encoder"`
-	Power    Power      `json:"power"`
-	Media    Media      `json:"media"`
-	Active   string     `json:"active"`
-	Apps     []AppState `json:"apps"`
-	Platform []Platform `json:"platform"`
-	Hardware Hardware   `json:"hardware"`
-	System   System     `json:"system"`
-	History  []Sample   `json:"history"`
-	Events   []Event    `json:"events"`
+	Encoder     Encoder           `json:"encoder"`
+	Passthrough *PassthroughState `json:"passthrough,omitempty"`
+	Power       Power             `json:"power"`
+	Media       Media             `json:"media"`
+	Active      string            `json:"active"`
+	Apps        []AppState        `json:"apps"`
+	Platform    []Platform        `json:"platform"`
+	Hardware    Hardware          `json:"hardware"`
+	System      System            `json:"system"`
+	History     []Sample          `json:"history"`
+	Events      []Event           `json:"events"`
 }
 
 // System is the network, storage and software summary on the overview.
@@ -101,6 +103,9 @@ func (s *Service) Status(ctx context.Context) (Status, error) {
 	}
 	status := Status{Hardware: ReadHardware(s.Root), History: []Sample{}, Events: s.Events.List(), Media: s.media(ctx)}
 	status.Encoder = readEncoder(s.Root)
+	if passthrough, err := s.PassthroughStatus(ctx); err == nil {
+		status.Passthrough = &passthrough
+	}
 	if strings.HasPrefix(status.Hardware.Kernel, "7.") {
 		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		data, err := s.Run(probeCtx, "sudo", "-n", Helper, "mainline-hardware")

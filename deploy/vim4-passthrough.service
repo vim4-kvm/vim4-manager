@@ -1,0 +1,13 @@
+[Unit]
+Description=VIM4 vendor HDMI display mode follower
+After=vim4-kvm-hdmi.service
+Wants=vim4-kvm-hdmi.service
+
+[Service]
+ExecStart=/usr/libexec/vim4-passthrough watch
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=vim4-passthrough
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UMask=0077

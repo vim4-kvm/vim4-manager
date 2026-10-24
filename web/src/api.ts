@@ -1,5 +1,15 @@
 import { redirectLogin } from "./auth";
 
+export interface PassthroughState {
+  supported: boolean;
+  enabled: boolean;
+  audio: boolean;
+  state: "unsupported" | "off" | "starting" | "stopping" | "running" | "no-signal" | "no-monitor" | "protected";
+  input?: { width: number; height: number; refreshHz: number; hdr: "SDR" | "HDR10" | "HLG"; colorFormat: string; audio: boolean };
+  monitor?: { name: string; maxWidth: number; maxHeight: number; maxRefreshHz: number; hdr: boolean; audio: boolean };
+  output?: { width: number; height: number; refreshHz: number; colorFormat: string; scaled: boolean; hdrToSdr: boolean };
+}
+
 export interface Unit {
   name: string;
   loaded: boolean;
@@ -129,6 +139,7 @@ export interface FirmwarePD {
 }
 
 export interface Status {
+  passthrough?: PassthroughState;
   power?: {
     vbusPresent: boolean | null;
     bootContract: { voltageV: number; currentA: number } | null;

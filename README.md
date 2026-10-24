@@ -2,7 +2,7 @@
 
 VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM、One-KVM 或 PiKVM），
 查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
-页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
+页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
 网络存储页路由约定为 `#/storage`，使用下述 SMB/NFS 后端 API（前端另行实现）。
 
 匹配的 5.15 / 7.x 共用完整管理器、应用数据和 8080 网关，公共启动器按内核选择硬件接口。
@@ -389,6 +389,36 @@ SMB/NFS 恢复、真实 USB eject 和电源中断仍需实板验证。
 Go 依赖固定在 `go.mod/go.sum`，同时提交 vendor，Go 构建无需下载模块。
 Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev/fuse`、dosfstools、mtools 的 VM
 运行测试二进制；FUSE 测试覆盖 fsck、主机文件操作、解析、回写与 trash，不使用真实 USB LUN。
+
+## HDMI 输出
+
+`#/output` 提供透传和声音开关，每 2 秒读取 `GET /api/passthrough`，操作期间及离页停止轮询。
+`POST /api/passthrough` 接受可选的 `enabled`、`audio` 布尔值，至少提供一项，返回实际状态。
+偏好沿用管理器 `-state-dir`（默认 `/var/lib/vim4-manager`），原子保存到 `passthrough.json`，
+声音默认关闭；支持的 provider 在管理器启动时恢复设置。操作失败不保存新偏好，保存失败尝试恢复旧设置。
+`/api/status` 同时提供 `passthrough` 摘要供其他页面的导航提示使用。
+
+`passthrough-5.15` 分支通过限定助手接入厂商 VFM TEE：`vdin0 vfm_cap amvideo`。
+能力探测同时要求 5.15、精确路由、sysfs 和 root 管理的
+`/etc/vim4-kvm/passthrough-5.15.json`（`abi:1`、`release`、`moduleNoteSha256`）。
+最后一项为运行模块 `/sys/module/aml_media/notes/.note.gnu.build-id` 的 SHA-256，
+只在已验证 VDIN `VFRAME_FLAG_VIDEO_LINEAR` 补丁的模块上登记，不能仅凭内核版本宣称支持。
+未通过探测时 GET 返回 `supported:false,state:"unsupported",enabled:false`、POST 返回 409，保留偏好。
+板级 HDMI 服务单独读取 `/etc/default/vim4-kvm-passthrough` 的 `HDMI_DISPLAY_TEE=1`；
+`vim4-passthrough prepare` 在 HDMI 源启动前核验模块并建立 TEE，未通过时保留独立采集。
+这不会改动 KVM 的采集尺寸、格式、游戏模式或源 EDID，也不会增加第二个 VDIN 所有者。
+
+`vim4-passthrough.service` 独立于浏览器跟随逐行 SDR 输入和 OUT HPD，取输入与显示器模式交集，
+首选 1:1、否则明确 `scaled`，只用 sink 声明的 YCbCr444 8-bit，不走有已知误差的 RGB。
+实际输出模式、格式、帧率读回和显示计数推进后才报告 `running`；不依赖静止像素判断失锁。
+关闭透传只隐藏 VD1、恢复 OSD，保留 TEE 消费及 KVM；HDMI 服务重启后自动重新探测。
+支持普通/1000:1001 刷新率的 720p/1080p/2160p 已枚举模式，HDR、隔行和其他刷新率明确拒绝。
+音频直通尚未验证，开启声音返回明确错误、不保存偏好，不抢占 One-KVM 的 RX PCM。
+异常请求回退旧设置；控制进程无响应或状态过期不伪造成功。
+API 用 `input`、`monitor` 对象是否存在表示有输入信号、显示器已连接；无此对象时前端不推测参数。
+
+浏览器回归：`node web/tests/passthrough.mjs`，沿用 `PLAYWRIGHT_MODULE` 和 `TEST_URL`；
+默认在 `/tmp/codex-ui/passthrough-*.png` 输出桌面/手机、浅色/深色的 40 张状态截图。
 
 ## EDID 兼容性预设
 

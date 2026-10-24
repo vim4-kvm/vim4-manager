@@ -1,0 +1,328 @@
+#!/usr/bin/env python3
+"""Control an already qualified vendor VDIN/VFM tee without owning capture."""
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import subprocess
+import sys
+import tempfile
+import time
+
+
+TX = '/sys/class/amhdmitx/amhdmitx0/'
+VIDEO = '/sys/class/video/'
+RUNTIME = '/run/vim4-passthrough/'
+QUALIFICATION = '/etc/vim4-kvm/passthrough-5.15.json'
+
+
+def atomic_json(path, value):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent)
+    try:
+        with os.fdopen(descriptor, 'w') as output:
+            json.dump(value, output)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+
+
+def parse_fields(text):
+    return {key.strip(): value.strip() for key, value in
+            (line.split(':', 1) for line in text.splitlines() if ':' in line)}
+
+
+def display_modes(text):
+    modes = {}
+    for line in text.splitlines():
+        match = re.fullmatch(r'(?:1920x|3840x)?(720|1080|2160)p(24|25|30|50|60)hz\*?', line.strip())
+        if match:
+            height, rate = map(int, match.groups())
+            modes[(height, rate)] = f'{height}p{rate}hz'
+    return modes
+
+
+def select_mode(input_state, modes):
+    rate, fractional = min(((60, False), (60, True), (50, False), (30, False),
+                            (30, True), (25, False), (24, False), (24, True)),
+                           key=lambda item: abs(input_state['refreshHz'] - item[0] / (1.001 if item[1] else 1)))
+    hz = rate / (1.001 if fractional else 1)
+    if abs(input_state['refreshHz'] - hz) > 0.2:
+        raise ValueError('输入刷新率尚未验证，保持黑屏')
+    candidates = [height for height, frequency in modes if frequency == rate and height <= input_state['height']]
+    if not candidates:
+        raise ValueError('显示器没有与输入刷新率匹配的已验证模式')
+    height = max(candidates)
+    return modes[(height, rate)], {720: 1280, 1080: 1920, 2160: 3840}[height], height, fractional
+
+
+class VendorPassthrough:
+    def __init__(self, root=Path('/'), release=None, run=subprocess.run):
+        self.root = root
+        self.release = platform.release() if release is None else release
+        self.run = run
+        self.blanked = None
+        self.last_frame = None
+        self.last_progress = None
+
+    def path(self, name):
+        return self.root / name.lstrip('/')
+
+    def read(self, name):
+        return self.path(name).read_text().strip()
+
+    def write(self, name, value):
+        self.path(name).write_text(str(value) + '\n')
+
+    def update(self, name, value):
+        if self.read(name).split() != str(value).split():
+            self.write(name, value)
+
+    def load(self, name, default=None):
+        try:
+            return json.loads(self.read(name))
+        except FileNotFoundError:
+            return default
+
+    def qualified(self):
+        if not self.release.startswith('5.15.'):
+            return False
+        proof = self.path(QUALIFICATION)
+        try:
+            info = proof.lstat()
+            if info.st_uid != 0 or info.st_mode & 0o022 or proof.is_symlink() or not proof.is_file():
+                return False
+            qualified = self.load(QUALIFICATION)
+            note = self.path('/sys/module/aml_media/notes/.note.gnu.build-id').read_bytes()
+            if qualified.get('abi') != 1 or qualified.get('release') != self.release or qualified.get('moduleNoteSha256') != hashlib.sha256(note).hexdigest():
+                return False
+            return True
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False
+
+    def supported(self):
+        if not self.qualified():
+            return False
+        try:
+            route = self.read('/sys/class/vfm/map')
+            if not re.search(r'tvpath\s*\{\s*vdin0(?:\(\d+\))?\s+vfm_cap(?:\(\d+\))?\s+amvideo\s*\}', route):
+                return False
+            return all(self.path(name).is_file() for name in (
+                VIDEO + 'disable_video', VIDEO + 'axis', TX + 'disp_mode',
+                TX + 'test_attr', TX + 'hpd_state', '/sys/class/display/mode'))
+        except (OSError, ValueError, TypeError, AttributeError):
+            return False
+
+    def prepare(self):
+        if not self.qualified():
+            raise ValueError('未验证的运行模块，保留独立 KVM 采集')
+        self.write('/sys/class/vfm/map', 'rm tvpath')
+        self.write('/sys/class/vfm/map', 'add tvpath vdin0 vfm_cap amvideo')
+        self.update(VIDEO + 'disable_video', 1)
+        self.blank(False)
+
+    def input(self):
+        captures = [path for path in self.path('/sys/class/video4linux').glob('video*')
+                    if (path / 'name').read_text().strip() == 'vfm_cap']
+        if len(captures) != 1:
+            raise ValueError('无法唯一识别 VFM 采集端点')
+        capture = parse_fields((captures[0] / 'status').read_text())
+        if any(capture.get(key) != value for key, value in
+               (('vfm_started', '1'), ('fmt_valid', '1'), ('sm_state', '5'), ('draining', '0'))):
+            return None
+        fields = parse_fields(self.read('/sys/class/hdmirx/hdmirx0/info'))
+        width, height = int(fields.get('Hactive', 0)), int(fields.get('Vactive', 0))
+        rate = int(fields.get('Frame Rate', 0)) / 100
+        if width <= 0 or height <= 0 or rate <= 0:
+            return None
+        if fields.get('Interlace') != '0':
+            raise ValueError('隔行输入尚未验证')
+        return {'width': width, 'height': height, 'refreshHz': rate,
+                'colorFormat': fields.get('Color Space', '').partition('-')[2],
+                'hdr': fields.get('HDR EOTF', 'SDR'),
+                'audio': int(fields.get('audio receive data', 0)) != 0}
+
+    def monitor(self):
+        if self.read(TX + 'hpd_state') != '1':
+            return None
+        modes = display_modes(self.read(TX + 'disp_cap'))
+        if not modes:
+            raise ValueError('显示器没有已验证的逐行模式')
+        height, rate = max(modes, key=lambda item: (item[0], item[1]))
+        name = 'HDMI'
+        edid = bytes.fromhex(self.read(TX + 'rawedid'))
+        if (len(edid) < 128 or edid[:8] != bytes.fromhex('00ffffffffffff00')
+                or len(edid) < (edid[126] + 1) * 128
+                or any(sum(edid[offset:offset + 128]) % 256 for offset in range(0, (edid[126] + 1) * 128, 128))):
+            raise ValueError('显示器 EDID 无效')
+        for offset in range(54, 126, 18):
+            descriptor = edid[offset:offset + 18]
+            if descriptor[:5] == b'\0\0\0\xfc\0':
+                name = descriptor[5:18].decode('ascii', errors='replace').strip()
+        return {'name': name, 'maxWidth': {720: 1280, 1080: 1920, 2160: 3840}[height],
+                'maxHeight': height, 'maxRefreshHz': rate,
+                'hdr': bool(re.search(r'(SMPTE ST 2084|Hybrid Log-Gamma):\s*1', self.read(TX + 'hdr_cap'))),
+                'audio': 'PCM,' in self.read(TX + 'aud_cap')}
+
+    def snapshot(self, enabled):
+        state = {'supported': True, 'enabled': enabled, 'audio': False, 'state': 'off'}
+        input_state, monitor = self.input(), self.monitor()
+        if input_state:
+            state['input'] = input_state
+        if monitor:
+            state['monitor'] = monitor
+        if enabled:
+            state['state'] = 'no-monitor' if not monitor else 'no-signal' if not input_state else 'starting'
+        return state
+
+    def blank(self, blank):
+        if self.blanked == blank:
+            return
+        for name in ('fb0', 'fb1'):
+            path = f'/sys/class/graphics/{name}/blank'
+            if self.path(path).exists():
+                self.write(path, int(blank))
+        self.blanked = blank
+
+    def tick(self, enabled):
+        state = self.snapshot(enabled)
+        if not enabled:
+            self.update(VIDEO + 'disable_video', 1)
+            self.blank(False)
+            return state
+        self.blank(True)
+        if state['state'] != 'starting':
+            self.update(VIDEO + 'disable_video', 1)
+            return state
+        input_state = state['input']
+        if input_state['hdr'] != 'SDR':
+            raise ValueError('HDR 透传尚未验证，请使用 SDR 输入')
+        mode, width, height, fractional = select_mode(input_state, display_modes(self.read(TX + 'disp_cap')))
+        if '444,8bit' not in self.read(TX + 'dc_cap').splitlines():
+            raise ValueError('显示器不支持已验证的 YCbCr444 8-bit 输出')
+        fields = parse_fields(self.read(TX + 'disp_mode'))
+        actual_rate = fields.get('h/v_freq', '').split('/')[-1]
+        expected_rate = round(int(re.search(r'p(\d+)hz', mode)[1]) * 1000 / (1.001 if fractional else 1))
+        if (fields.get('sname') != mode or self.read(TX + 'attr') != '444,8bit'
+                or self.read(TX + 'frac_rate_policy') != str(int(fractional))
+                or self.read(TX + 'ready') != '1'):
+            self.write(VIDEO + 'disable_video', 1)
+            self.write(TX + 'frac_rate_policy', int(fractional))
+            self.write('/sys/class/display/mode', mode)
+            self.write(TX + 'test_attr', '444,8bit')
+            self.write(TX + 'disp_mode', mode)
+            fields = parse_fields(self.read(TX + 'disp_mode'))
+            actual_rate = fields.get('h/v_freq', '').split('/')[-1]
+        if fields.get('sname') != mode or self.read(TX + 'attr') != '444,8bit' or abs(int(actual_rate or 0) - expected_rate) > 1:
+            raise ValueError('HDMI 输出读回与所选模式不符')
+        self.update(VIDEO + 'axis', f'0 0 {width - 1} {height - 1}')
+        self.update(VIDEO + 'disable_video', 0)
+        frame = int(self.read('/sys/module/aml_media/parameters/display_frame_count'))
+        now = time.monotonic()
+        if frame != self.last_frame:
+            self.last_progress = now if self.last_frame is not None else None
+            self.last_frame = frame
+        if self.last_progress is None or now - self.last_progress > 2:
+            state['state'] = 'starting'
+            return state
+        state['output'] = {'width': width, 'height': height, 'refreshHz': int(actual_rate) / 1000,
+                           'colorFormat': 'YCbCr444 8-bit limited',
+                           'scaled': width != input_state['width'] or height != input_state['height'],
+                           'hdrToSdr': False}
+        state['state'] = 'running'
+        return state
+
+    def status(self):
+        if not self.supported():
+            return {'supported': False, 'enabled': False, 'audio': False, 'state': 'unsupported'}
+        requested = self.load(RUNTIME + 'request.json')
+        if requested is None:
+            return self.snapshot(False)
+        observed = self.load(RUNTIME + 'state.json')
+        if not observed or observed.get('revision') != requested['revision'] or time.monotonic() - observed['heartbeat'] > 4:
+            raise ValueError('透传控制服务未响应')
+        return observed['state']
+
+    def set(self, enabled, audio):
+        if not self.supported():
+            raise ValueError('当前内核或 VFM 路由未通过透传资格验证')
+        if audio:
+            raise ValueError('厂商 HDMI 音频直通尚未验证，未更改当前设置')
+        request = {'enabled': enabled, 'revision': time.monotonic_ns()}
+        previous = self.load(RUNTIME + 'request.json')
+        atomic_json(self.path(RUNTIME + 'request.json'), request)
+        try:
+            self.run(['systemctl', 'start', 'vim4-passthrough.service'], check=True, timeout=3, capture_output=True)
+            deadline = time.monotonic() + 6
+            while time.monotonic() < deadline:
+                observed = self.load(RUNTIME + 'state.json')
+                if observed and observed.get('revision') == request['revision']:
+                    if observed.get('error'):
+                        raise ValueError(observed['error'])
+                    return self.status()
+                time.sleep(.05)
+            raise ValueError('等待透传控制超时')
+        except Exception:
+            rollback = dict(previous or {'enabled': False})
+            rollback['revision'] = time.monotonic_ns()
+            atomic_json(self.path(RUNTIME + 'request.json'), rollback)
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline:
+                observed = self.load(RUNTIME + 'state.json')
+                if observed and observed.get('revision') == rollback['revision']:
+                    break
+                time.sleep(.05)
+            raise
+
+    def watch(self):
+        with self.path(RUNTIME + 'watch.lock').open('w') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            while True:
+                request = self.load(RUNTIME + 'request.json', {'enabled': False, 'revision': 0})
+                if not self.supported():
+                    atomic_json(self.path(RUNTIME + 'state.json'), {
+                        'revision': request['revision'], 'heartbeat': time.monotonic(),
+                        'state': {'supported': False, 'enabled': False, 'audio': False, 'state': 'unsupported'},
+                    })
+                    time.sleep(.5)
+                    continue
+                observed = {'revision': request['revision'], 'heartbeat': time.monotonic()}
+                try:
+                    observed['state'] = self.tick(request['enabled'])
+                except (OSError, ValueError) as error:
+                    self.update(VIDEO + 'disable_video', 1)
+                    observed['error'] = str(error)
+                    observed['state'] = {'supported': True, 'enabled': request['enabled'], 'audio': False,
+                                         'state': 'starting' if request['enabled'] else 'off'}
+                    print(str(error), file=sys.stderr, flush=True)
+                observed['heartbeat'] = time.monotonic()
+                atomic_json(self.path(RUNTIME + 'state.json'), observed)
+                time.sleep(.5)
+
+
+def main(args):
+    controller = VendorPassthrough()
+    if args == ['status']:
+        print(json.dumps(controller.status()))
+    elif len(args) == 3 and args[0] == 'set' and all(value in ('true', 'false') for value in args[1:]):
+        print(json.dumps(controller.set(args[1] == 'true', args[2] == 'true')))
+    elif args == ['watch']:
+        controller.path(RUNTIME).mkdir(mode=0o700, parents=True, exist_ok=True)
+        controller.watch()
+    elif args == ['prepare']:
+        controller.prepare()
+    else:
+        raise ValueError('Invalid passthrough command')
+
+
+if __name__ == '__main__':
+    try:
+        main(sys.argv[1:])
+    except (OSError, ValueError, subprocess.SubprocessError) as failure:
+        print(str(failure), file=sys.stderr)
+        sys.exit(1)
