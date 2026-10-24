@@ -9,10 +9,11 @@ const input = { width: 3840, height: 2160, refreshHz: 60, hdr: "SDR", colorForma
 const monitor = { name: "DELL U2723QE", maxWidth: 3840, maxHeight: 2160, maxRefreshHz: 60, hdr: true, audio: true };
 const output = { width: 3840, height: 2160, refreshHz: 60, colorFormat: "YCbCr 4:2:0", scaled: false, hdrToSdr: false };
 const status = {
-  active: "", apps: [], platform: [],
+  active: "onekvm", apps: [{ id: "onekvm", name: "One-KVM", port: 8080,
+    unit: { name: "vim4-onekvm.service", loaded: true, active: "active", sub: "running", enabled: "enabled" } }], platform: [],
   hardware: { hostname: "vim4", kernel: "7.3.0", uptimeSeconds: 60, load1: 0, cpus: 8,
     memTotalKiB: 1024, memAvailableKiB: 512, tempC: 50, zones: [], fanAuto: true,
-    fanPercent: 30, usb: "configured", hdmi: { signal: false, audio: false }, hdrCurve: { white: 203, peak: 1000 } },
+    fanPercent: 30, usb: "configured", hdrCurve: { white: 203, peak: 1000 } },
   system: { links: [], disk: { totalBytes: 1, freeBytes: 1 }, packages: [] }, events: [], history: [],
 };
 function fixture(state = "running") {
@@ -47,8 +48,11 @@ try {
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/**", route => route.fulfill({ status: 404, json: { error: "Unexpected test API" } }));
-  await page.route("**/api/status", route => route.fulfill(statusError
-    ? { status: 500, json: { error: "offline" } } : { json: status }));
+  await page.route("**/api/status", route => {
+    const hdmi = state.input ? { signal: true, ...state.input, colorSpace: state.input.colorFormat } : { signal: false, audio: false };
+    return route.fulfill(statusError ? { status: 500, json: { error: "offline" } }
+      : { json: { ...status, hardware: { ...status.hardware, hdmi } } });
+  });
   await page.route("**/api/passthrough", async route => {
     if (route.request().method() === "GET") {
       reads++;
@@ -71,7 +75,8 @@ try {
   const reload = async () => {
     await page.goto(`${base}/#/output`);
     await page.reload();
-    await card.locator("dl").waitFor();
+    await toggle.waitFor();
+    await page.locator('.nav-item[href="#/apps"] .nav-hint').getByText("One-KVM", { exact: true }).waitFor({ state: "attached" });
   };
   const poll = async () => {
     const response = page.waitForResponse(r => r.url().endsWith("/api/passthrough") && r.request().method() === "GET");
@@ -92,6 +97,7 @@ try {
 
   // All specified states, plus scaling and HDR conversion, in both themes
   // and viewports. Each state starts with a fresh route read.
+  const desktopTypography = new Map();
   for (const theme of ["light", "dark"]) {
     await page.emulateMedia({ colorScheme: theme });
     for (const [device, width, height] of [["desktop", 1440, 900], ["mobile", 390, 844]]) {
@@ -102,7 +108,29 @@ try {
         assert.equal(await rowStatus("透传").textContent(), label);
         assert.equal(await toggle.getAttribute("aria-checked"), String(checked));
         assert.equal(await toggle.isDisabled(), disabled);
-        assert.equal(await rowStatus("透传").locator(".spinner").count(), ["starting", "stopping"].includes(name) ? 1 : 0);
+        const transitioning = ["starting", "stopping"].includes(name);
+        const spinner = rowStatus("透传").locator(".spinner");
+        assert.equal(await spinner.count(), transitioning ? 1 : 0);
+        if (transitioning) {
+          assert(await spinner.isVisible());
+          const ring = await spinner.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return { width: rect.width, height: rect.height, border: parseFloat(style.borderTopWidth),
+              topColor: style.borderTopColor, trackColor: style.borderRightColor, radius: style.borderRadius,
+              animation: style.animationName };
+          });
+          assert(ring.width >= 12 && ring.height >= 12 && Math.abs(ring.width - ring.height) < 0.1,
+            `${device}/${theme}/${name}: spinner must render as a circle, not an inline stroke: ${JSON.stringify(ring)}`);
+          assert(ring.border > 0);
+          assert.equal(ring.radius, "50%");
+          assert.notEqual(ring.topColor, ring.trackColor, "spinner arc is distinguishable in both themes");
+          assert.equal(ring.animation, "spin");
+          assert.equal(await value("输出"), "切换中…");
+          assert.equal(await fact("输出").locator(".status-idle").count(), 1);
+          assert.equal(await fact("输出").locator(".muted").count(), 0);
+          assert.equal(await rowStatus("声音").textContent(), name === "starting" ? "透传开启后生效" : "已关闭");
+        }
         if (description) assert.equal(await card.locator(".passthrough-description").textContent(), description);
         assert.equal(await audio.count(), name === "unsupported" ? 0 : 1);
         const hint = page.locator('.nav-item[href="#/output"] .nav-hint');
@@ -112,18 +140,30 @@ try {
           assert.equal(await hint.textContent(), hintText);
           assert.match(await hint.getAttribute("class"), name === "running" ? /status-good/ : /status-warning/);
         }
-        if (["off", "unsupported"].includes(name)) assert.equal(await value("输出"), "系统控制台");
+        if (name === "off") assert.equal(await value("输出"), "系统控制台");
         if (["no-signal", "protected"].includes(name)) assert.equal(await value("输出"), "黑屏");
         if (name === "no-signal") assert.equal(await value("输入"), "无信号");
         if (name === "no-monitor") assert.equal(await value("显示器"), "未连接");
-        if (name === "unsupported") assert.equal(await card.getByRole("link", { name: "更新 → 内核" }).getAttribute("href"), "#/updates");
+        if (name === "unsupported") {
+          assert.equal(await card.locator("dl, .edid-fact").count(), 0, "unsupported hides the entire fact area");
+          assert.equal(await card.locator(".passthrough-body").textContent(), cases[0][4]);
+          assert.equal(await card.getByRole("link", { name: "更新 → 内核" }).getAttribute("href"), "#/updates");
+        }
+        assert.equal(await page.locator('.nav-item[href="#/video"] .nav-hint').textContent(),
+          state.input ? `${state.input.height}p` : "无信号", "overview HDMI fixture matches passthrough input");
+        const typography = await card.locator(".edid-fact dd:not(.muted)").evaluateAll(elements => elements.map(el => {
+          const style = getComputedStyle(el);
+          return { size: style.fontSize, weight: style.fontWeight };
+        }));
+        if (device === "desktop") desktopTypography.set(`${theme}/${name}`, typography);
+        else assert.deepEqual(typography, desktopTypography.get(`${theme}/${name}`), "mobile fact typography matches desktop");
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${device}/${theme}/${name} overflows`);
         // Read geometry in one frame; the page entrance animation can finish
         // between separate protocol calls even with reduced motion enabled.
         const { title, control, rowDescription, cardWidth, inputBox, monitorBox } = await card.evaluate(el => {
           const row = el.querySelector(".wifi-row");
           const facts = el.querySelectorAll(".edid-fact");
-          const box = node => node.getBoundingClientRect().toJSON();
+          const box = node => node ? node.getBoundingClientRect().toJSON() : null;
           return { title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
             rowDescription: box(row.querySelector("p")), cardWidth: el.getBoundingClientRect().width,
             inputBox: box(facts[0]), monitorBox: box(facts[1]) };
@@ -132,7 +172,10 @@ try {
           `${device}/${theme}/${name}: title and switch share a row: ${JSON.stringify({ title, control })}`);
         assert(rowDescription.y >= control.y + control.height, "description is below the switch");
         assert(rowDescription.width > cardWidth - 60, "description spans the card");
-        if (device === "mobile") {
+        if (name === "unsupported") {
+          assert.equal(inputBox, null);
+          assert.equal(monitorBox, null);
+        } else if (device === "mobile") {
           assert(monitorBox.y > inputBox.y + inputBox.height, "mobile facts stack vertically");
         } else {
           assert.equal(monitorBox.y, inputBox.y, "desktop facts share a row");
@@ -225,6 +268,9 @@ try {
   assert.equal(await toggle.getAttribute("aria-checked"), "true");
   assert(await toggle.isDisabled());
   assert(await audio.isDisabled());
+  assert.equal(await value("输出"), "切换中…");
+  assert.equal(await fact("输出").locator(".status-idle").count(), 1);
+  assert.equal(await rowStatus("声音").textContent(), "透传开启后生效");
   const beforeBusy = reads;
   await page.clock.runFor(6000);
   assert.equal(reads, beforeBusy, "busy pauses passthrough polling");
@@ -236,6 +282,9 @@ try {
   state.state = "stopping";
   await poll();
   await rowStatus("透传").getByText("正在关闭…", { exact: true }).waitFor();
+  assert.equal(await value("输出"), "切换中…");
+  assert.equal(await fact("输出").locator(".status-idle").count(), 1);
+  assert.equal(await rowStatus("声音").textContent(), "已关闭");
   assert.equal(await card.locator(".passthrough-description").textContent(), cases[4][4]);
   assert.equal(await toggle.getAttribute("aria-checked"), "false");
   state = fixture();

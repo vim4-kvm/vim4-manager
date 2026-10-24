@@ -150,8 +150,14 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
         : "HDR 已转为 SDR（使用视频输入页的曲线）";
     }
   }
+  if (transitioning) {
+    outputValue = "切换中…";
+    outputDetail = undefined;
+    outputTone = "idle";
+  }
   const audioUnsupported = !!monitor && !monitor.audio;
-  const audioLabel = !state.enabled ? "透传开启后生效" : audioUnsupported ? "显示器不支持音频"
+  const audioLabel = current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
+    : !state.enabled ? "透传开启后生效" : audioUnsupported ? "显示器不支持音频"
     : !state.audio ? "已关闭" : !input?.audio ? "输入无声音" : "输出中";
 
   return <section aria-label="透传"><div className="wifi-card passthrough-card">
@@ -159,14 +165,14 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
       label={labels[current]} checked={enabled} disabled={locked} pending={transitioning}
       onToggle={() => void change({ enabled: !state.enabled })} />
     <div className="passthrough-body">
-      <dl className="edid-facts passthrough-facts">
+      {state.supported && <dl className="edid-facts passthrough-facts">
         <Fact label="输入" value={input ? mode(input.width, input.height, input.refreshHz) : "无信号"}
           detail={input ? `${input.hdr} · ${input.colorFormat}` : undefined} tone={input ? "good" : "idle"} />
         <Fact label="显示器" value={monitor ? monitor.name || "未知型号" : "未连接"}
           detail={monitor ? `最高 ${mode(monitor.maxWidth, monitor.maxHeight, monitor.maxRefreshHz)}${monitor.hdr ? " · HDR" : ""}` : undefined}
           tone={monitor ? "good" : "idle"} />
         <Fact label="输出" value={outputValue} detail={outputDetail} tone={outputTone} />
-      </dl>
+      </dl>}
       <p className="muted passthrough-description">{description}</p>
       {error && <p className="edid-error" role="alert">刷新失败：{error}，显示的是上次读取的状态。</p>}
     </div>

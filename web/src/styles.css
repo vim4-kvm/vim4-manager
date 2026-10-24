@@ -3057,6 +3057,12 @@ a.readout:hover .readout-chevron {
   grid-column: 1 / -1;
 }
 
+.passthrough-row .wifi-action > [role="status"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .passthrough-row:last-child {
   border-bottom: 0;
 }
@@ -3073,9 +3079,13 @@ a.readout:hover .readout-chevron {
 .passthrough-facts {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
 }
 
 .passthrough-facts dd {
+  font-size: 14px;
+  font-weight: 560;
   white-space: normal;
   overflow-wrap: anywhere;
   align-items: baseline;
@@ -3090,6 +3100,10 @@ a.readout:hover .readout-chevron {
 .passthrough-description {
   margin-top: 24px;
   font-size: 12.5px;
+}
+
+.passthrough-description:first-child {
+  margin-top: 0;
 }
 
 @media (width < 600px) {
