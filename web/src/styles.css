@@ -203,6 +203,10 @@ p {
   color: var(--warning-ink);
 }
 
+.nav-hint.status-good {
+  color: var(--good-ink);
+}
+
 .nav-hint.status-critical {
   color: var(--critical-ink);
 }
@@ -3037,6 +3041,62 @@ a.readout:hover .readout-chevron {
 /* Wi-Fi */
 .wifi-card {
   padding: 0 var(--card-padding) 20px;
+}
+
+.passthrough-card {
+  padding-bottom: 0;
+}
+
+.passthrough-card .passthrough-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 14px;
+}
+
+.passthrough-row > p {
+  grid-column: 1 / -1;
+}
+
+.passthrough-row:last-child {
+  border-bottom: 0;
+}
+
+.passthrough-body {
+  margin: 0 calc(-1 * var(--card-padding));
+  padding: 20px var(--card-padding);
+}
+
+.passthrough-body:has(+ .wifi-row) {
+  border-bottom: 1px solid var(--rule);
+}
+
+.passthrough-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.passthrough-facts dd {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  align-items: baseline;
+}
+
+.passthrough-facts .passthrough-detail {
+  margin-left: 16px;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+.passthrough-description {
+  margin-top: 24px;
+  font-size: 12.5px;
+}
+
+@media (width < 600px) {
+  .passthrough-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
 }
 
 .wifi-card:has(> .wifi-row:only-child) {
