@@ -7,9 +7,15 @@ try {
   const page = await browser.newPage({ reducedMotion: "reduce", viewport: { width: 1280, height: 900 } });
   const data = fixtures();
   const errors = [], writes = [];
+  let releaseStatus;
+  const firstBodyStarted = new Promise((resolve) => { releaseStatus = resolve; });
+  await page.exposeFunction("firstDiskBodyStarted", () => releaseStatus());
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.route("**/api/**", (route) => {
+  await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    // Hold the first LUN token until the disk body is decoding, even when its
+    // production page chunk loads after the initial status request.
+    if (path === "/api/status") await firstBodyStarted;
     if (route.request().method() === "POST") {
       const body = route.request().postDataJSON();
       writes.push({ path, body });
@@ -32,6 +38,7 @@ try {
       if (url === "/api/disks" && firstDiskRead) {
         firstDiskRead = false;
         return Promise.resolve({ ok: true, status: 200, json: () => new Promise((_, reject) => {
+          void window.firstDiskBodyStarted();
           const abort = () => reject(new DOMException("aborted", "AbortError"));
           if (options.signal.aborted) abort();
           else options.signal.addEventListener("abort", abort, { once: true });

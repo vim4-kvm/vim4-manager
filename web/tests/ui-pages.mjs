@@ -81,7 +81,18 @@ const captureScenarios = process.argv.includes("--phase3") ? [
   }] },
   { name: "output-hdr-pending", page: "output", ready: "透传中", edit: (f) => { f.pendingWrite = true; },
     actions: [async (p) => { await p.getByRole("switch", { name: "HDR", exact: true }).click(); await p.getByText("正在切换…", { exact: true }).first().waitFor(); }] },
-  { name: "disks-delete-confirm", page: "disks", ready: "readme.txt", actions: [async (p) => p.getByRole("button", { name: /^readme\.txt/ }).click(), click("删除 readme.txt")] },
+  { name: "disks-delete-confirm", page: "disks", ready: "readme.txt", actions: [async (p) => {
+    await p.getByRole("button", { name: /^readme\.txt/ }).click();
+    if (after && p.viewportSize().width < 768) {
+      await p.getByRole("button", { name: "打开 readme.txt 操作菜单" }).click();
+      await p.getByRole("menuitem", { name: "删除", exact: true }).click();
+    } else await p.getByRole("button", { name: "删除 readme.txt", exact: true }).click();
+    await p.getByRole("alertdialog").waitFor();
+  }] },
+  ...(after ? [{ name: "disks-file-actions", page: "disks", ready: "readme.txt", actions: [async (p) => {
+    if (p.viewportSize().width < 768) await p.getByRole("button", { name: "打开 readme.txt 操作菜单" }).click();
+    else await p.getByRole("button", { name: /^readme\.txt/ }).focus();
+  }] }] : []),
 ] : scenarios;
 
 await mkdir(out, { recursive: true });
@@ -127,6 +138,17 @@ try {
       await page.screenshot({ path, fullPage: true, animations: "disabled" });
       captures.push(path.split("/").at(-1));
       console.log(captures.at(-1));
+      if (after && width === 1280 && scenario.name === "disks-files") {
+        await page.evaluate(() => window.scrollTo(0, 600));
+        await page.waitForFunction(() => scrollY > 300);
+        const sidebar = await page.locator('[data-slot="sidebar-container"]').boundingBox();
+        assert(await page.evaluate(() => scrollY) > 300, "sidebar evidence uses a genuinely scrolled viewport");
+        assert(Math.abs(sidebar.y) < 1 && sidebar.height === 900, "sidebar fills the scrolled viewport");
+        assert(await page.getByRole("radiogroup", { name: "外观" }).isVisible());
+        const scrolled = `sidebar-scrolled-${theme}-${width}.png`;
+        await page.screenshot({ path: `${out}/${scrolled}`, fullPage: false, animations: "disabled" });
+        captures.push(scrolled);
+      }
     } finally { if (data.pendingRoute) await data.pendingRoute.abort().catch(() => {}); await context.close(); }
   }
   await writeFile(`${out}/manifest.json`, JSON.stringify({ base, baseline: "origin/main@fa088412c73c767a919441d96d4f9f6f9a31b12d", candidate: after ? "ui/shadcn-refactor" : "origin/main", themes: ["light", "dark"], widths: [1280, 390], captures }, null, 2) + "\n");

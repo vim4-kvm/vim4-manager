@@ -77,5 +77,35 @@
       }
     },
     "jsChunks": 40
+  },
+  "final": {
+    "note": "Final contrast, list and action changes; same gzip method as polish.",
+    "js": {
+      "bytes": 808778,
+      "gzip": 279722
+    },
+    "css": {
+      "bytes": 98046,
+      "gzip": 16690
+    },
+    "html": {
+      "bytes": 3184,
+      "gzip": 1295
+    },
+    "total": {
+      "bytes": 910008,
+      "gzip": 297707
+    },
+    "initialJs": {
+      "index.html": {
+        "bytes": 468736,
+        "gzip": 154722
+      },
+      "login.html": {
+        "bytes": 362732,
+        "gzip": 120816
+      }
+    },
+    "jsChunks": 40
   }
 }

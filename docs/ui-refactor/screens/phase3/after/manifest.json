@@ -1,5 +1,5 @@
 {
-  "base": "http://127.0.0.1:5188",
+  "base": "http://127.0.0.1:5193",
   "baseline": "origin/main@fa088412c73c767a919441d96d4f9f6f9a31b12d",
   "candidate": "ui/shadcn-refactor",
   "themes": [
@@ -16,6 +16,7 @@
     "video-synced-light-1280.png",
     "media-mounted-light-1280.png",
     "disks-files-light-1280.png",
+    "sidebar-scrolled-light-1280.png",
     "storage-connected-light-1280.png",
     "apps-selected-light-1280.png",
     "network-client-light-1280.png",
@@ -27,6 +28,7 @@
     "output-read-stale-light-1280.png",
     "output-hdr-pending-light-1280.png",
     "disks-delete-confirm-light-1280.png",
+    "disks-file-actions-light-1280.png",
     "overview-final-light-390.png",
     "output-final-light-390.png",
     "video-synced-light-390.png",
@@ -43,11 +45,13 @@
     "output-read-stale-light-390.png",
     "output-hdr-pending-light-390.png",
     "disks-delete-confirm-light-390.png",
+    "disks-file-actions-light-390.png",
     "overview-final-dark-1280.png",
     "output-final-dark-1280.png",
     "video-synced-dark-1280.png",
     "media-mounted-dark-1280.png",
     "disks-files-dark-1280.png",
+    "sidebar-scrolled-dark-1280.png",
     "storage-connected-dark-1280.png",
     "apps-selected-dark-1280.png",
     "network-client-dark-1280.png",
@@ -59,6 +63,7 @@
     "output-read-stale-dark-1280.png",
     "output-hdr-pending-dark-1280.png",
     "disks-delete-confirm-dark-1280.png",
+    "disks-file-actions-dark-1280.png",
     "overview-final-dark-390.png",
     "output-final-dark-390.png",
     "video-synced-dark-390.png",
@@ -74,6 +79,7 @@
     "login-dark-390.png",
     "output-read-stale-dark-390.png",
     "output-hdr-pending-dark-390.png",
-    "disks-delete-confirm-dark-390.png"
+    "disks-delete-confirm-dark-390.png",
+    "disks-file-actions-dark-390.png"
   ]
 }
