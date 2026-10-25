@@ -28,7 +28,7 @@ Motion 令牌集中于 `lib/motion.ts`，页面使用 `AnimatePresence mode="wai
 - 新增 `controls.mjs` 覆盖中止读取、EDID 确认、HDR 键盘预览/保存、风扇输入边界和服务重启确认；`motion.mjs` 覆盖未变轮询、文字变化、页面等待切换、离页停止轮询、列表布局与增删、减少动态效果。
 - 原测试已改用角色、标签和命名区域；图表与样式检查保留语义数据标记。定时器测试在断言窗口外恢复时钟，避免把 Radix 的异步焦点恢复或截图动画当作同步行为。
 - 根目录 `go build ./...`、`go test ./...` 通过。
-- README 的 Python helper 回归：独立 worktree 直接运行会缺少约定的相邻 `../board` 模块。将当前 `deploy/` 和相邻主仓库的 `board/vim4*.py` 复制到 `/tmp/vim4-refactor-validation/{vim4-manager/deploy,board}` 的既定布局后，**207 项通过，12 项依环境跳过**。未修改原 checkout 或部署文件。
+- README 的 Python helper 回归：独立 worktree 直接运行会缺少约定的相邻 `../board` 模块。将当前 `deploy/` 和相邻主仓库的 `board/vim4*.py` 复制到 `/tmp/vim4-refactor-validation/{vim4-manager/deploy,board}` 的既定布局后，**共 207 项：195 项通过，12 项依环境跳过**。未修改原 checkout 或部署文件。
 
 ## 打包体积
 
