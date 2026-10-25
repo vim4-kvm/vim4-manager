@@ -346,7 +346,7 @@ export function HDRPanel({
           <span className="text-muted-foreground">
             {live ? "拖动时网页画面实时变化，松开后保存。" : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。"}
           </span>
-          <Button variant="outline" size="sm" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
+          <Button variant="outline" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
             恢复默认
           </Button>
         </div>

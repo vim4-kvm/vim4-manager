@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-function Avatar({ username, className }: { username: string; className?: string }) {
+export function Avatar({ username, className }: { username: string; className?: string }) {
   const initial = [...username][0] || "";
   return (
     <span aria-hidden="true" className={cn("grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary", className)}>

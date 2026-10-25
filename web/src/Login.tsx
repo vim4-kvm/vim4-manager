@@ -1,10 +1,11 @@
+import { Spinner } from "@/components/Spinner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
 import { copyText } from "./lib/clipboard";
-import { Eye, EyeOff, LockKeyhole } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, LucideProvider } from "lucide-react";
 import { LazyMotion, MotionConfig } from "motion/react";
 import { InlineError } from "@/components/InlineError";
 import { SettingsCard } from "@/components/SettingsCard";
@@ -242,7 +243,7 @@ function Login() {
               </div>
               <div className="flex min-w-0 flex-col gap-2 text-sm">
                 <label htmlFor="password">密码</label>
-                <div className="relative flex min-w-0 items-center [&_input]:pr-10 [&_button]:absolute [&_button]:right-0 [&_button]:size-8 [&_button]:border-0 [&_button]:bg-transparent [&_button]:p-0">
+                <div className="relative flex min-w-0 items-center [&_input]:pr-10">
                   <Input
                     id="password"
                     ref={passwordRef}
@@ -265,7 +266,8 @@ function Login() {
                     onKeyDown={checkCapsLock}
                     onKeyUp={checkCapsLock}
                   />
-                  <Button variant="outline"
+                  <Button variant="ghost" size="icon"
+                    className="absolute right-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
                     type="button"
                     aria-label={visible ? "隐藏密码" : "显示密码"}
                     onClick={() => setVisible(!visible)}
@@ -307,14 +309,14 @@ function Login() {
                 disabled={busy || retry > 0}
                 aria-busy={busy}
               >
-                {busy && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+                {busy && <Spinner />}
                 {busy ? "正在登录…" : retry > 0 ? `请 ${retry} 秒后再试` : setup ? "创建并登录" : "登录"}
               </Button>
             </form>
             {!setup && (
               <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground [&_p]:my-3">
-                <Button variant="outline"
-                  className="h-auto self-start border-0 bg-transparent p-0 text-sm text-primary hover:bg-transparent"
+                <Button variant="link" size="inline"
+                  className="self-start"
                   type="button"
                   aria-expanded={forgot}
                   aria-controls="password-recovery"
@@ -347,4 +349,4 @@ function Login() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<MotionConfig reducedMotion="user"><LazyMotion features={() => import("@/lib/motion-dom").then((module) => module.default)} strict><Login /></LazyMotion></MotionConfig>);
+createRoot(document.getElementById("root")!).render(<MotionConfig reducedMotion="user"><LazyMotion features={() => import("@/lib/motion-dom").then((module) => module.default)} strict><LucideProvider strokeWidth={1.75}><Login /></LucideProvider></LazyMotion></MotionConfig>);

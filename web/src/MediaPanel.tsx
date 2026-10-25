@@ -81,7 +81,7 @@ export function MediaWait({ media, target, onCancel }: { media?: Media; target: 
       <div className="flex flex-wrap items-center gap-3">
         <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
         <strong>等待安全弹出后切换到 {target}</strong>
-        <Button size="sm" variant="outline" onClick={onCancel}>
+        <Button variant="outline" onClick={onCancel}>
           取消等待
         </Button>
       </div>
@@ -109,8 +109,8 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
       <SettingsCard label="当前介质">
         <div className="flex flex-wrap items-center gap-4">
           <MediaIcon empty />
-          <div className="flex min-w-0 flex-1 flex-col gap-2 [overflow-wrap:anywhere]">
-            <h3>状态未知</h3>
+          <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
+            <h3 className="text-sm font-medium">状态未知</h3>
             <p className="text-sm text-muted-foreground">暂时无法读取介质状态，请等待状态恢复。</p>
           </div>
         </div>
@@ -122,8 +122,8 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
       <SettingsCard label="当前介质">
         <div className="flex flex-wrap items-center gap-4">
           <MediaIcon empty />
-          <div className="flex min-w-0 flex-1 flex-col gap-2 [overflow-wrap:anywhere]">
-            <h3>未挂载介质</h3>
+          <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
+            <h3 className="text-sm font-medium">未挂载介质</h3>
             <p className="text-sm text-muted-foreground">从下方镜像库选择一个镜像，挂载到被控电脑。</p>
           </div>
         </div>
@@ -134,9 +134,9 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
     <SettingsCard label="当前介质">
       <div className="flex flex-wrap items-center gap-4">
         <MediaIcon cdrom={media.cdrom} />
-        <div className="flex min-w-0 flex-1 flex-col gap-2 [overflow-wrap:anywhere]">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
           <span className="text-xs text-muted-foreground">已挂载到被控电脑</span>
-          <h3>{mediaName(media)}</h3>
+          <h3 className="text-sm font-medium">{mediaName(media)}</h3>
           <MediaFacts media={media} />
           {media.nasdisk?.mode === "rw" && <p className="text-sm text-muted-foreground">弹出后修改会写回 NAS，进度见「网络存储」页。</p>}
         </div>
@@ -201,12 +201,8 @@ export function MediaPanel() {
   return (
     <>
       <CurrentMedia media={media} locked={locked} run={run} />
-      <SettingsCard title="镜像库" description="数据盘与各 KVM 的 ISO/IMG 目录。数据盘在「数据盘」页新建和管理文件，ISO 请在对应 KVM 中上传。">
-        <div className="flex justify-end">
-          <Button size="sm" variant="outline" disabled={busy || loading} onClick={() => setReload(value => value + 1)}>
-            刷新
-          </Button>
-        </div>
+      <SettingsCard title="镜像库" description="数据盘与各 KVM 的 ISO/IMG 目录。数据盘在「数据盘」页新建和管理文件，ISO 请在对应 KVM 中上传。"
+        action={<Button variant="outline" disabled={busy || loading} onClick={() => setReload(value => value + 1)}>刷新</Button>}>
         {loading ? <PanelSkeleton />
           : error ? <InlineError>{error}</InlineError>
           : images.length === 0 ? (
@@ -214,13 +210,13 @@ export function MediaPanel() {
           ) : (
             <FadeIn><div className="flex flex-col gap-5" role="radiogroup" aria-label="镜像文件">
               {groups.map(source => (
-                <div key={source} className="flex flex-col gap-2 [&_h4]:flex [&_h4]:justify-between [&_h4]:font-medium">
+                <div key={source} className="flex flex-col gap-2 [&_h4]:flex [&_h4]:items-baseline [&_h4]:justify-between [&_h4]:text-sm [&_h4]:font-medium">
                   <h4>
                     {sources[source] ?? source}
                     {source === "data" && <a className="text-xs text-primary" href="#/disks">管理文件 →</a>}
                   </h4>
                   <AnimatedList className="flex flex-col gap-2" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
-                    <label className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 rounded-md border p-3 has-checked:border-primary has-checked:bg-primary/5 [&_input]:accent-primary">
+                    <label className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 rounded-md border px-3 py-2.5 transition-colors hover:bg-accent/60 has-checked:border-primary has-checked:bg-primary/5 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-primary">
                       <input
                         type="radio"
                         name="media-image"

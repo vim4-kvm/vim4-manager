@@ -1,3 +1,5 @@
+import { Segmented, SegmentedOption } from "@/components/Segmented";
+import { Spinner } from "@/components/Spinner";
 import { FadeIn } from "@/components/Motion";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { Input } from "@/components/ui/input";
@@ -187,18 +189,12 @@ export function TailscalePanel() {
 
         {state && (current === "login" || changing) && !jobRunning && (
           <div className="flex min-w-0 flex-col gap-4">
-            <fieldset className="flex min-w-0 flex-col gap-2 text-sm flex min-w-0 flex-col gap-3 [&_legend]:mb-2" disabled={locked}>
+            <fieldset className="flex min-w-0 flex-col gap-3 text-sm [&_legend]:mb-2 [&_legend]:font-medium" disabled={locked}>
               <legend>控制服务器</legend>
-              <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 max-sm:flex-col [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground [&_button]:h-auto [&_button]:min-w-0 [&_button]:flex-1 [&_button]:flex-col [&_button]:items-start [&_button]:whitespace-normal [&_button_span]:text-xs [&_button_span]:text-muted-foreground" role="group" aria-label="控制服务器">
-                <Button variant="outline" type="button" aria-pressed={!custom} onClick={() => setCustom(false)}>
-                  <strong>Tailscale 官方</strong>
-                  <span>login.tailscale.com</span>
-                </Button>
-                <Button variant="outline" type="button" aria-pressed={custom} onClick={() => setCustom(true)}>
-                  <strong>自建</strong>
-                  <span>Headscale 等兼容服务</span>
-                </Button>
-              </div>
+              <Segmented label="控制服务器" className="max-sm:grid-cols-1">
+                <SegmentedOption title="Tailscale 官方" detail="login.tailscale.com" pressed={!custom} onClick={() => setCustom(false)} />
+                <SegmentedOption title="自建" detail="Headscale 等兼容服务" pressed={custom} onClick={() => setCustom(true)} />
+              </Segmented>
               {custom && (
                 <Input
                   aria-label="控制服务器地址"
@@ -228,7 +224,7 @@ export function TailscalePanel() {
                   onClick={() => changing && state.controlURL !== (custom ? control.trim() : OFFICIAL_CONTROL)
                     ? setConfirming("login") : void act("login")}
                 >
-                  {pending === "login" && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+                  {pending === "login" && <Spinner />}
                   获取登录链接
                 </Button>
               </div>
@@ -241,34 +237,32 @@ export function TailscalePanel() {
         )}
 
         {state && (current === "online" || current === "offline") && (
-          <FactGrid cols={1}>
+          <FactGrid cols={3}>
             {state.tailnet && (
               <Fact label="Tailnet" value={state.tailnet} />
             )}
-            <Fact label="访问地址" value={<div className="flex flex-col gap-2 text-sm font-normal">
+            <Fact label="控制服务器" value={state.controlURL || OFFICIAL_CONTROL} />
+            {state.version && (
+              <Fact label="版本" value={state.version} />
+            )}
+            <Fact label="访问地址" className="@md:col-span-3" value={<div className="flex flex-col gap-2 text-sm font-normal">
                 {accessURLs(state).length ? (
-                  <ul className="flex flex-col gap-2 [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:gap-x-4 [&_li]:gap-y-1">
+                  <ul className="grid grid-cols-[auto_minmax(0,auto)_1fr] items-center gap-x-4 gap-y-1 [&_li]:contents">
                     {accessURLs(state).map(({ label, url }) => (
                       <li key={url}>
-                        <span className="min-w-16 text-xs text-muted-foreground">{label}</span>
-                        <span className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
-                          <a className="font-mono break-all" href={url} target="_blank" rel="noreferrer noopener">
-                            {url}
-                          </a>
-                          <CopyButton text={url} label={`${label}地址`} />
-                        </span>
+                        <span className="text-xs text-muted-foreground">{label}</span>
+                        <a className="font-mono [overflow-wrap:anywhere]" href={url} target="_blank" rel="noreferrer noopener">
+                          {url}
+                        </a>
+                        <span className="justify-self-start"><CopyButton text={url} label={`${label}地址`} /></span>
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <span className="font-mono break-all">—</span>
                 )}
-                <span className="text-muted-foreground">从同一 tailnet 中的设备打开；MagicDNS 名称需该设备启用 MagicDNS。</span>
+                <span className="text-xs text-muted-foreground">从同一 tailnet 中的设备打开；MagicDNS 名称需该设备启用 MagicDNS。</span>
               </div>} />
-            <Fact label="控制服务器" value={state.controlURL || OFFICIAL_CONTROL} />
-            {state.version && (
-              <Fact label="版本" value={state.version} />
-            )}
           </FactGrid>
         )}
 
@@ -283,16 +277,16 @@ export function TailscalePanel() {
         {state?.installed && !jobRunning && !stale && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(current === "online" || current === "offline" || current === "approval") && (
-              <Button size="sm" variant="outline" disabled={locked} onClick={() => setChanging(!changing)}>
+              <Button variant="outline" disabled={locked} onClick={() => setChanging(!changing)}>
                 {changing ? "取消切换" : "切换控制服务器"}
               </Button>
             )}
             {(current === "online" || current === "offline" || current === "approval") && (
-              <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming("logout")}>
+              <Button variant="outline" disabled={locked} onClick={() => setConfirming("logout")}>
                 退出登录
               </Button>
             )}
-            <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming("uninstall")}>
+            <Button variant="outline" disabled={locked} onClick={() => setConfirming("uninstall")}>
               卸载
             </Button>
           </div>

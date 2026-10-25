@@ -1,3 +1,6 @@
+import { Badge } from "@/components/ui/badge";
+import { Segmented, SegmentedOption } from "@/components/Segmented";
+import { Spinner } from "@/components/Spinner";
 import { EmptyState } from "@/components/EmptyState";
 import { AnimatedList } from "@/components/AnimatedList";
 import { FadeIn } from "@/components/Motion";
@@ -166,56 +169,42 @@ export function WifiControl() {
 
         {on && state.mode && state.mode !== "off" && (
           <div className="flex min-w-0 flex-col gap-5">
-            <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 max-sm:flex-col [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground [&_button]:h-auto [&_button]:min-w-0 [&_button]:flex-1 [&_button]:flex-col [&_button]:items-start [&_button]:whitespace-normal [&_button_span]:text-xs [&_button_span]:text-muted-foreground" role="group" aria-label="无线模式">
-              <Button variant="outline"
-                type="button"
-                aria-pressed={state.mode === "client"}
-                disabled={locked}
-                onClick={() => state.mode !== "client" && setConfirming({ kind: "mode", mode: "client" })}
-              >
-                <strong>连接网络</strong>
-                <span>板子加入现有 Wi-Fi</span>
-              </Button>
-              <Button variant="outline"
-                type="button"
-                aria-pressed={state.mode === "hotspot"}
-                disabled={locked}
-                onClick={() => state.mode !== "hotspot" && setConfirming({ kind: "mode", mode: "hotspot" })}
-              >
-                <strong>热点</strong>
-                <span>其他设备连入板子</span>
-              </Button>
-            </div>
+            <Segmented label="无线模式" className="max-sm:grid-cols-1">
+              <SegmentedOption title="连接网络" detail="板子加入现有 Wi-Fi" pressed={state.mode === "client"} disabled={locked}
+                onClick={() => state.mode !== "client" && setConfirming({ kind: "mode", mode: "client" })} />
+              <SegmentedOption title="热点" detail="其他设备连入板子" pressed={state.mode === "hotspot"} disabled={locked}
+                onClick={() => state.mode !== "hotspot" && setConfirming({ kind: "mode", mode: "hotspot" })} />
+            </Segmented>
 
             {state.mode === "client" && (
               <>
-                <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-md border bg-muted/40 p-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-md border px-3 py-2.5">
                   <StatusDot tone={current ? "good" : state.state === "connecting" ? "warning" : "idle"} />
                   {current ? (
                     <>
-                      <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
-                        <strong>{current.ssid}</strong>
-                        <span className="text-muted-foreground">
+                      <div className="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
+                        <span className="font-medium">{current.ssid}</span>
+                        <span className="text-xs text-muted-foreground">
                           {[current.ipv4, band(current.frequency), current.security || "开放网络"].filter(Boolean).join(" · ")}
                         </span>
                       </div>
                       <SignalBars signal={current.signal} />
-                      <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "disconnect" })}>
+                      <Button variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "disconnect" })}>
                         断开
                       </Button>
                     </>
                   ) : (
-                    <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
-                      <strong>{state.state === "connecting" ? "正在连接…" : "未连接"}</strong>
-                      <span className="text-muted-foreground">从下方列表选择网络。</span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
+                      <span className="font-medium">{state.state === "connecting" ? "正在连接…" : "未连接"}</span>
+                      <span className="text-xs text-muted-foreground">从下方列表选择网络。</span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 [&_h4]:font-medium">
-                  <h4>附近的网络</h4>
-                  <Button size="sm" variant="outline" disabled={locked || scanning} aria-busy={scanning} onClick={() => void scan(true)}>
-                    {scanning && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+                <div className="-mb-2 flex flex-wrap items-center justify-between gap-3">
+                  <h4 className="text-sm font-medium">附近的网络</h4>
+                  <Button variant="outline" disabled={locked || scanning} aria-busy={scanning} onClick={() => void scan(true)}>
+                    {scanning && <Spinner />}
                     {scanning ? "扫描中" : "重新扫描"}
                   </Button>
                 </div>
@@ -224,13 +213,13 @@ export function WifiControl() {
                 ) : visible.length === 0 ? (
                   <EmptyState icon={Wifi}>没有发现其他网络。</EmptyState>
                 ) : (
-                  <AnimatedList className="flex flex-col divide-y rounded-md border [&_li]:min-w-0" label="附近的网络" items={visible} getKey={(n) => n.ssid}>{(n) => {
+                  <AnimatedList className="flex flex-col divide-y overflow-hidden rounded-md border [&_li]:min-w-0" label="附近的网络" items={visible} getKey={(n) => n.ssid}>{(n) => {
                       const open = joining && !joining.hidden && joining.ssid === n.ssid;
                       return (
                         <div className={open ? "bg-accent" : undefined}>
-                          <Button variant="outline"
+                          <Button variant="ghost"
                             type="button"
-                            className="flex h-auto w-full min-w-0 flex-wrap items-center justify-start gap-3 whitespace-normal border-0 bg-transparent px-3 py-3 text-left"
+                            className="h-auto w-full min-w-0 flex-wrap justify-start gap-3 rounded-none px-3 py-2.5 text-left font-normal whitespace-normal"
                             disabled={locked}
                             aria-expanded={!!open}
                             onClick={() => {
@@ -244,7 +233,7 @@ export function WifiControl() {
                           >
                             <SignalBars signal={n.signal} />
                             <span className="min-w-0 flex-1 break-all font-medium">{n.ssid}</span>
-                            {n.saved && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">已保存</span>}
+                            {n.saved && <Badge variant="secondary">已保存</Badge>}
                             <span className="text-muted-foreground ml-auto text-xs">
                               {n.security || "开放网络"} · {band(n.frequency)}
                             </span>
@@ -265,9 +254,8 @@ export function WifiControl() {
                     }}</AnimatedList>
                 )}
                 <div className="flex flex-wrap items-center gap-4">
-                  <Button variant="outline"
+                  <Button variant="link" size="inline"
                     type="button"
-                    className="text-sm text-primary underline-offset-4 hover:underline"
                     disabled={locked}
                     onClick={() => {
                       setPassword("");
@@ -278,7 +266,7 @@ export function WifiControl() {
                     加入隐藏网络
                   </Button>
                   {saved.length > 0 && (
-                    <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" aria-expanded={showSaved} onClick={() => setShowSaved(!showSaved)}>
+                    <Button variant="link" size="inline" type="button" aria-expanded={showSaved} onClick={() => setShowSaved(!showSaved)}>
                       已保存的网络（{saved.length}）
                     </Button>
                   )}
@@ -320,7 +308,7 @@ export function WifiControl() {
                         <div className="flex min-w-0 flex-wrap items-center gap-3 p-3">
                           <span className="min-w-0 flex-1 break-all font-medium">
                             {s.ssid}
-                            {s.active && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium">当前</span>}
+                            {s.active && <Badge variant="outline">当前</Badge>}
                           </span>
                           <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
                             <input className="accent-primary"
@@ -334,14 +322,14 @@ export function WifiControl() {
                             自动连接
                           </label>
                           {!s.active && (
-                            <Button size="sm" variant="outline"
+                            <Button variant="outline"
                               disabled={locked}
                               onClick={() => void act(`正在连接 ${s.ssid}…`, () => wifiWrite("/activate", { id: s.id }))}
                             >
                               连接
                             </Button>
                           )}
-                          <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "forget", network: s })}>
+                          <Button variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "forget", network: s })}>
                             忘记
                           </Button>
                         </div>

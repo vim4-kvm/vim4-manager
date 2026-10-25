@@ -1,8 +1,10 @@
+import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Check, Laptop, Monitor, Smartphone, Terminal, UserRound } from "lucide-react";
+import { Check, Laptop, Monitor, Smartphone, Terminal } from "lucide-react";
+import { Avatar } from "@/components/AccountMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DetailsDialog } from "@/components/DetailsDialog";
 import { InlineError } from "@/components/InlineError";
@@ -270,9 +272,9 @@ export function AccountPanel() {
           </Button>
         </div>
       )}
-      <SettingsCard><div className="flex min-w-0 flex-col gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-3 [&>div]:min-w-0 [&>div]:flex-1 [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
-          <UserRound className="size-5 text-primary" aria-hidden="true" />
+      <SettingsCard>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <Avatar username={signedInName} className="size-9 text-sm" />
           <div className="flex min-w-0 flex-1 flex-col [&_strong]:font-semibold [&_small]:text-xs [&_small]:text-muted-foreground">
             <strong>{signedInName}</strong>
             <small>管理员</small>
@@ -293,17 +295,17 @@ export function AccountPanel() {
             {busy && !mode ? "正在退出…" : "退出登录"}
           </Button>
         </div>
-        <SettingRow title="用户名" status={signedInName} control={<Button variant="outline" className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline" aria-label="修改用户名" onClick={() => open("username")}>修改</Button>} />
+        <SettingRow title="用户名" status={signedInName} control={<Button variant="outline" aria-label="修改用户名" onClick={() => open("username")}>修改</Button>} />
         <SettingRow title="密码" status={account ? `上次修改 ${localDate(account.passwordChanged)}（${passwordAge(account.passwordChanged)}）` : "—"}
-          control={<Button variant="outline" className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline" aria-label="修改密码" disabled={!account} onClick={() => open("password")}>修改</Button>} />
+          control={<Button variant="outline" aria-label="修改密码" disabled={!account} onClick={() => open("password")}>修改</Button>} />
         {error && !mode && (
           <InlineError>
             {error}
           </InlineError>
         )}
-      </div></SettingsCard>
+      </SettingsCard>
       <SettingsCard data-account-devices><div className="flex min-w-0 flex-col gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-3 [&>div]:min-w-0 [&>div]:flex-1 [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 [&>div]:min-w-0 [&>div]:flex-1 [&>div]:basis-64 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
           <div>
             <h3>登录设备</h3>
             <p>已登录管理面板的浏览器和工具。退出后需要重新输入密码。</p>
@@ -331,12 +333,12 @@ export function AccountPanel() {
           ) : loadFailed ? (
             <div className="flex flex-wrap items-center gap-3 py-4 text-sm text-destructive" role="alert">
               无法读取登录设备{" "}
-              <Button variant="outline" className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline" onClick={() => void refresh()}>
+              <Button variant="link" size="inline" onClick={() => void refresh()}>
                 重试
               </Button>
             </div>
           ) : (
-            <FadeIn><AnimatedList as="div" role="rowgroup" items={[...(account?.sessions || [])].sort(
+            <FadeIn><AnimatedList as="div" role="rowgroup" className="[&>*:last-child>[role=row]]:border-b-0 [&>*:last-child>[role=row]]:pb-0" items={[...(account?.sessions || [])].sort(
                 (a, b) => Number(b.current) - Number(a.current) || Date.parse(b.lastActive) - Date.parse(a.lastActive),
               )} getKey={(device) => device.id}>{(device) => {
                 const info = deviceInfo(device.userAgent);
@@ -346,7 +348,7 @@ export function AccountPanel() {
                     <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 [&>span]:break-all" role="cell">
                       {info.icon === "terminal" ? <Terminal className="size-4 shrink-0" /> : info.icon === "phone" ? <Smartphone className="size-4 shrink-0" /> : info.icon === "laptop" ? <Laptop className="size-4 shrink-0" /> : <Monitor className="size-4 shrink-0" />}
                       <span>{info.name}</span>
-                      {device.current && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-primary/5 text-primary">本设备</span>}
+                      {device.current && <Badge variant="outline" className="border-primary/30 text-primary">本设备</Badge>}
                     </span>
                     <div className="col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-2 md:contents">
                       <span className="min-w-0 break-all text-xs text-muted-foreground md:col-start-2 md:row-start-1" role="cell">
@@ -364,7 +366,7 @@ export function AccountPanel() {
                     </div>
                     <span className="col-start-2 row-span-2 row-start-1 justify-self-end md:col-start-4 md:row-span-1" role="cell">
                       {!device.current && (
-                        <Button size="sm" variant="outline"
+                        <Button variant="outline"
                           disabled={revoking.includes(device.id) || busy}
                           onClick={() => void revoke(device.id)}
                         >
@@ -381,8 +383,8 @@ export function AccountPanel() {
       <div data-account-notes className="space-y-2 text-xs text-muted-foreground [&_code]:break-all [&_code]:font-mono">
         <p>
           忘记密码时，SSH 登录板子运行 <code>{RESET_COMMAND}</code>，所有设备会同时退出。
-          <Button variant="outline"
-            className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline"
+          <Button variant="link" size="inline"
+            className="ml-1 text-xs"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(RESET_COMMAND);
@@ -404,7 +406,7 @@ export function AccountPanel() {
       </ConfirmDialog>}
       {mode && mode !== "others" && <DetailsDialog open title={title} onOpenChange={(open) => { if (!open) close(); }}>
         <div ref={dialog}>
-              <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
+              <form className="flex flex-col gap-3" onSubmit={submit} noValidate>
                 {inputs.map((input) => (
                   <div className="flex min-w-0 flex-col gap-2 text-sm" key={input.name}>
                     <label htmlFor={input.name}>{input.label}</label>

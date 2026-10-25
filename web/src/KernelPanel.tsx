@@ -51,12 +51,11 @@ export function KernelPanel() {
     {error && <InlineError>{error}</InlineError>}
     {!state && !error && <PanelSkeleton label="正在读取…" />}
     {state && state.kernels.length === 0 && <EmptyState icon={Cpu}>尚未登记可切换的内核。</EmptyState>}
-    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="flex flex-col divide-y" itemClassName="py-4">{kernel => <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-2">
+    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="flex flex-col divide-y" itemClassName="py-4 first:pt-0 last:pb-0">{kernel => <div>
+      <SettingRow title={kernel.name} badges={<>
         {kernel.release === "7.3.0-vim4kvm-uhd1+" && <Badge variant="secondary">正式版</Badge>}
         {kernel.selected && <Badge variant="secondary">默认启动</Badge>}
-      </div>
-      <SettingRow title={kernel.name} description={<span className="font-mono break-all">{kernel.release}</span>}
+      </>} description={<span className="font-mono break-all">{kernel.release}</span>}
         status={kernel.error || (kernel.release === state.running ? "正在运行" : kernel.available ? "可切换" : "不可用")}
         control={<Button variant="outline" disabled={busy || rebooting || !kernel.available || !!choice}
           onClick={() => setChoice(kernel)}>{kernel.release === state.running ? "重启此内核" : "切换并重启"}</Button>} />

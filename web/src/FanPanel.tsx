@@ -1,3 +1,4 @@
+import { Segmented, SegmentedOption, SegmentedStatic } from "@/components/Segmented";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
@@ -274,31 +275,19 @@ export function FanPanel({
 
   return (
     <div className="grid min-w-0 gap-6 @2xl:grid-cols-2">
-      <div className="flex min-w-0 flex-col gap-5 [&>.flex>button]:h-auto [&>.flex>button]:min-w-0 [&>.flex>button]:flex-1 [&>.flex>button]:flex-col [&>.flex>button]:items-start [&>.flex>button]:whitespace-normal">
-        <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground" role="group" aria-label="预设曲线">
+      <div className="flex min-w-0 flex-col gap-5">
+        <Segmented label="预设曲线">
           {PRESETS.map((p) => (
-            <Button variant="outline"
-              key={p.name}
-              type="button"
-              aria-pressed={preset === p}
-              disabled={busy}
-              onClick={() => setDraft(p.triggers)}
-            >
-              <strong>{p.name}</strong>
-              <span>{p.detail}</span>
-            </Button>
+            <SegmentedOption key={p.name} title={p.name} detail={p.detail} pressed={preset === p} disabled={busy} onClick={() => setDraft(p.triggers)} />
           ))}
-          <span className={`flex min-w-0 flex-col px-3 py-2 text-sm text-muted-foreground [&[aria-hidden=true]]:hidden${preset ? "" : " rounded-md bg-card text-foreground"}`} aria-hidden={!!preset}>
-            <strong>自定义</strong>
-            <span>拖动曲线</span>
-          </span>
-        </div>
+          {!preset && <SegmentedStatic title="自定义" detail="拖动曲线" />}
+        </Segmented>
 
         <div className="grid grid-cols-3 gap-3">
           {HANDLES.map(({ key, label, duty }) => (
             <label key={key} className="flex min-w-0 flex-col gap-2 text-xs">
               <span className="text-xs font-medium">{label}</span>
-              <span className="flex items-center gap-1 rounded-md [&_input]:px-2">
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground [&_input]:px-2 [&_input]:tabular-nums [&_input]:text-foreground">
                 <Input
                   type="number"
                   inputMode="numeric"
@@ -326,23 +315,21 @@ export function FanPanel({
         </p>
 
         <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
-          {!auto && <span className="text-muted-foreground">当前为手动模式，应用后改为自动调速。</span>}
-          <Button size="sm" variant="outline"
+          {!auto && <span className="mr-auto text-sm text-muted-foreground">当前为手动模式，应用后改为自动调速。</span>}
+          <Button variant="outline"
             type="button"
-
             disabled={busy || same(shown, DEFAULT_FAN)}
             onClick={() => setDraft(DEFAULT_FAN)}
           >
             恢复出厂
           </Button>
           {dirty && (
-            <Button size="sm" variant="outline" type="button" disabled={busy} onClick={() => setDraft(undefined)}>
+            <Button variant="outline" type="button" disabled={busy} onClick={() => setDraft(undefined)}>
               撤销
             </Button>
           )}
-          <Button size="sm" variant="default"
+          <Button variant="default"
             type="button"
-
             disabled={busy || !!invalid || (!dirty && auto)}
             onClick={() => void apply()}
           >

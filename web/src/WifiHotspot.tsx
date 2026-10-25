@@ -1,3 +1,4 @@
+import { Segmented, SegmentedOption } from "@/components/Segmented";
 import { Wifi } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { AnimatedList } from "@/components/AnimatedList";
@@ -160,7 +161,7 @@ export function WifiHotspot({
         </form>
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button size="sm" variant="outline" disabled={locked} onClick={edit}>
+          <Button variant="outline" disabled={locked} onClick={edit}>
             修改热点设置
           </Button>
         </div>
@@ -204,16 +205,11 @@ function HotspotQR({ hotspot, ip, onClose }: { hotspot: Hotspot; ip: string; onC
   const target = targets[step];
   return (
     <DetailsDialog open title="扫码连接" onOpenChange={(open) => { if (!open) onClose(); }}>
-      <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground [&_button]:h-auto [&_button]:min-w-0 [&_button]:flex-1 [&_button]:whitespace-normal" role="group" aria-label="二维码内容">
+      <Segmented label="二维码内容">
         {(["join", "panel", "kvm"] as const).map((id, i) => (
-          <Button variant="outline" key={id} type="button" aria-pressed={step === id} onClick={() => setStep(id)}>
-            <strong>
-              {i === 0 ? "① " : "② "}
-              {targets[id].title}
-            </strong>
-          </Button>
+          <SegmentedOption key={id} className="items-center text-center" title={`${i === 0 ? "① " : "② "}${targets[id].title}`} pressed={step === id} onClick={() => setStep(id)} />
         ))}
-      </div>
+      </Segmented>
       <QRCode text={target.text} label={`${target.title}二维码`} />
       <p className="text-center text-sm font-mono break-all">{target.detail}</p>
       <p className="text-muted-foreground text-center text-sm">{target.hint}</p>

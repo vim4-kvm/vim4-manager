@@ -62,10 +62,16 @@ export function Applications() {
     <AnimatedList items={status.apps} getKey={(app) => app.id} className="flex flex-col gap-4">{(app) => {
       const selected = app.id === status.active;
       const running = app.unit.active === "active";
-      return <SettingsCard className={selected ? "border-primary/40" : undefined}>
-        <div className="flex flex-col gap-3">
-          {selected && <Badge variant="secondary" className="self-start">开机启用</Badge>}
-          <SettingRow title={app.name} description={app.description} control={<>
+      return <SettingsCard className={selected ? "ring-primary/40" : undefined}>
+        <SettingRow title={app.name} badges={selected && <Badge variant="secondary">开机启用</Badge>}
+          description={<>
+            <span className="block">{app.description}</span>
+            <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <StatusLabel tone={unitTone(app.unit)}>{unitLabel(app.unit)}</StatusLabel>
+              <span className="tabular-nums">{since(app.unit, now) ?? ""}</span>
+            </span>
+          </>}
+          control={<>
             {!app.unit.loaded ? <span className="text-muted-foreground">未安装</span> : selected ? <>
               <Button variant="outline" disabled={locked} onClick={() => setRestarting(app)}>重启</Button>
               <Button asChild className={running ? undefined : "pointer-events-none opacity-50"}>
@@ -73,11 +79,6 @@ export function Applications() {
               </Button>
             </> : <Button variant="outline" disabled={locked || confirming?.id === app.id} onClick={() => setConfirming(app)}>切换到此</Button>}
           </>} />
-          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-            <StatusLabel tone={unitTone(app.unit)}>{unitLabel(app.unit)}</StatusLabel>
-            <span className="tabular-nums">{since(app.unit, now) ?? ""}</span>
-          </div>
-        </div>
       </SettingsCard>;
     }}</AnimatedList>
     {!status.apps.some((a) => a.id === status.active) && <p className="text-sm text-muted-foreground">尚未启用任何界面，选择一个即可开机自动启动。</p>}

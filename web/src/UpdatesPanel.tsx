@@ -63,9 +63,10 @@ export function UpdatesPanel() {
 
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
-        <span className="text-muted-foreground">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
-        <Button size="sm" variant="outline" disabled={busy || checking} onClick={() => void check()}>
+      <SettingsCard label="更新">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-sm">
+        <span className="max-w-prose min-w-0 flex-1 basis-64 text-pretty text-muted-foreground">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
+        <Button variant="outline" disabled={busy || checking} onClick={() => void check()}>
           {checking ? "检查中…" : "重新检查"}
         </Button>
       </div>
@@ -73,7 +74,7 @@ export function UpdatesPanel() {
       {!updates ? (
         !error && <PanelSkeleton />
       ) : (
-        <SettingsCard label="更新"><FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:pr-3">
+        <FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:align-middle [&_td:not(:last-child)]:pr-4 [&_th:not(:last-child)]:pr-4 [&_tr:last-child_td]:pb-0">
           <thead>
             <tr>
               <th>项目</th>
@@ -104,7 +105,7 @@ export function UpdatesPanel() {
                   </td>
                   <td className="text-right">
                     {update.available && update.selfService && active === SELF_SERVICE[update.package] && (
-                      <Button asChild variant="outline" size="sm"><a href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
+                      <Button asChild variant="outline"><a href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
                         在 {update.name} 中更新
                       </a></Button>
                     )}
@@ -114,7 +115,7 @@ export function UpdatesPanel() {
                           description={update.package === "vim4-pikvm" ? "PiKVM 运行中会重启。" : "管理面板会重启。"}
                           onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => install(update)} />
                       ) : (
-                        <Button size="sm" variant="default" disabled={busy} onClick={() => setConfirming(update.package)}>
+                        <Button variant="default" disabled={busy} onClick={() => setConfirming(update.package)}>
                           更新
                         </Button>
                       )
@@ -124,8 +125,9 @@ export function UpdatesPanel() {
               );
             })}
           </tbody>
-        </table></FadeIn></SettingsCard>
+        </table></FadeIn>
       )}
+      </SettingsCard>
     </>
   );
 }

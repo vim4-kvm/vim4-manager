@@ -9,7 +9,7 @@ export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>,
   return (
     <span className="relative flex min-w-0 items-center [&_input]:pr-10">
       <Input {...props} ref={input} type={visible ? "text" : "password"} spellCheck={false} autoCapitalize="off" />
-      <Button type="button" variant="ghost" size="icon" className="absolute right-0 size-8"
+      <Button type="button" variant="ghost" size="icon" className="absolute right-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
         aria-label={visible ? "隐藏密码" : "显示密码"} aria-pressed={visible}
         onClick={() => {
           setVisible(!visible);

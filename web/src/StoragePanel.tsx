@@ -1,3 +1,6 @@
+import { Badge } from "@/components/ui/badge";
+import { Segmented, SegmentedOption } from "@/components/Segmented";
+import { Spinner } from "@/components/Spinner";
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { Input } from "@/components/ui/input";
@@ -189,16 +192,11 @@ export function StoragePanel() {
   return (
     <div className="flex flex-col gap-6">
     <NasDiskPanel disk={disk} locked={locked} />
-    <SettingsCard label="网络存储"><div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-center justify-between gap-3 [&_h3]:font-semibold">
-        <div>
-          <h3>NAS</h3>
-          <p className="text-muted-foreground">断开不会删除 NAS 上的文件。</p>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-3">
+    <SettingsCard label="网络存储" title="NAS" description="断开不会删除 NAS 上的文件。" action={
+        <div className="flex flex-wrap items-center gap-3">
           {(pending || (!disk.hasActivity && disk.pending)) && (
-            <span className="text-muted-foreground" role="status">
-              <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
+              <Spinner />
               {pending || disk.pending}
             </span>
           )}
@@ -208,8 +206,7 @@ export function StoragePanel() {
             </Button>
           )}
         </div>
-      </div>
-
+      }><div className="flex flex-col gap-5 empty:hidden">
       {missingTools && (
         <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-warning-foreground">
           板子缺少{[!state.tools.smb && "SMB（cifs-utils）", !state.tools.nfs && "NFS（nfs-common）"].filter(Boolean).join("、")}
@@ -237,7 +234,7 @@ export function StoragePanel() {
           <strong className="font-medium text-foreground">还没有 NAS</strong><br />添加后可以把录屏保存到 NAS，或把 NAS 上的文件夹作为 U 盘交给被控电脑。
         </EmptyState>
       ) : (
-        <FadeIn><AnimatedList className="flex min-w-0 flex-col divide-y [&>li]:flex [&>li]:flex-col [&>li]:gap-4 [&>li]:py-4" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
+        <FadeIn><AnimatedList className="flex min-w-0 flex-col divide-y [&>li]:flex [&>li]:flex-col [&>li]:gap-4 [&>li]:py-4 [&>li:first-child]:pt-0 [&>li:last-child]:pb-0" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
             const connection = stateLabel(s);
             const room = capacity(s);
             const open = editor?.editing && editor.draft.id === s.id;
@@ -245,14 +242,14 @@ export function StoragePanel() {
             return (
               <div className={open ? "bg-accent" : undefined}>
                 <div className="flex min-w-0 flex-wrap items-start gap-3">
-                  <StatusDot tone={connection.tone} />
+                  <StatusDot tone={connection.tone} className="mt-1.5" />
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2 [&_strong]:font-medium">
                       <strong>{s.name}</strong>
-                      <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{s.type.toUpperCase()}</span>
-                      {s.insecure && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-warning/10 text-warning-foreground">SMB 1.0</span>}
+                      <Badge variant="secondary">{s.type.toUpperCase()}</Badge>
+                      {s.insecure && <Badge variant="secondary" className="bg-warning/15 text-warning-foreground">SMB 1.0</Badge>}
                       <span className="text-sm text-muted-foreground">{connection.text}</span>
-                      {inUse && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">U 盘使用中</span>}
+                      {inUse && <Badge variant="secondary">U 盘使用中</Badge>}
                     </div>
                     <span className="text-xs text-muted-foreground font-mono break-all">{storageAddress(s)}</span>
                     {room && (
@@ -272,7 +269,7 @@ export function StoragePanel() {
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {s.mounted ? (
-                      <Button size="sm" variant="outline"
+                      <Button variant="outline"
                         disabled={locked || !!disk.pending || !disk.state?.known || !!session}
                         title={session ? "同一时间只能有一个 U 盘" : undefined}
                         aria-expanded={diskSetup === s.id}
@@ -285,7 +282,7 @@ export function StoragePanel() {
                         作为 U 盘…
                       </Button>
                     ) : (
-                      <Button size="sm" variant="outline"
+                      <Button variant="outline"
                         disabled={locked || s.state === "mounting"}
                         onClick={() => void act(`正在连接「${s.name}」…`, () => storageWrite("/mount", { id: s.id }))}
                       >
@@ -363,7 +360,7 @@ function StorageMenu({ storage, locked, inUse, onEdit, onConfirm }: {
 }) {
   return <DropdownMenu modal={false}>
     <DropdownMenuTrigger asChild>
-      <Button size="sm" variant="outline" aria-label={`${storage.name} 的更多操作`} disabled={locked}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
+      <Button variant="outline" aria-label={`${storage.name} 的更多操作`} disabled={locked}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent loop align="end" aria-label={`${storage.name} 的操作`}>
       <DropdownMenuItem disabled={locked} onSelect={onEdit}>编辑</DropdownMenuItem>
@@ -408,16 +405,10 @@ function StorageEditor({
       }}
     >
       {!editor.editing && (
-        <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 max-sm:flex-col [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground [&_button]:h-auto [&_button]:min-w-0 [&_button]:flex-1 [&_button]:flex-col [&_button]:items-start [&_button]:whitespace-normal [&_button_span]:text-xs [&_button_span]:text-muted-foreground" role="group" aria-label="协议">
-          <Button variant="outline" type="button" aria-pressed={smb} onClick={() => set({ type: "smb", version: "auto" })}>
-            <strong>SMB</strong>
-            <span>Windows、macOS、大多数 NAS</span>
-          </Button>
-          <Button variant="outline" type="button" aria-pressed={!smb} onClick={() => set({ type: "nfs", version: "auto", username: "", domain: "" })}>
-            <strong>NFS</strong>
-            <span>Linux 与 NAS 的 NFS 导出</span>
-          </Button>
-        </div>
+        <Segmented label="协议" className="max-sm:grid-cols-1">
+          <SegmentedOption title="SMB" detail="Windows、macOS、大多数 NAS" pressed={smb} onClick={() => set({ type: "smb", version: "auto" })} />
+          <SegmentedOption title="NFS" detail="Linux 与 NAS 的 NFS 导出" pressed={!smb} onClick={() => set({ type: "nfs", version: "auto", username: "", domain: "" })} />
+        </Segmented>
       )}
 
       <div className="grid min-w-0 gap-4 @lg:grid-cols-2">
@@ -483,7 +474,7 @@ function StorageEditor({
           <input className="accent-primary" type="checkbox" checked={d.autoMount} onChange={(e) => set({ autoMount: e.target.checked })} />
           开机自动连接
         </label>
-        <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" aria-expanded={editor.advanced} onClick={() => setEditor({ ...editor, advanced: !editor.advanced })}>
+        <Button variant="link" size="inline" type="button" aria-expanded={editor.advanced} onClick={() => setEditor({ ...editor, advanced: !editor.advanced })}>
           高级选项
         </Button>
       </div>
@@ -518,7 +509,7 @@ function StorageEditor({
           取消
         </Button>
         <Button variant="outline" type="button" disabled={locked || !!invalid || !!toolMissing || test?.running} aria-busy={test?.running} onClick={onTest}>
-          {test?.running && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+          {test?.running && <Spinner />}
           测试连接
         </Button>
         <Button variant="default" type="submit" disabled={locked || !!invalid || !!toolMissing} title={invalid || undefined}>

@@ -16,13 +16,13 @@ export function Services() {
   const run = useActionStore((s) => s.run);
   const [restarting, setRestarting] = useState<Platform>();
   return <SettingsCard label="底层服务">
-    {status ? <div className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:pr-3">
+    {status ? <div className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:align-middle [&_td:not(:last-child)]:pr-4 [&_th:not(:last-child)]:pr-4 [&_tr:last-child_td]:pb-0">
       <thead><tr><th>服务</th><th>状态</th><th className="hidden md:table-cell">已运行</th><th aria-label="操作" /></tr></thead>
       <tbody>{status.platform.map((p) => <tr key={p.unit.name}>
         <td><span className="block font-medium">{p.name}</span><span className="block break-all font-mono text-xs text-muted-foreground">{p.unit.name}</span></td>
         <td><StatusLabel tone={unitTone(p.unit)}>{unitLabel(p.unit)}</StatusLabel></td>
         <td className="hidden tabular-nums text-muted-foreground md:table-cell">{since(p.unit, now) ?? "—"}</td>
-        <td className="text-right">{p.restartable && <Button size="sm" variant="outline" disabled={busy || !p.unit.loaded} onClick={() => setRestarting(p)}>重启</Button>}</td>
+        <td className="text-right">{p.restartable && <Button variant="outline" disabled={busy || !p.unit.loaded} onClick={() => setRestarting(p)}>重启</Button>}</td>
       </tr>)}</tbody>
     </table></div> : <PanelSkeleton />}
     {restarting && <ConfirmDialog open title={`重启${restarting.name}`} confirm="重启" disabled={busy || !restarting.unit.loaded}

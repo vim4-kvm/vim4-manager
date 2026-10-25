@@ -266,7 +266,7 @@ try {
   assert.equal(await submitting.getAttribute("aria-busy"), "true");
   assert.equal(await password.getAttribute("readonly"), "");
   await page.emulateMedia({ reducedMotion: "reduce" });
-  assert.equal(await page.getByRole("button", { name: "正在登录…" }).locator("span[aria-hidden]").evaluate(element => getComputedStyle(element).animationName), "none");
+  assert.equal(await page.getByRole("button", { name: "正在登录…" }).locator("[aria-hidden=true]").evaluate(element => getComputedStyle(element).animationName), "none");
   releaseLogin();
   await page.getByRole("alert").waitFor();
   assert.equal(await page.getByRole("alert").evaluate(element => getComputedStyle(element).animationName), "none");

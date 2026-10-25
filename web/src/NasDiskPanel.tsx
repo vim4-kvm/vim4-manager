@@ -1,3 +1,6 @@
+import { Badge } from "@/components/ui/badge";
+import { Segmented, SegmentedOption } from "@/components/Segmented";
+import { Spinner } from "@/components/Spinner";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Folder } from "lucide-react";
@@ -137,7 +140,7 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
     <SettingsCard label="U 盘活动"><div role="group" aria-label="U 盘" className="flex min-w-0 flex-col gap-4">
       {pending && (
         <span className="text-muted-foreground" role="status">
-          <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+          <Spinner />
           {pending}
         </span>
       )}
@@ -191,10 +194,10 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
                     {p.journal && " · 回写进行到一半"}
                   </span>
                 </div>
-                <Button size="sm" variant="outline" disabled={locked || active} onClick={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: p.id }))}>
+                <Button variant="outline" disabled={locked || active} onClick={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: p.id }))}>
                   写回 NAS
                 </Button>
-                <Button size="sm" variant="outline"
+                <Button variant="outline"
                   disabled={locked || active}
                   onClick={() => setConfirming({ kind: "discard", id: p.id, name: `${p.storageName} › ${displayPath(p.path)}` })}
                 >
@@ -309,7 +312,7 @@ export function NasDiskSetup({
 
       <div className="flex min-w-0 flex-col gap-3 rounded-md border bg-card p-3">
         <nav className="flex flex-wrap items-center gap-1" aria-label="文件夹路径">
-          <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" aria-current={parts.length === 0 ? "location" : undefined} onClick={() => go("/")}>
+          <Button variant="link" size="inline" type="button" aria-current={parts.length === 0 ? "location" : undefined} onClick={() => go("/")}>
             {storage?.name ?? "NAS"}
           </Button>
           {parts.map((part, i) => (
@@ -317,9 +320,8 @@ export function NasDiskSetup({
               <span className="text-muted-foreground" aria-hidden="true">
                 ›
               </span>
-              <Button variant="outline"
+              <Button variant="link" size="inline"
                 type="button"
-                className="text-sm text-primary underline-offset-4 hover:underline"
                 aria-current={i === parts.length - 1 ? "location" : undefined}
                 onClick={() => go("/" + parts.slice(0, i + 1).join("/"))}
               >
@@ -330,7 +332,7 @@ export function NasDiskSetup({
         </nav>
         {dirError ? (
           <div className="text-sm text-destructive p-3 text-center text-sm" role="alert">
-            {dirError} <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setRetry((n) => n + 1)}>重试</Button>
+            {dirError} <Button variant="link" size="inline" type="button" onClick={() => setRetry((n) => n + 1)}>重试</Button>
           </div>
         ) : !dirs ? (
           <PanelSkeleton label="正在读取…" rows={2} />
@@ -353,7 +355,7 @@ export function NasDiskSetup({
         {dirs && !readOnlyOnly && (
           <div className="border-t pt-3">
             {newName === undefined ? (
-              <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" disabled={locked} onClick={() => setNewName("")}>
+              <Button variant="link" size="inline" type="button" disabled={locked} onClick={() => setNewName("")}>
                 <span aria-hidden="true">+ </span>新建文件夹
               </Button>
             ) : (
@@ -381,10 +383,10 @@ export function NasDiskSetup({
                       }
                     }}
                   />
-                  <Button size="sm" variant="default" type="button" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
+                  <Button variant="default" type="button" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
                     {creating ? "正在创建…" : "创建"}
                   </Button>
-                  <Button size="sm" variant="outline" type="button" disabled={creating} onClick={() => setNewName(undefined)}>
+                  <Button variant="outline" type="button" disabled={creating} onClick={() => setNewName(undefined)}>
                     取消
                   </Button>
                 </div>
@@ -398,16 +400,10 @@ export function NasDiskSetup({
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 max-sm:flex-col [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground [&_button]:h-auto [&_button]:min-w-0 [&_button]:flex-1 [&_button]:flex-col [&_button]:items-start [&_button]:whitespace-normal [&_button_span]:text-xs [&_button_span]:text-muted-foreground" role="group" aria-label="模式">
-        <Button variant="outline" type="button" aria-pressed={setup.mode === "rw" && !readOnlyOnly} disabled={readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "rw" })}>
-          <strong>可写</strong>
-          <span>{readOnlyOnly ? "NAS 不允许写入" : "安全弹出后写回 NAS"}</span>
-        </Button>
-        <Button variant="outline" type="button" aria-pressed={setup.mode === "ro" || readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "ro" })}>
-          <strong>只读</strong>
-          <span>电脑只能读取</span>
-        </Button>
-      </div>
+      <Segmented label="模式" className="max-sm:grid-cols-1">
+        <SegmentedOption title="可写" detail={readOnlyOnly ? "NAS 不允许写入" : "安全弹出后写回 NAS"} pressed={setup.mode === "rw" && !readOnlyOnly} disabled={readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "rw" })} />
+        <SegmentedOption title="只读" detail="电脑只能读取" pressed={setup.mode === "ro" || readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "ro" })} />
+      </Segmented>
 
       {editingLabel ? (
         <label className="flex min-w-0 flex-col gap-2 text-sm max-w-64">
@@ -426,7 +422,7 @@ export function NasDiskSetup({
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <span>卷标 <strong>{setup.label}</strong></span>
-          <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setEditingLabel(true)}>修改</Button>
+          <Button variant="link" size="inline" type="button" onClick={() => setEditingLabel(true)}>修改</Button>
         </div>
       )}
 
@@ -499,12 +495,12 @@ function SessionCard({
             <strong>
               U 盘 · {s.storageName} › {displayPath(s.path)}
             </strong>
-            <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{rw ? "可写" : "只读"}</span>
-            <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{s.label}</span>
+            <Badge variant="secondary">{rw ? "可写" : "只读"}</Badge>
+            <Badge variant="secondary">{s.label}</Badge>
           </div>
           <span key={s.state} className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
             {(s.state === "scanning" || s.state === "attaching" || s.state === "parsing" || s.state === "committing") && (
-              <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+              <Spinner />
             )}
             {title}
           </span>
@@ -517,7 +513,7 @@ function SessionCard({
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {(s.state === "scanning" || s.state === "attaching") && (
-            <Button size="sm" variant="outline" disabled={locked} onClick={onCancel}>
+            <Button variant="outline" disabled={locked} onClick={onCancel}>
               取消
             </Button>
           )}
@@ -610,7 +606,7 @@ function SessionCard({
 
       {s.skippedCount > 0 && (
         <div className="text-xs [&_ul]:mt-2 [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2 [&_li]:flex [&_li]:flex-wrap [&_li]:gap-2">
-          <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" aria-expanded={showSkipped} onClick={() => setShowSkipped(!showSkipped)}>
+          <Button variant="link" size="inline" type="button" aria-expanded={showSkipped} onClick={() => setShowSkipped(!showSkipped)}>
             {s.skippedCount} 项未放入 U 盘
           </Button>
           <span className="text-muted-foreground"> · 它们留在 NAS 上，不会被删除</span>
@@ -656,9 +652,9 @@ function LastResult({ last, locked, onEmptyTrash, onHide }: { last: NasDiskLast;
         <span className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]"><span className="text-muted-foreground">上次 · {when(last.finishedAt)} · {where}</span> — {text}</span>
         {!!last.trash?.files && <span className="flex flex-wrap items-center gap-2 text-xs" title={`回收目录：${last.trash.files.toLocaleString()} 个文件，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 .vim4-nasdisk/trash`}>
           <span className="text-muted-foreground">回收目录 {bytes(last.trash.bytes)}</span>
-          <Button size="sm" variant="outline" type="button" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</Button>
+          <Button variant="outline" type="button" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</Button>
         </span>}
-        <Button size="sm" variant="outline" type="button" aria-label="隐藏上次结果" onClick={onHide}>×</Button>
+        <Button variant="outline" type="button" aria-label="隐藏上次结果" onClick={onHide}>×</Button>
       </div>
       {last.result === "failed" && <Detail text={last.detail} />}
       {last.conflicts.length > 0 && (

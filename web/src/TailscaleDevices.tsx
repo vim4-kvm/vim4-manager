@@ -1,3 +1,5 @@
+import { Badge } from "@/components/ui/badge";
+import { Spinner } from "@/components/Spinner";
 import { Network } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusDot } from "@/components/StatusDot";
@@ -74,8 +76,8 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 flex-wrap items-center gap-2 [&_strong]:break-all">
           <strong>{device.hostName}</strong>
-          {device.os && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{device.os}</span>}
-          {device.exitNode && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium">出口节点</span>}
+          {device.os && <Badge variant="secondary">{device.os}</Badge>}
+          {device.exitNode && <Badge variant="outline">出口节点</Badge>}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
           {ip && <span className="font-mono break-all">{ip}</span>}
@@ -83,7 +85,7 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
         </div>
         {ping?.pending && (
           <p className="text-xs text-muted-foreground" role="status">
-            <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+            <Spinner />
             正在测试 4 次…
           </p>
         )}
@@ -101,7 +103,7 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {ip && <CopyButton text={ip} label={`${device.hostName} 的地址`} />}
         {ip && (
-          <Button size="sm" variant="outline"
+          <Button variant="outline"
             type="button"
 
             aria-label={`测试到 ${device.hostName} 的连接`}
@@ -138,9 +140,9 @@ export function TailscaleDevices({ devices, writable }: { devices: TailscaleDevi
             <EmptyState icon={Network}>没有其他在线设备。</EmptyState>
           )}
           {offline.length > 0 && (
-            <Button variant="outline"
+            <Button variant="link" size="inline"
               type="button"
-              className="text-primary self-start border-0 bg-transparent text-xs text-muted-foreground"
+              className="self-start"
               aria-expanded={showOffline}
               onClick={() => setShowOffline(!showOffline)}
             >
