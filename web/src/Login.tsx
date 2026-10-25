@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
 import { copyText } from "./lib/clipboard";
 import { Eye, EyeOff, LockKeyhole } from "lucide-react";
-import { domAnimation, LazyMotion, MotionConfig } from "motion/react";
+import { LazyMotion, MotionConfig } from "motion/react";
 import { InlineError } from "@/components/InlineError";
 import { SettingsCard } from "@/components/SettingsCard";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -347,4 +347,4 @@ function Login() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<MotionConfig reducedMotion="user"><LazyMotion features={domAnimation} strict><Login /></LazyMotion></MotionConfig>);
+createRoot(document.getElementById("root")!).render(<MotionConfig reducedMotion="user"><LazyMotion features={() => import("@/lib/motion-dom").then((module) => module.default)} strict><Login /></LazyMotion></MotionConfig>);

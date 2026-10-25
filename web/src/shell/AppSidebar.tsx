@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { usePassthroughStore } from "@/stores/passthrough";
 import { useStatusStore } from "@/stores/status";
 import { navHint, PAGES, type PageId } from "./pages";
+import { preloadPage } from "./routes";
 
 const hintTones = {
   good: "text-success-foreground",
@@ -41,7 +42,8 @@ function Navigation({ page }: { page: PageId }) {
           return (
             <SidebarMenuItem key={p.id}>
               <SidebarMenuButton asChild isActive={page === p.id} className="h-8 gap-2.5 text-sidebar-foreground max-md:h-10 data-[active=true]:text-sidebar-accent-foreground">
-                <a href={`#/${p.id}`} aria-current={page === p.id ? "page" : undefined} onClick={() => setOpenMobile(false)}>
+                <a href={`#/${p.id}`} aria-current={page === p.id ? "page" : undefined} onClick={() => setOpenMobile(false)}
+                  onPointerEnter={() => preloadPage(p.id)} onFocus={() => preloadPage(p.id)}>
                   <Icon aria-hidden="true" className="size-5!" />
                   <span className="min-w-0 flex-1 truncate">{p.title}</span>
                   {hint && (

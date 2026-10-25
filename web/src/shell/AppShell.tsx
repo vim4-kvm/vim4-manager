@@ -1,11 +1,14 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { AnimatePresence, domAnimation, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
+import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
 import { Menu } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { enter, exit } from "@/lib/motion";
+
+// Animation features load after first paint; until then m.* renders statically.
+const animationFeatures = () => import("@/lib/motion-dom").then((module) => module.default);
 import { AppSidebar } from "./AppSidebar";
 import { pageMeta, type PageId } from "./pages";
 
@@ -50,7 +53,7 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
   }, [page]);
   return (
     <MotionConfig reducedMotion="user">
-      <LazyMotion features={domAnimation} strict>
+      <LazyMotion features={animationFeatures} strict>
         {/* Desktop stays expanded: the spec has no collapsed icon rail. */}
         <SidebarProvider open onOpenChange={() => {}}>
           <AppSidebar page={page} />
