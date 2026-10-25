@@ -401,6 +401,9 @@ Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev
 `passthrough-5.15` 分支通过限定助手接入厂商 VFM TEE：`vdin0 vfm_cap amvideo`。
 能力探测同时要求 5.15、精确路由、sysfs 和 root 管理的
 `/etc/vim4-kvm/passthrough-5.15.json`（`abi:1`、`release`、`moduleNoteSha256`）。
+验证新内核时可使用 `{"abi":1,"kernels":[{"release":"…","moduleNoteSha256":"…"},…]}`，
+同时保留旧、新内核资格；每条仍须同时匹配运行 release 与 aml_media note SHA256。
+更新前备份原记录；此元数据不改变透传声音偏好、路由或 EDID。
 最后一项为运行模块 `/sys/module/aml_media/notes/.note.gnu.build-id` 的 SHA-256，
 只在已验证 VDIN `VFRAME_FLAG_VIDEO_LINEAR` 补丁的模块上登记，不能仅凭内核版本宣称支持。
 未通过探测时 GET 返回 `supported:false,state:"unsupported",enabled:false`、POST 返回 409，保留偏好。

@@ -119,6 +119,27 @@ class VendorPassthroughTest(unittest.TestCase):
                 self.controller.prepare()
             write.assert_not_called()
 
+    def test_qualification_keeps_both_kernels_available_for_rollback(self):
+        self.qualification.stop()
+        old_release = self.controller.release
+        old_note = b'qualified build note'
+        new_release = '5.15.137-vim4kvm-vapb1'
+        new_note = b'candidate build note'
+        builds = [{'release': release, 'moduleNoteSha256': hashlib.sha256(note).hexdigest()}
+                  for release, note in [(old_release, old_note), (new_release, new_note)]]
+        self.put(passthrough.QUALIFICATION, json.dumps({'abi': 1, 'kernels': builds}))
+        with patch.object(Path, 'lstat', return_value=SimpleNamespace(st_uid=0, st_mode=0o100600)):
+            for release, note in [(old_release, old_note), (new_release, new_note)]:
+                self.controller.release = release
+                self.put('/sys/module/aml_media/notes/.note.gnu.build-id', note.decode())
+                self.assertTrue(self.controller.qualified())
+            self.controller.release = old_release
+            self.assertFalse(self.controller.qualified())  # New module with old release.
+            self.put(passthrough.QUALIFICATION, json.dumps({'abi': 1, 'kernels': []}))
+            self.assertFalse(self.controller.qualified())
+        with patch.object(Path, 'lstat', return_value=SimpleNamespace(st_uid=0, st_mode=0o100622)):
+            self.assertFalse(self.controller.qualified())
+
     def test_invalid_edid_or_hdr_input_fails_before_modeset(self):
         with patch.object(self.controller, 'write') as write:
             self.put('/sys/class/hdmirx/hdmirx0/info', self.controller.read('/sys/class/hdmirx/hdmirx0/info').replace('SDR', 'HDR10'))

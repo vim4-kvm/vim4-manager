@@ -137,9 +137,14 @@ class VendorPassthrough:
                 return False
             qualified = self.load(QUALIFICATION)
             note = self.path('/sys/module/aml_media/notes/.note.gnu.build-id').read_bytes()
-            if qualified.get('abi') != 1 or qualified.get('release') != self.release or qualified.get('moduleNoteSha256') != hashlib.sha256(note).hexdigest():
+            if qualified.get('abi') != 1:
                 return False
-            return True
+            # Keep rollback kernels qualified without accepting a release alone.
+            builds = qualified.get('kernels', [qualified])
+            digest = hashlib.sha256(note).hexdigest()
+            return isinstance(builds, list) and any(
+                isinstance(build, dict) and build.get('release') == self.release
+                and build.get('moduleNoteSha256') == digest for build in builds)
         except (OSError, ValueError, TypeError, AttributeError):
             return False
 
