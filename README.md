@@ -438,6 +438,13 @@ EXTN 的初始无效输入选择 0 只初始化一次为 FRHDMIRX 8，之后保�
 TDMIN_B 重采样。原路由保存在 `/run/vim4-passthrough/audio-before.json`，停止或异常退出后
 在仍持有两个端点时比较并恢复；其他程序占用时不强行复原或覆盖其更改。
 底层命令错误只记 journal，API 返回已有中文提示，不把 sudo/ALSA 路径直接显示给用户。
+短时源音频不稳定、无数据或格式不可播放时，保留已运行的本地 PCM，静音而非反复拆链。
+采集为 nonblocking，EPIPE/ESTRPIPE 在原采集句柄上 recover；SPDIF 播放使用 ALSA
+boundary stop threshold 与全环静音填充，用户态暂时不供帧也不中止 TX 时钟或重放旧环数据。
+恢复后 forward 跳过已由静音消费的位置，再补短静音队列，不调用 playback prepare。
+`audio-pcm.json` 报告 captureXruns、playbackGapFrames 和 ALSA playbackState，
+音频源准备状态由协调者写 `audio-source.json`；单独的声音关闭/无音频显示器仍释放 PCM。
+真正采样率变化须重复确认才重开；不改 One-KVM 的 TDM-B 输入、音频或视频实现。
 异常请求回退旧设置；控制进程无响应或状态过期不伪造成功。
 模式跟随对 RX 刷新率取七次采样中值、使用 0.005Hz 的半频点滞回，并要求新模式稳定两秒；
 59.97–59.99Hz 的测量抖动不再被当成 59.94/60Hz 模式切换。

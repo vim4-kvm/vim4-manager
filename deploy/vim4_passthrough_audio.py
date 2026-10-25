@@ -20,6 +20,7 @@ CAPTURE = b'hw:CARD=AMLAUGESOUND,DEV=6'
 PLAYBACK = b'hw:CARD=AMLAUGESOUND,DEV=1'
 ROUTES = {'Audio In Source': 8, 'HDMITX Audio Source Select': 0}
 ISOLATED_RESAMPLE = {'Hardware resample enable': 0, 'Hw resample module': 0}
+PCM_SUSPENDED = getattr(errno, 'ESTRPIPE', 86)
 
 
 def atomic_json(path, value):
@@ -61,11 +62,20 @@ class PCM:
             'snd_pcm_sw_params_malloc': [ctypes.POINTER(pointer)],
             'snd_pcm_sw_params_current': [pointer, pointer],
             'snd_pcm_sw_params_set_start_threshold': [pointer, pointer, frames],
+            'snd_pcm_sw_params_get_boundary': [pointer, ctypes.POINTER(frames)],
+            'snd_pcm_sw_params_set_stop_threshold': [pointer, pointer, frames],
+            'snd_pcm_sw_params_set_silence_threshold': [pointer, pointer, frames],
+            'snd_pcm_sw_params_set_silence_size': [pointer, pointer, frames],
             'snd_pcm_sw_params': [pointer, pointer],
             'snd_pcm_sw_params_free': [pointer],
             'snd_pcm_readi': [pointer, pointer, frames],
             'snd_pcm_writei': [pointer, pointer, frames],
             'snd_pcm_delay': [pointer, ctypes.POINTER(ctypes.c_long)],
+            'snd_pcm_nonblock': [pointer, ctypes.c_int],
+            'snd_pcm_avail_update': [pointer],
+            'snd_pcm_forward': [pointer, frames],
+            'snd_pcm_recover': [pointer, ctypes.c_int, ctypes.c_int],
+            'snd_pcm_state': [pointer],
             'snd_pcm_drain': [pointer],
             'snd_pcm_drop': [pointer],
             'snd_pcm_close': [pointer],
@@ -74,11 +84,15 @@ class PCM:
             getattr(self.alsa, name).argtypes = arguments
         self.alsa.snd_pcm_readi.restype = ctypes.c_long
         self.alsa.snd_pcm_writei.restype = ctypes.c_long
+        self.alsa.snd_pcm_avail_update.restype = ctypes.c_long
+        self.alsa.snd_pcm_forward.restype = ctypes.c_long
         self.handles = []
+        self.capture_xruns = 0
+        self.playback_gap_frames = 0
 
-    def check(self, result):
+    def check(self, result, operation='HDMI PCM operation'):
         if result < 0:
-            raise OSError(-result, 'HDMI PCM operation failed')
+            raise OSError(-result, operation + ' failed')
         return result
 
     def acquire(self, device, stream):
@@ -112,16 +126,55 @@ class PCM:
             self.check(self.alsa.snd_pcm_sw_params_malloc(ctypes.byref(software)))
             try:
                 self.check(self.alsa.snd_pcm_sw_params_current(handle, software))
+                boundary = ctypes.c_ulong()
+                self.check(self.alsa.snd_pcm_sw_params_get_boundary(software, ctypes.byref(boundary)))
                 self.check(self.alsa.snd_pcm_sw_params_set_start_threshold(handle, software, 1536))
+                self.check(self.alsa.snd_pcm_sw_params_set_stop_threshold(handle, software, boundary.value))
+                self.check(self.alsa.snd_pcm_sw_params_set_silence_threshold(handle, software, 0))
+                self.check(self.alsa.snd_pcm_sw_params_set_silence_size(handle, software, boundary.value))
                 self.check(self.alsa.snd_pcm_sw_params(handle, software))
             finally:
                 self.alsa.snd_pcm_sw_params_free(software)
+        else:
+            self.check(self.alsa.snd_pcm_nonblock(handle, 1))
+
+    def read(self, handle, samples):
+        count = self.alsa.snd_pcm_readi(handle, samples, 256)
+        if count in (-errno.EAGAIN, -errno.EINTR):
+            return 0
+        if count in (-errno.EPIPE, -PCM_SUSPENDED):
+            self.check(self.alsa.snd_pcm_recover(handle, count, 1))
+            self.capture_xruns += 1
+            print(json.dumps({'event': 'capture-pcm-recovered', 'errno': -count,
+                              'count': self.capture_xruns}), file=sys.stderr, flush=True)
+            return 0
+        return self.check(count, 'HDMI capture read')
+
+    def maintain_playback(self, handle):
+        available = self.check(self.alsa.snd_pcm_avail_update(handle), 'HDMI playback availability')
+        if available > 2048:
+            skipped = self.check(self.alsa.snd_pcm_forward(handle, available - 2048))
+            self.playback_gap_frames += skipped
+            silence = (ctypes.c_short * 2560)()
+            self.write(handle, silence, 1280)
+
+    def delay(self, handle):
+        frames = ctypes.c_long()
+        result = self.alsa.snd_pcm_delay(handle, ctypes.byref(frames))
+        if result in (-errno.EPIPE, -PCM_SUSPENDED):
+            self.check(self.alsa.snd_pcm_recover(handle, result, 1))
+            self.capture_xruns += 1
+            return 0
+        self.check(result)
+        return frames.value
 
     def write(self, handle, samples, count):
         offset = 0
         while offset < count:
-            written = self.check(self.alsa.snd_pcm_writei(handle,
-                ctypes.byref(samples, offset * 4), count - offset))
+            result = self.alsa.snd_pcm_writei(handle, ctypes.byref(samples, offset * 4), count - offset)
+            if result == -errno.EINTR:
+                continue
+            written = self.check(result, 'HDMI playback write')
             if written == 0:
                 raise OSError('HDMI PCM playback made no progress')
             offset += written
@@ -162,13 +215,20 @@ def bridge(sample_rate):
         routes.apply(True)
         pcm.configure(capture, 1, sample_rate)
         pcm.configure(playback, 0, sample_rate)
+        pcm.write(playback, (ctypes.c_short * 3072)(), 1536)
+        input_ready = False
+        source_checked = 0
         while not stopping:
-            count = pcm.alsa.snd_pcm_readi(capture, samples, 256)
-            if stopping and count == -errno.EINTR:
-                break
-            pcm.check(count)
-            if count == 0:
-                raise OSError('HDMI PCM capture made no progress')
+            now = time.monotonic()
+            if now - source_checked >= .1:
+                source = load(RUNTIME / 'audio-source.json', {})
+                input_ready = source.get('ready', False) and now - source.get('heartbeat', 0) < 2
+                source_checked = now
+            pcm.maintain_playback(playback)
+            count = pcm.read(capture, samples)
+            if not input_ready:
+                ctypes.memset(samples, 0, ctypes.sizeof(samples))
+                faded = 0
             for frame in range(min(count, max(0, 512 - faded))):
                 gain = (faded + frame) / 512
                 samples[frame * 2] = int(samples[frame * 2] * gain)
@@ -179,20 +239,26 @@ def bridge(sample_rate):
                 crossings += int(last_sample < 0 <= current)
                 last_sample = current
             window_frames += count
-            pcm.write(playback, samples, count)
-            last_samples = [samples[(count - 1) * 2 + channel] for channel in (0, 1)]
+            if count:
+                pcm.write(playback, samples, count)
+                last_samples = [samples[(count - 1) * 2 + channel] for channel in (0, 1)]
+            else:
+                time.sleep(.002)
             total += count
             now = time.monotonic()
             if now - previous >= .5:
-                capture_delay, playback_delay = ctypes.c_long(), ctypes.c_long()
-                pcm.check(pcm.alsa.snd_pcm_delay(capture, ctypes.byref(capture_delay)))
+                capture_delay = pcm.delay(capture)
+                playback_delay = ctypes.c_long()
                 pcm.check(pcm.alsa.snd_pcm_delay(playback, ctypes.byref(playback_delay)))
                 atomic_json(RUNTIME / 'audio-pcm.json', {
                     'heartbeat': now, 'pid': os.getpid(), 'rate': sample_rate, 'frames': total,
-                    'captureDelayFrames': capture_delay.value, 'playbackDelayFrames': playback_delay.value,
-                    'peak': max(abs(value) for value in samples[:count * 2]),
-                    'rms': math.sqrt(sum(value * value for value in samples[:count * 2]) / (count * 2)),
-                    'zeroCrossingHz': crossings * sample_rate / window_frames,
+                    'captureDelayFrames': capture_delay, 'playbackDelayFrames': playback_delay.value,
+                    'captureXruns': pcm.capture_xruns, 'playbackGapFrames': pcm.playback_gap_frames,
+                    'playbackState': pcm.alsa.snd_pcm_state(playback),
+                    'inputReady': input_ready,
+                    'peak': max((abs(value) for value in samples[:count * 2]), default=0),
+                    'rms': math.sqrt(sum(value * value for value in samples[:count * 2]) / max(1, count * 2)),
+                    'zeroCrossingHz': crossings * sample_rate / max(1, window_frames),
                 })
                 crossings, window_frames = 0, 0
                 previous = now
@@ -294,11 +360,26 @@ class AudioWorker:
         pcm = self.controls.mixer('HDMIIN NONAUDIO') == 0
         channels = self.controls.mixer('HDMIIN audio channels')
         stable = self.controls.mixer('HDMIIN audio stable') == 1
-        if before != self.controls.mixer('HDMIIN audio samplerate') or not stable:
+        if before != self.controls.mixer('HDMIIN audio samplerate') or not stable or before == 0:
             return None
         if not pcm or channels != 1 or before not in (2, 3):
             raise ValueError('Only stereo PCM at 44.1/48 kHz is qualified')
         return {2: 44100, 3: 48000}[before]
+
+    def hold(self, state):
+        atomic_json(self.path(RUNTIME / 'audio-source.json'), {'ready': False, 'heartbeat': self.clock()})
+        if self.child is not None and self.child.poll() is None:
+            self.progress()
+        return state
+
+    def progress(self):
+        stats = load(self.path(RUNTIME / 'audio-pcm.json'), {})
+        if (stats.get('pid') == self.child.pid and self.clock() - stats.get('heartbeat', 0) < 2
+                and (stats.get('playbackState') == 3 or stats.get('frames', 0) > 1536)):
+            return 'running'
+        if self.clock() - self.child_started > 4:
+            raise OSError('HDMI PCM bridge stopped progressing')
+        return 'starting'
 
     def tick(self, request, video):
         state = video.get('state', {})
@@ -313,27 +394,37 @@ class AudioWorker:
             self.stop()
             return 'unavailable'
         if state.get('state') not in ('running', 'starting', 'unsupported-format', 'video-error') or not state.get('input', {}).get('audio'):
-            self.stop()
-            return 'waiting'
+            return self.hold('waiting')
         endpoints = self.path('/proc/asound/pcm').read_text()
         if not re.search(r'^\d+-06: EXTN-', endpoints, re.M) or not re.search(r'^\d+-01: SPDIF-', endpoints, re.M):
             raise ValueError('Vendor HDMI audio endpoints do not match')
         source = self.controls.mixer('Audio In Source')
         if source not in (0, 8):
             raise ValueError('EXTN capture is configured for another input')
-        rate = self.source_rate()
+        try:
+            rate = self.source_rate()
+        except ValueError:
+            if self.child is not None:
+                return self.hold('unavailable')
+            raise
         capabilities = self.path('/sys/class/amhdmitx/amhdmitx0/aud_cap').read_text()
         line = next((line for line in capabilities.splitlines() if line.startswith('PCM,')), '')
         match = re.search(r'PCM, (\d+) ch, ([\d./]+) kHz', line)
-        if rate is None or not match or int(match[1]) < 2 or rate not in {round(float(value) * 1000) for value in match[2].split('/')}:
+        if rate is None:
+            return self.hold('waiting')
+        if not match or int(match[1]) < 2 or rate not in {round(float(value) * 1000) for value in match[2].split('/')}:
             self.stop()
             return 'unavailable'
+        if self.child is not None and self.child.poll() is None and self.rate != rate and self.pending != rate:
+            self.pending = rate
+            return self.hold('starting')
         if self.child is not None and (self.child.poll() is not None or self.rate != rate):
             failed = self.child.poll() is not None
             self.stop()
             if failed:
                 self.retry_at = self.clock() + 5
                 raise OSError('HDMI PCM bridge exited')
+        atomic_json(self.path(RUNTIME / 'audio-source.json'), {'ready': True, 'heartbeat': self.clock()})
         if self.child is None:
             if self.clock() < self.retry_at:
                 return 'error'
@@ -348,12 +439,8 @@ class AudioWorker:
             self.child_started = self.clock()
             self.rate = rate
             return 'starting'
-        stats = load(self.path(RUNTIME / 'audio-pcm.json'), {})
-        if stats.get('pid') == self.child.pid and self.clock() - stats.get('heartbeat', 0) < 2 and stats.get('frames', 0) > 1536:
-            return 'running'
-        if self.clock() - self.child_started > 4:
-            raise OSError('HDMI PCM bridge stopped progressing')
-        return 'starting'
+        self.pending = None
+        return self.progress()
 
     def cycle(self, request, video):
         try:
