@@ -64,6 +64,15 @@ function passthrough(name) {
     case "off": return { ...base, enabled: false, state: "off", output: undefined, audioState: "off" };
     case "no-monitor": return { ...base, state: "no-monitor", monitor: undefined, output: undefined, audioState: "waiting" };
     case "no-signal": return { ...base, state: "no-signal", input: undefined, output: undefined, audioState: "waiting" };
+    case "starting": return { ...base, state: "starting", audioState: "starting" };
+    case "stopping": return { ...base, state: "stopping", audioState: "off" };
+    case "protected": return { ...base, state: "protected", output: undefined };
+    case "unsupported-format": return { ...base, state: "unsupported-format", input: { ...input, hdr: "Dolby Vision" }, output: undefined };
+    case "video-error": return { ...base, state: "video-error", output: undefined };
+    case "scaled": return { ...base, input: { ...input, hdr: "SDR" }, output: { ...output, width: 1920, height: 1080, refreshHz: 59.94, scaled: true } };
+    case "hdr-no-support": return { ...base, monitor: { ...monitor, hdr: false }, output: { ...output, hdrToSdr: true } };
+    case "hdr-sdr-input": return { ...base, input: { ...input, hdr: "SDR" } };
+    case "audio-unavailable": return { ...base, audioState: "error" };
     case "unsupported": return { supported: false, enabled: false, audio: true, hdr: true, state: "unsupported" };
     default: return base;
   }
@@ -126,7 +135,7 @@ try {
       await capture(page, `overview-${theme}-${device}`);
       await context.close();
 
-      for (const name of ["running-hdr", "sdr-converted", "off", "no-monitor", "no-signal", "unsupported"]) {
+      for (const name of ["running-hdr", "sdr-converted", "off", "no-monitor", "no-signal", "unsupported", "starting", "stopping", "protected", "unsupported-format", "video-error", "scaled", "hdr-no-support", "hdr-sdr-input", "audio-unavailable"]) {
         state = passthrough(name);
         const { context, page } = await open(theme, width, "#/output");
         await page.getByRole("switch", { name: "透传", exact: true }).waitFor();

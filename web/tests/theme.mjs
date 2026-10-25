@@ -12,7 +12,7 @@ const status = {
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 async function expectTheme(page, theme) {
   await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
-  assert.equal(await page.locator("html").evaluate((el) => el.style.colorScheme), theme);
+  assert.equal(await page.locator("html").evaluate((el) => getComputedStyle(el).colorScheme), theme);
   assert.equal(await page.locator("html").evaluate((el) => el.classList.contains("dark")), theme === "dark", "Tailwind dark class follows the theme");
 }
 async function context(options = {}) {
@@ -83,7 +83,7 @@ try {
     await firstFrame.addInitScript(({ key, stored }) => {
       localStorage.setItem(key, stored);
       document.addEventListener("DOMContentLoaded", () => {
-        window.initialTheme = [document.documentElement.dataset.theme, document.documentElement.style.colorScheme,
+        window.initialTheme = [document.documentElement.dataset.theme, getComputedStyle(document.documentElement).colorScheme,
           document.documentElement.classList.contains("dark") ? "dark" : "light"];
       }, { once: true });
     }, { key, stored });

@@ -1,3 +1,4 @@
+import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
@@ -50,7 +51,7 @@ export function KernelPanel() {
     {error && <InlineError>{error}</InlineError>}
     {!state && !error && <PanelSkeleton label="正在读取…" />}
     {state && state.kernels.length === 0 && <EmptyState icon={Cpu}>尚未登记可切换的内核。</EmptyState>}
-    {state && <AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="flex flex-col divide-y" itemClassName="py-4">{kernel => <div className="flex flex-col gap-3">
+    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="flex flex-col divide-y" itemClassName="py-4">{kernel => <div className="flex flex-col gap-3">
       <div className="flex flex-wrap gap-2">
         {kernel.release === "7.3.0-vim4kvm-uhd1+" && <Badge variant="secondary">正式版</Badge>}
         {kernel.selected && <Badge variant="secondary">默认启动</Badge>}
@@ -59,7 +60,7 @@ export function KernelPanel() {
         status={kernel.error || (kernel.release === state.running ? "正在运行" : kernel.available ? "可切换" : "不可用")}
         control={<Button variant="outline" disabled={busy || rebooting || !kernel.available || !!choice}
           onClick={() => setChoice(kernel)}>{kernel.release === state.running ? "重启此内核" : "切换并重启"}</Button>} />
-    </div>}</AnimatedList>}
+    </div>}</AnimatedList></FadeIn>}
     {choice && <ConfirmDialog open title={`切换到 ${choice.name}`} confirm="确认重启" busy={busy}
       description={<>将默认启动设为 {choice.name} 并重启，当前连接会断开。请先安全弹出虚拟磁盘；启动失败时需通过串口或 OOWOW 恢复。</>}
       onOpenChange={(open) => { if (!open) setChoice(undefined); }} closeOnConfirm={false} onConfirm={() => void apply()} />}

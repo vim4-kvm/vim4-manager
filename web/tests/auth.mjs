@@ -33,7 +33,7 @@ async function stableScreenshot(page, name, fullPage = true, directory = shots) 
 async function focused(locator) {
   await locator.evaluate(el => new Promise((resolve, reject) => {
     const start = performance.now();
-    const check = () => el === document.activeElement ? resolve() : performance.now() - start > 2000 ? reject(new Error("focus not restored")) : requestAnimationFrame(check);
+    const check = () => el === document.activeElement ? resolve() : performance.now() - start > 2000 ? reject(new Error("focus not restored: " + JSON.stringify({ connected: el.isConnected, expected: el.getAttribute("aria-label"), active: document.activeElement?.tagName, activeId: document.activeElement?.id, activeLabel: document.activeElement?.getAttribute("aria-label"), dialogs: document.querySelectorAll("[role=dialog]").length }))) : requestAnimationFrame(check);
     check();
   }));
 }
@@ -304,6 +304,7 @@ try {
   await password.fill("password2");
   assert.equal(await page.getByRole("alert").count(), 0, "editing clears the server error");
   await page.waitForFunction(() => !document.querySelector('button[type="submit"]').disabled);
+  await page.clock.resume();
   pass("429 countdown and recovery");
   for (const [status, message] of [[503, "登录请求过多，请稍后再试"], [0, "无法连接板子，请检查网络后重试"]]) {
     loginStatus = status; await password.fill("password1"); await page.getByRole("button", { name: "登录", exact: true }).click(); await page.getByText(message, { exact: true }).waitFor();
@@ -466,6 +467,7 @@ try {
   await editPassword.click();
   // Radix installs its outside-pointer listener on the next timer tick.
   await page.clock.runFor(1);
+  await page.clock.resume();
   await page.mouse.click(1, 1);
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await focused(editPassword);
@@ -485,6 +487,7 @@ try {
   await page.getByRole("radio", { name: "浅色", exact: true }).click();
   await page.clock.runFor(5000);
   assert.equal(await page.getByRole("status").filter({ hasText: "密码已修改，其他设备已退出" }).count(), 0);
+  await page.clock.resume();
   pass("password change, focus restoration and success auto-dismissal");
   await page.getByRole("button", { name: "修改用户名", exact: true }).click(); await page.getByLabel("当前密码", { exact: true }).fill("newpassword"); await page.getByLabel("新用户名").fill("operator"); await page.getByRole("button", { name: "保存", exact: true }).click(); await page.getByText("用户名已修改，其他设备已退出", { exact: true }).waitFor();
   pass("username change updates account");

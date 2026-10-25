@@ -36,8 +36,7 @@ function Navigation({ page }: { page: PageId }) {
       <SidebarMenu className="gap-0.5">
         {PAGES.map((p) => {
           const hint = navHint(p.id, status, passthrough);
-          // Healthy states stay quiet except the passthrough indicator.
-          const tone = hint?.tone && (hint.tone !== "good" || p.id === "output") ? hint.tone : undefined;
+          const tone = hint?.tone;
           const Icon = p.icon;
           return (
             <SidebarMenuItem key={p.id}>

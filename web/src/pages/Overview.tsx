@@ -1,3 +1,6 @@
+import { History } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+import { AnimatedList } from "@/components/AnimatedList";
 import { useId, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChevronDown } from "lucide-react";
@@ -307,20 +310,18 @@ const linkButton = "self-start rounded-sm text-xs text-primary outline-none hove
 function EventList({ events, now }: { events: BoardEvent[]; now: number }) {
   const [all, setAll] = useState(false);
   const shown = all ? events : events.slice(0, 5);
-  if (!events.length) return <p className="text-sm text-muted-foreground">暂无事件</p>;
+  if (!events.length) return <EmptyState icon={History}>暂无事件</EmptyState>;
   return (
     <div className="flex flex-col gap-2">
-      <ol className="flex flex-col">
-        {shown.map((e) => (
-          <li key={`${e.t}-${e.text}`} data-event={e.tone} className="grid grid-cols-[64px_8px_minmax(0,1fr)] items-center gap-3 py-1.5 text-sm">
+      <AnimatedList as="ol" className="flex flex-col" items={shown} getKey={(e) => `${e.t}-${e.text}`}>{(e) => (
+          <div data-event={e.tone} className="grid grid-cols-[64px_8px_minmax(0,1fr)] items-center gap-3 py-1.5 text-sm">
             <time className="text-xs text-muted-foreground tabular-nums" dateTime={new Date(e.t).toISOString()}>
               {clockTime(e.t, now)}
             </time>
             <StatusDot tone={e.tone} />
             <span className={cn(e.tone === "critical" && "text-destructive")}>{e.text}</span>
-          </li>
-        ))}
-      </ol>
+          </div>
+        )}</AnimatedList>
       {events.length > shown.length && (
         <button type="button" className={linkButton} onClick={() => setAll(true)}>
           显示全部 {events.length} 条

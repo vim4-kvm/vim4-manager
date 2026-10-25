@@ -1,3 +1,5 @@
+import { FadeIn } from "@/components/Motion";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -65,6 +67,7 @@ function phase(state: TailscaleState) {
 
 export function TailscalePanel() {
   const busy = useActionStore((s) => !!s.busy);
+  const [reading, setReading] = useState(true);
   const [state, setState] = useState<TailscaleState>();
   const [stale, setStale] = useState(true);
   const [pending, setPending] = useState<Action>();
@@ -88,7 +91,7 @@ export function TailscalePanel() {
       } catch {
         if (!cancelled) setStale(true);
       } finally {
-        if (!cancelled) timer = window.setTimeout(refresh, 3000);
+        if (!cancelled) { setReading(false); timer = window.setTimeout(refresh, 3000); }
       }
     }
     void refresh();
@@ -161,8 +164,10 @@ export function TailscalePanel() {
             login: "未登录",
           }[current ?? "absent"];
 
+  if (reading && !state) return <SettingsCard label="Tailscale"><PanelSkeleton label={label} /></SettingsCard>;
+
   return (
-    <SettingsCard label="Tailscale"><div className="flex min-w-0 flex-col gap-5">
+    <SettingsCard label="Tailscale"><FadeIn className="flex min-w-0 flex-col gap-5">
         <SettingRow title="Tailscale" description="把板子加入 tailnet，在外网通过 Tailscale 地址访问管理面板和 KVM 界面。"
           status={label} pending={jobRunning || !!pending}
           control={switchable && <Switch aria-label="Tailscale 连接" checked={connected} disabled={locked}
@@ -172,7 +177,7 @@ export function TailscalePanel() {
           <div className="flex min-w-0 flex-col gap-4">
             <p className="text-muted-foreground">从 Tailscale 官方签名软件源下载安装，通常需要半分钟到几分钟。</p>
             <div>
-              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked} onClick={() => void act("install")}>
+              <Button variant="default" disabled={locked} onClick={() => void act("install")}>
                 安装 Tailscale
               </Button>
             </div>
@@ -210,15 +215,14 @@ export function TailscalePanel() {
             {link ? (
               <div className="flex flex-col items-start gap-3">
                 <span>在浏览器中打开登录页面并授权此设备，完成后这里会自动更新。</span>
-                <a className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" href={link} target="_blank" rel="noreferrer noopener">
+                <Button asChild variant="default"><a href={link} target="_blank" rel="noreferrer noopener">
                   打开登录页面
-                </a>
+                </a></Button>
                 <code className="font-mono break-all max-w-full break-all text-xs">{link}</code>
               </div>
             ) : (
               <div>
-                <Button variant="outline"
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                <Button variant="default"
                   disabled={locked || (custom && !control.trim()) || !controlValid}
                   aria-busy={pending === "login"}
                   onClick={() => changing && state.controlURL !== (custom ? control.trim() : OFFICIAL_CONTROL)
@@ -279,16 +283,16 @@ export function TailscalePanel() {
         {state?.installed && !jobRunning && !stale && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(current === "online" || current === "offline" || current === "approval") && (
-              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => setChanging(!changing)}>
+              <Button size="sm" variant="outline" disabled={locked} onClick={() => setChanging(!changing)}>
                 {changing ? "取消切换" : "切换控制服务器"}
               </Button>
             )}
             {(current === "online" || current === "offline" || current === "approval") && (
-              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => setConfirming("logout")}>
+              <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming("logout")}>
                 退出登录
               </Button>
             )}
-            <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => setConfirming("uninstall")}>
+            <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming("uninstall")}>
               卸载
             </Button>
           </div>
@@ -314,6 +318,6 @@ export function TailscalePanel() {
             {job.error}
           </InlineError>
         )}
-      </div></SettingsCard>
+      </FadeIn></SettingsCard>
   );
 }

@@ -137,7 +137,7 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
     <SettingsCard label="U 盘活动"><div role="group" aria-label="U 盘" className="flex min-w-0 flex-col gap-4">
       {pending && (
         <span className="text-muted-foreground" role="status">
-          <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+          <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
           {pending}
         </span>
       )}
@@ -191,11 +191,10 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
                     {p.journal && " · 回写进行到一半"}
                   </span>
                 </div>
-                <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked || active} onClick={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: p.id }))}>
+                <Button size="sm" variant="outline" disabled={locked || active} onClick={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: p.id }))}>
                   写回 NAS
                 </Button>
-                <Button variant="outline"
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
+                <Button size="sm" variant="outline"
                   disabled={locked || active}
                   onClick={() => setConfirming({ kind: "discard", id: p.id, name: `${p.storageName} › ${displayPath(p.path)}` })}
                 >
@@ -382,10 +381,10 @@ export function NasDiskSetup({
                       }
                     }}
                   />
-                  <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
+                  <Button size="sm" variant="default" type="button" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
                     {creating ? "正在创建…" : "创建"}
                   </Button>
-                  <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={creating} onClick={() => setNewName(undefined)}>
+                  <Button size="sm" variant="outline" type="button" disabled={creating} onClick={() => setNewName(undefined)}>
                     取消
                   </Button>
                 </div>
@@ -444,10 +443,10 @@ export function NasDiskSetup({
       )}
 
       <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" onClick={onCancel}>
+        <Button variant="outline" type="button" onClick={onCancel}>
           取消
         </Button>
-        <Button variant="outline" type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={!canStart}>
+        <Button variant="default" type="submit" disabled={!canStart}>
           挂载到被控电脑
         </Button>
       </div>
@@ -505,7 +504,7 @@ function SessionCard({
           </div>
           <span key={s.state} className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
             {(s.state === "scanning" || s.state === "attaching" || s.state === "parsing" || s.state === "committing") && (
-              <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+              <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
             )}
             {title}
           </span>
@@ -518,7 +517,7 @@ function SessionCard({
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {(s.state === "scanning" || s.state === "attaching") && (
-            <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={onCancel}>
+            <Button size="sm" variant="outline" disabled={locked} onClick={onCancel}>
               取消
             </Button>
           )}
@@ -560,21 +559,21 @@ function SessionCard({
           <Detail text={s.detail} />
           <ul className="flex flex-col gap-4 [&>li]:flex [&>li]:flex-wrap [&>li]:items-center [&>li]:gap-3">
             <li>
-              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked} onClick={onReattach}>
+              <Button variant="default" disabled={locked} onClick={onReattach}>
                 重新挂载
               </Button>
               <span className="text-muted-foreground">让电脑检查修复 U 盘，再安全弹出（推荐）</span>
             </li>
             {s.decision.canForce && (
               <li>
-                <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" disabled={locked} onClick={onForce}>
+                <Button variant="outline" disabled={locked} onClick={onForce}>
                   写回能识别的内容
                 </Button>
                 <span className="text-muted-foreground">只写入完整读出的文件，不执行删除</span>
               </li>
             )}
             <li>
-              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10" disabled={locked} onClick={onDiscard}>
+              <Button variant="destructive" disabled={locked} onClick={onDiscard}>
                 放弃修改…
               </Button>
               <span className="text-muted-foreground">NAS 保持挂载前的样子</span>
@@ -593,14 +592,14 @@ function SessionCard({
           <ul className="flex flex-col gap-4 [&>li]:flex [&>li]:flex-wrap [&>li]:items-center [&>li]:gap-3">
             {rw && (
               <li>
-                <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked} onClick={onRetry}>
+                <Button variant="default" disabled={locked} onClick={onRetry}>
                   重试写回
                 </Button>
                 <span className="text-muted-foreground">NAS 恢复访问后再试</span>
               </li>
             )}
             <li>
-              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10" disabled={locked} onClick={onDiscard}>
+              <Button variant="destructive" disabled={locked} onClick={onDiscard}>
                 {rw ? "放弃修改…" : "结束"}
               </Button>
               <span className="text-muted-foreground">{rw ? "NAS 保持挂载前的样子" : "结束这次 U 盘"}</span>
@@ -657,9 +656,9 @@ function LastResult({ last, locked, onEmptyTrash, onHide }: { last: NasDiskLast;
         <span className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]"><span className="text-muted-foreground">上次 · {when(last.finishedAt)} · {where}</span> — {text}</span>
         {!!last.trash?.files && <span className="flex flex-wrap items-center gap-2 text-xs" title={`回收目录：${last.trash.files.toLocaleString()} 个文件，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 .vim4-nasdisk/trash`}>
           <span className="text-muted-foreground">回收目录 {bytes(last.trash.bytes)}</span>
-          <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</Button>
+          <Button size="sm" variant="outline" type="button" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</Button>
         </span>}
-        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" aria-label="隐藏上次结果" onClick={onHide}>×</Button>
+        <Button size="sm" variant="outline" type="button" aria-label="隐藏上次结果" onClick={onHide}>×</Button>
       </div>
       {last.result === "failed" && <Detail text={last.detail} />}
       {last.conflicts.length > 0 && (

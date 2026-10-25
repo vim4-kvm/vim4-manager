@@ -1,3 +1,4 @@
+import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -197,12 +198,12 @@ export function StoragePanel() {
         <div className="ml-auto flex flex-wrap items-center gap-3">
           {(pending || (!disk.hasActivity && disk.pending)) && (
             <span className="text-muted-foreground" role="status">
-              <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
+              <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
               {pending || disk.pending}
             </span>
           )}
           {!editor && storages.length > 0 && (
-            <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked || storages.length >= 8} onClick={() => openEditor()}>
+            <Button variant="default" disabled={locked || storages.length >= 8} onClick={() => openEditor()}>
               添加 NAS
             </Button>
           )}
@@ -232,11 +233,11 @@ export function StoragePanel() {
       {state === undefined ? (
         <PanelSkeleton label={stale ? "正在读取…" : ""} />
       ) : storages.length === 0 && !editor ? (
-        <EmptyState icon={Server} action={<Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked} onClick={() => openEditor()}>添加 NAS</Button>}>
+        <EmptyState icon={Server} action={<Button variant="default" disabled={locked} onClick={() => openEditor()}>添加 NAS</Button>}>
           <strong className="font-medium text-foreground">还没有 NAS</strong><br />添加后可以把录屏保存到 NAS，或把 NAS 上的文件夹作为 U 盘交给被控电脑。
         </EmptyState>
       ) : (
-        <AnimatedList className="flex min-w-0 flex-col divide-y [&>li]:flex [&>li]:flex-col [&>li]:gap-4 [&>li]:py-4" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
+        <FadeIn><AnimatedList className="flex min-w-0 flex-col divide-y [&>li]:flex [&>li]:flex-col [&>li]:gap-4 [&>li]:py-4" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
             const connection = stateLabel(s);
             const room = capacity(s);
             const open = editor?.editing && editor.draft.id === s.id;
@@ -257,7 +258,7 @@ export function StoragePanel() {
                     {room && (
                       <div className="flex max-w-sm flex-col gap-2 text-xs">
                         {room.ratio !== undefined && (
-                          <span className={`block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:rounded-full [&>span]:bg-primary${room.ratio > 0.95 ? " [&>span]:bg-destructive" : room.ratio > 0.85 ? " [&>span]:bg-warning" : ""}`}>
+                          <span className={`block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:rounded-full${room.ratio > 0.95 ? " [&>span]:bg-destructive" : room.ratio > 0.85 ? " [&>span]:bg-warning" : " [&>span]:bg-primary"}`}>
                             <span style={{ width: `${Math.max(2, room.ratio * 100)}%` }} />
                           </span>
                         )}
@@ -271,8 +272,7 @@ export function StoragePanel() {
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {s.mounted ? (
-                      <Button variant="outline"
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
+                      <Button size="sm" variant="outline"
                         disabled={locked || !!disk.pending || !disk.state?.known || !!session}
                         title={session ? "同一时间只能有一个 U 盘" : undefined}
                         aria-expanded={diskSetup === s.id}
@@ -285,8 +285,7 @@ export function StoragePanel() {
                         作为 U 盘…
                       </Button>
                     ) : (
-                      <Button variant="outline"
-                        className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
+                      <Button size="sm" variant="outline"
                         disabled={locked || s.state === "mounting"}
                         onClick={() => void act(`正在连接「${s.name}」…`, () => storageWrite("/mount", { id: s.id }))}
                       >
@@ -340,7 +339,7 @@ export function StoragePanel() {
                 )}
               </div>
             );
-          }}</AnimatedList>
+          }}</AnimatedList></FadeIn>
       )}
 
       {error && (
@@ -364,7 +363,7 @@ function StorageMenu({ storage, locked, inUse, onEdit, onConfirm }: {
 }) {
   return <DropdownMenu modal={false}>
     <DropdownMenuTrigger asChild>
-      <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" aria-label={`${storage.name} 的更多操作`} disabled={locked}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
+      <Button size="sm" variant="outline" aria-label={`${storage.name} 的更多操作`} disabled={locked}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent loop align="end" aria-label={`${storage.name} 的操作`}>
       <DropdownMenuItem disabled={locked} onSelect={onEdit}>编辑</DropdownMenuItem>
@@ -515,14 +514,14 @@ function StorageEditor({
       {test && <TestResult test={test} />}
 
       <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" onClick={onCancel}>
+        <Button variant="outline" type="button" onClick={onCancel}>
           取消
         </Button>
-        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" disabled={locked || !!invalid || !!toolMissing || test?.running} aria-busy={test?.running} onClick={onTest}>
-          {test?.running && <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+        <Button variant="outline" type="button" disabled={locked || !!invalid || !!toolMissing || test?.running} aria-busy={test?.running} onClick={onTest}>
+          {test?.running && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
           测试连接
         </Button>
-        <Button variant="outline" type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked || !!invalid || !!toolMissing} title={invalid || undefined}>
+        <Button variant="default" type="submit" disabled={locked || !!invalid || !!toolMissing} title={invalid || undefined}>
           {editor.editing ? "保存" : d.autoMount ? "保存并连接" : "保存"}
         </Button>
       </div>

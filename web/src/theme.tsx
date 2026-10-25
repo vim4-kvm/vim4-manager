@@ -26,7 +26,6 @@ function applyTheme() {
   root.classList.add("theme-switching");
   root.classList.toggle("dark", resolved === "dark");
   root.dataset.theme = resolved;
-  root.style.colorScheme = resolved;
   // Keep transitions suppressed through the frame that paints the new palette.
   frame = requestAnimationFrame(() => {
     frame = requestAnimationFrame(() => root.classList.remove("theme-switching"));

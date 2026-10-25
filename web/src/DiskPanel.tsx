@@ -1,3 +1,5 @@
+import { FadeIn } from "@/components/Motion";
+import { AnimatedList } from "@/components/AnimatedList";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { File, Folder, HardDrive } from "lucide-react";
@@ -9,7 +11,7 @@ import { SettingsCard } from "@/components/SettingsCard";
 import { StatusLabel } from "@/components/StatusDot";
 import { useActionStore, report } from "@/stores/action";
 import { useStatusStore } from "@/stores/status";
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type DragEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from "react";
 import {
   diskFileURL, diskImageURL, getDisks, listDiskFiles, request, uploadDiskFile,
   type Disk, type DiskEntry, type DiskListing,
@@ -57,16 +59,16 @@ function useTracked(run: Run) {
   return { doing, track };
 }
 
-function Action({ working, className = "text-xs", children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { working?: boolean }) {
+function Action({ working, className = "text-xs", children, ...props }: React.ComponentProps<typeof Button> & { working?: boolean }) {
   return (
     <Button variant="outline" className={className} aria-busy={working || undefined} {...props}>
-      {working && <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+      {working && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
       {children}
     </Button>
   );
 }
 
-// Two-click destructive button; disarms on blur or after a few seconds.
+// Keep the original four-second arming window inside the shared confirmation.
 function ArmedButton({ label, armedLabel, ariaLabel, disabled, working, onConfirm }: {
   label: string; armedLabel: string; ariaLabel: string; disabled: boolean; working: boolean; onConfirm: () => void;
 }) {
@@ -76,20 +78,11 @@ function ArmedButton({ label, armedLabel, ariaLabel, disabled, working, onConfir
     const timer = window.setTimeout(() => setArmed(false), 4000);
     return () => window.clearTimeout(timer);
   }, [armed]);
-  return (
-    <Action
-      className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs ${armed ? " border-destructive/30 text-destructive hover:bg-destructive/10 " : ""}`}
-      aria-label={armed ? undefined : ariaLabel}
-      disabled={disabled}
-      working={working}
-      onBlur={() => setArmed(false)}
-      onClick={() => (armed ? onConfirm() : setArmed(true))}
-    >
-      <span className="[&>span[aria-hidden=true]]:hidden">
-        <span aria-hidden={armed}>{label}</span>
-        <span aria-hidden={!armed}>{armedLabel}</span>
-      </span>
-    </Action>
+  return (<>
+    <Action size="sm" aria-label={ariaLabel} disabled={disabled} working={working} onClick={() => setArmed(true)}>{label}</Action>
+    <ConfirmDialog open={armed} onOpenChange={setArmed} title={ariaLabel} confirm={armedLabel} destructive disabled={disabled}
+      onConfirm={() => { setArmed(false); onConfirm(); }} />
+  </>
   );
 }
 
@@ -128,7 +121,7 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
 
   if (!open) {
     return (
-      <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={busy || disks.length >= 8} onClick={() => setOpen(true)}>
+      <Button size="sm" variant="outline" disabled={busy || disks.length >= 8} onClick={() => setOpen(true)}>
         新建数据盘
       </Button>
     );
@@ -167,8 +160,8 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
       <p className="text-sm text-muted-foreground">FAT32 文件系统，Windows、macOS 与 Linux 均可直接读写；单个文件不能超过 4 GiB。空间立即在板子上分配。</p>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {invalid && name && <span className="text-destructive">{invalid}</span>}
-        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" disabled={busy} onClick={() => setOpen(false)}>取消</Button>
-        <Action type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" working={doing === "create"} disabled={busy || !!invalid}>创建</Action>
+        <Button variant="outline" type="button" disabled={busy} onClick={() => setOpen(false)}>取消</Button>
+        <Action variant="default" type="submit" working={doing === "create"} disabled={busy || !!invalid}>创建</Action>
       </div>
     </form>
   );
@@ -192,13 +185,13 @@ function Uploads({ uploads, started, onCancel }: { uploads: Upload[]; started: n
   return (
     <div className={`flex flex-col gap-3 rounded-md border p-4 ${finished ? " " : ""}`} role="status">
       <div className="flex flex-wrap items-center gap-3">
-        {finished ? <span className="text-success" aria-hidden="true">✓</span> : <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
+        {finished ? <span className="text-success" aria-hidden="true">✓</span> : <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
         <strong>
           {finished ? `已上传 ${uploads.length} 个文件` : writing ? `正在写入 ${current.file.name}…` : `正在上传 ${current.file.name}`}
         </strong>
         {!finished && uploads.length > 1 && <span className="tabular-nums text-muted-foreground">第 {index + 1}/{uploads.length} 个</span>}
         <span className="tabular-nums text-muted-foreground">{bytes(sent)} / {bytes(total)}</span>
-        {!finished && <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" onClick={onCancel}>取消</Button>}
+        {!finished && <Button size="sm" variant="outline" onClick={onCancel}>取消</Button>}
       </div>
       <span className="block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:bg-primary" role="progressbar" aria-valuemin={0} aria-valuemax={total || 1} aria-valuenow={sent}>
         <span style={{ width: `${total ? (sent / total) * 100 : 100}%` }} />
@@ -384,8 +377,8 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
         </nav>
         <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
           <Action working={loading && !!listing} disabled={busy || !entries} onClick={() => setReload((value) => value + 1)}>刷新</Action>
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked || !entries} onClick={() => { setFolder(""); }}>新建文件夹</Button>
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked || !entries} onClick={() => input.current?.click()}>上传文件</Button>
+          <Button size="sm" variant="outline" disabled={locked || !entries} onClick={() => { setFolder(""); }}>新建文件夹</Button>
+          <Button size="sm" variant="default" disabled={locked || !entries} onClick={() => input.current?.click()}>上传文件</Button>
           <input ref={input} type="file" multiple hidden onChange={(event) => { chooseFiles(event.target.files); event.target.value = ""; }} />
         </span>
       </div>
@@ -399,13 +392,10 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
 
       <Uploads uploads={uploads} started={started} onCancel={() => abort.current?.abort()} />
 
-      {pending && (
-        <div className="flex flex-col gap-3 rounded-md border p-4  ">
-          <span>当前文件夹已有 {conflicts.map((file) => `「${file.name}」`).join("、")}，是否覆盖？</span>
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" onClick={() => setPending(undefined)}>取消</Button>
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-destructive/30 text-destructive hover:bg-destructive/10" onClick={() => void startUpload(pending, true)}>覆盖</Button>
-        </div>
-      )}
+      <ConfirmDialog open={!!pending} onOpenChange={(open) => { if (!open) setPending(undefined); }} title="覆盖" confirm="覆盖" destructive
+        description={<>当前文件夹已有 {conflicts.map((file) => `「${file.name}」`).join("、")}，是否覆盖？</>}
+        onConfirm={() => { if (pending) void startUpload(pending, true); }} />
+
 
       {folder !== undefined && (
         <form
@@ -420,15 +410,15 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
         >
           <FileIcon dir />
           <Input autoFocus aria-label="文件夹名称" value={folder} disabled={busy} onChange={(event) => setFolder(event.target.value)} />
-          <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" onClick={() => setFolder(undefined)}>取消</Button>
-          <Action type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90" working={doing === "mkdir"} disabled={busy || !validName(folder)}>新建</Action>
+          <Button size="sm" variant="outline" type="button" onClick={() => setFolder(undefined)}>取消</Button>
+          <Action size="sm" variant="default" type="submit" working={doing === "mkdir"} disabled={busy || !validName(folder)}>新建</Action>
         </form>
       )}
 
       {error ? <InlineError>{error}</InlineError>
         : !listing ? <PanelSkeleton />
         : (
-          <div className={`min-w-0${loading ? " opacity-60" : ""}`} role="table" aria-label="文件列表" aria-busy={loading}>
+          <div className={`min-w-0${loading ? " opacity-60" : ""}`} aria-busy={loading}>
             {shown !== "/" && (
               <div className="flex min-w-0 flex-wrap items-center gap-2 border-b py-2" role="row">
                 <Button variant="outline" className="flex h-auto min-w-0 flex-1 flex-wrap items-center justify-start gap-2 border-0 bg-transparent p-2 text-left" onClick={() => setPath(parent(shown))}>
@@ -440,7 +430,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
             {listing.entries.length === 0 && (
               <EmptyState icon={File}>{readOnly ? "文件夹为空。" : "文件夹为空。把文件拖到这里，或点「上传文件」。"}</EmptyState>
             )}
-            {listing.entries.map((entry: DiskEntry) => {
+            <AnimatedList items={listing.entries} getKey={(entry) => entry.name} label="文件列表">{(entry: DiskEntry) => {
               const target = join(shown, entry.name);
               const open = selected === entry.name;
               return (
@@ -457,8 +447,8 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                     >
                       <FileIcon dir={entry.dir} />
                       <Input autoFocus aria-label="新名称" value={newName} disabled={busy} onChange={(event) => setNewName(event.target.value)} />
-                      <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" onClick={() => setRenaming(undefined)}>取消</Button>
-                      <Action type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90" working={doing === `mv:${entry.name}`} disabled={busy || !validName(newName) || newName === entry.name}>重命名</Action>
+                      <Button size="sm" variant="outline" type="button" onClick={() => setRenaming(undefined)}>取消</Button>
+                      <Action size="sm" variant="default" type="submit" working={doing === `mv:${entry.name}`} disabled={busy || !validName(newName) || newName === entry.name}>重命名</Action>
                     </form>
                   ) : (
                     <>
@@ -473,10 +463,10 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                         <span className="shrink-0 text-xs text-muted-foreground tabular-nums hidden @lg:block">{entry.mtime ? when(entry.mtime) : ""}</span>
                       </Button>
                       <span className={`ml-auto flex flex-wrap items-center justify-end gap-2 ${open ? "" : "invisible group-hover/file:visible group-focus-within/file:visible [@media(hover:none)]:visible"}`}>
-                        {!entry.dir && <a className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" href={diskFileURL(disk.name, target)} download={entry.name} aria-label={`下载 ${entry.name}`}>下载</a>}
+                        {!entry.dir && <Button asChild variant="outline" size="sm"><a href={diskFileURL(disk.name, target)} download={entry.name} aria-label={`下载 ${entry.name}`}>下载</a></Button>}
                         {!readOnly && (
                           <>
-                            <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" aria-label={`重命名 ${entry.name}`} disabled={locked} onClick={() => { setRenaming(entry.name); setNewName(entry.name); }}>重命名</Button>
+                            <Button size="sm" variant="outline" aria-label={`重命名 ${entry.name}`} disabled={locked} onClick={() => { setRenaming(entry.name); setNewName(entry.name); }}>重命名</Button>
                             <ArmedButton
                               label="删除"
                               armedLabel={entry.dir ? "删除全部内容" : "确认删除"}
@@ -499,7 +489,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                   )}
                 </div>
               );
-            })}
+            }}</AnimatedList>
           </div>
         )}
     </div></SettingsCard>
@@ -613,14 +603,14 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
           <h4>备份</h4>
           <p className="text-muted-foreground">下载完整镜像，可在电脑上直接挂载或写入真实 U 盘。</p>
           <span className="flex w-full min-w-0 flex-wrap items-center gap-2 [&_input]:min-w-24 [&_input]:flex-1">
-            <a
-              className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs${disk.attached && !disk.readOnly ? " pointer-events-none opacity-50" : ""}`}
+            <Button asChild variant="outline" size="sm"><a
+              className={` ${disk.attached && !disk.readOnly ? " pointer-events-none opacity-50" : ""}`}
               aria-disabled={disk.attached && !disk.readOnly}
               href={diskImageURL(disk.name)}
               download={disk.name}
             >
               下载镜像 · {bytes(disk.size)}
-            </a>
+            </a></Button>
           </span>
         </div>
       </div>
@@ -638,15 +628,14 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
           </Action>
         </div>
         {disk.snapshots.length === 0 ? <p className="text-sm text-muted-foreground">尚无快照。格式化前可自动创建一个。</p> : (
-          <ul className="flex flex-col divide-y [&>li]:flex [&>li]:flex-wrap [&>li]:items-center [&>li]:gap-3 [&>li]:py-3">
-            {disk.snapshots.map((snapshot) => {
+          <AnimatedList className="flex flex-col divide-y" label="快照" items={disk.snapshots} getKey={(snapshot) => snapshot.id}>{(snapshot) => {
               const restoring = typeof open === "object" && open.restore === snapshot.id;
               return (
-                <li key={snapshot.id} className="">
+                <div className="flex flex-wrap items-center gap-3 py-3">
                   <span className="tabular-nums">{when(snapshot.time)}</span>
                   <span className="text-muted-foreground tabular-nums">{bytes(snapshot.size)}</span>
-                  <Button variant="outline"
-                    className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs${restoring ? " bg-accent" : ""}`}
+                  <Button size="sm" variant="outline"
+                    className={` ${restoring ? " bg-accent" : ""}`}
                     aria-label={`恢复 ${when(snapshot.time)} 的快照`}
                     aria-expanded={restoring}
                     disabled={locked}
@@ -668,10 +657,9 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
                       <p>数据盘当前内容将被 {when(snapshot.time)} 的快照替换，容量恢复为 {bytes(snapshot.size)}，之后的修改会丢失。</p>
                     </Confirmed>
                   )}
-                </li>
+                </div>
               );
-            })}
-          </ul>
+            }}</AnimatedList>
         )}
       </div>
 
@@ -682,8 +670,8 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
               <h4>{item.title}</h4>
               <span className="text-muted-foreground">{item.text}</span>
             </span>
-            <Button variant="outline"
-              className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs${item.danger ? " border-destructive/30 text-destructive hover:bg-destructive/10" : ""}${open === item.id ? " bg-accent" : ""}`}
+            <Button size="sm" variant="outline"
+              className={` ${item.danger ? " border-destructive/30 text-destructive hover:bg-destructive/10" : ""}${open === item.id ? " bg-accent" : ""}`}
               aria-expanded={open === item.id}
               disabled={item.disabled}
               onClick={() => toggle(item.id)}
@@ -710,8 +698,8 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
                 </fieldset>
                 <p className="text-sm text-muted-foreground">板子需要容纳旧盘快照和新盘的可用空间，最多扩到 32 GiB。</p>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" disabled={busy} onClick={() => setOpen(undefined)}>取消</Button>
-                  <Action type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" working={doing === "resize"} disabled={locked || !sizeMiB}>扩容到 {bytes(sizeMiB * 2 ** 20)}</Action>
+                  <Button variant="outline" type="button" disabled={busy} onClick={() => setOpen(undefined)}>取消</Button>
+                  <Action variant="default" type="submit" working={doing === "resize"} disabled={locked || !sizeMiB}>扩容到 {bytes(sizeMiB * 2 ** 20)}</Action>
                 </div>
               </form>
             )}
@@ -757,6 +745,8 @@ export function DiskPanel() {
   useEffect(() => {
     const controller = new AbortController();
     getDisks(controller.signal).then((list) => {
+      // A changed LUN token cancels the previous read, including JSON parsing.
+      if (controller.signal.aborted) return;
       setDisks(list);
       setError(undefined);
       setSelected((name) => (list.some((disk) => disk.name === name) ? name : list[0]?.name));
@@ -797,12 +787,12 @@ export function DiskPanel() {
           <p>板子上的 FAT32 磁盘镜像。未挂载时可在这里管理文件；在「虚拟介质」页挂载后，被控电脑和四个 KVM 界面都能使用。</p>
           {disks && <span className="ml-auto"><CreateDisk disks={disks} busy={busy} run={run} onCreated={(name) => { setSelected(name); refresh(); }} /></span>}
         </div>
-        {error ? <div><InlineError>{error}</InlineError><Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" onClick={refresh}>重新读取数据盘</Button></div>
+        {error ? <div><InlineError>{error}</InlineError><Button size="sm" variant="outline" onClick={refresh}>重新读取数据盘</Button></div>
           : !disks ? <PanelSkeleton />
           : disks.length === 0 ? (
             <EmptyState icon={HardDrive}>还没有数据盘。新建一个，用来在被控电脑和这里之间传递文件。</EmptyState>
           ) : (
-            <div className="grid gap-3 @lg:grid-cols-2" role="radiogroup" aria-label="选择数据盘">
+            <FadeIn><div className="grid gap-3 @lg:grid-cols-2" role="radiogroup" aria-label="选择数据盘">
               {disks.map((item) => (
                 <label key={item.name} className={`flex min-w-0 cursor-pointer flex-col gap-3 rounded-md border p-4 has-checked:border-primary has-checked:bg-primary/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50${item.name === selected ? " border-primary bg-primary/5" : ""}`}>
                   <input className="accent-primary" type="radio" name="disk" checked={item.name === selected} onChange={() => setSelected(item.name)} />
@@ -815,7 +805,7 @@ export function DiskPanel() {
                   <DiskState disk={item} />
                 </label>
               ))}
-            </div>
+            </div></FadeIn>
           )}
       </SettingsCard>
       {disk && (

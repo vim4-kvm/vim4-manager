@@ -1,3 +1,5 @@
+import { FadeIn } from "@/components/Motion";
+import { AnimatedList } from "@/components/AnimatedList";
 import { useEffect, useState } from "react";
 import { request, type Media, type MediaImage } from "./api";
 import { Disc3, HardDrive, Loader2 } from "lucide-react";
@@ -77,9 +79,9 @@ export function MediaWait({ media, target, onCancel }: { media?: Media; target: 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-card p-4" role="status">
       <div className="flex flex-wrap items-center gap-3">
-        <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        <Loader2 className="size-4 motion-safe:animate-spin" aria-hidden="true" />
         <strong>等待安全弹出后切换到 {target}</strong>
-        <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" onClick={onCancel}>
+        <Button size="sm" variant="outline" onClick={onCancel}>
           取消等待
         </Button>
       </div>
@@ -139,7 +141,7 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
           {media.nasdisk?.mode === "rw" && <p className="text-sm text-muted-foreground">弹出后修改会写回 NAS，进度见「网络存储」页。</p>}
         </div>
         {!ejecting && (
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" disabled={locked} onClick={() => setEjecting(true)}>
+          <Button variant="outline" disabled={locked} onClick={() => setEjecting(true)}>
             弹出…
           </Button>
         )}
@@ -201,7 +203,7 @@ export function MediaPanel() {
       <CurrentMedia media={media} locked={locked} run={run} />
       <SettingsCard title="镜像库" description="数据盘与各 KVM 的 ISO/IMG 目录。数据盘在「数据盘」页新建和管理文件，ISO 请在对应 KVM 中上传。">
         <div className="flex justify-end">
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs " disabled={busy || loading} onClick={() => setReload(value => value + 1)}>
+          <Button size="sm" variant="outline" disabled={busy || loading} onClick={() => setReload(value => value + 1)}>
             刷新
           </Button>
         </div>
@@ -210,15 +212,15 @@ export function MediaPanel() {
           : images.length === 0 ? (
             <EmptyState icon={Disc3}>尚无镜像。在「数据盘」页新建数据盘，或通过对应 KVM 上传 ISO/IMG 文件后刷新列表。</EmptyState>
           ) : (
-            <div className="flex flex-col gap-5" role="radiogroup" aria-label="镜像文件">
+            <FadeIn><div className="flex flex-col gap-5" role="radiogroup" aria-label="镜像文件">
               {groups.map(source => (
                 <div key={source} className="flex flex-col gap-2 [&_h4]:flex [&_h4]:justify-between [&_h4]:font-medium">
                   <h4>
                     {sources[source] ?? source}
                     {source === "data" && <a className="text-xs text-primary" href="#/disks">管理文件 →</a>}
                   </h4>
-                  {images.filter(image => image.source === source).map(image => (
-                    <label key={image.id} className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 rounded-md border p-3 has-checked:border-primary has-checked:bg-primary/5 [&_input]:accent-primary">
+                  <AnimatedList className="flex flex-col gap-2" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
+                    <label className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 rounded-md border p-3 has-checked:border-primary has-checked:bg-primary/5 [&_input]:accent-primary">
                       <input
                         type="radio"
                         name="media-image"
@@ -231,10 +233,10 @@ export function MediaPanel() {
                       <span className="min-w-0 flex-1 break-all text-sm">{image.name}</span>
                       <span className="ml-auto text-xs text-muted-foreground tabular-nums">{image.cdrom ? "光盘" : "磁盘"} · {size(image.size)}</span>
                     </label>
-                  ))}
+                  )}</AnimatedList>
                 </div>
               ))}
-            </div>
+            </div></FadeIn>
           )}
         <SettingRow title="只读挂载" description={blocker} control={<>
           <label className="flex items-start gap-2 text-sm [&_input]:mt-1 [&_input]:accent-primary">
@@ -246,8 +248,7 @@ export function MediaPanel() {
             />
             只读挂载{readOnlyRequired ? "（光盘或 JetKVM 必须只读）" : ""}
           </label>
-          <Button variant="outline"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border bg-card px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+          <Button variant="default"
             disabled={locked || loading || !!media?.inserted || !selected || !active}
             onClick={() => {
               if (selected) void run("正在挂载虚拟磁盘…", () => request("/api/media/mount", { app: active, image: selected.id, cdrom: selected.cdrom, readOnly: readonly || readOnlyRequired }), "虚拟磁盘已挂载");

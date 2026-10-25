@@ -1,3 +1,6 @@
+import { Wifi } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
+import { AnimatedList } from "@/components/AnimatedList";
 import { Fact, FactGrid } from "@/components/FactGrid";
 import { StatusDot } from "@/components/StatusDot";
 import { Button } from "@/components/ui/button";
@@ -147,17 +150,17 @@ export function WifiHotspot({
             {hotspot.active ? "保存后热点会重启，已连入的设备需要用新设置重新连接。" : "板子的无线网卡只支持 2.4 GHz 热点。"}
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" onClick={() => setEditing(false)}>
+            <Button variant="outline" type="button" onClick={() => setEditing(false)}>
               取消
             </Button>
-            <Button variant="outline" type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked || !ssidValid || !passwordValid}>
+            <Button variant="default" type="submit" disabled={locked || !ssidValid || !passwordValid}>
               保存
             </Button>
           </div>
         </form>
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={edit}>
+          <Button size="sm" variant="outline" disabled={locked} onClick={edit}>
             修改热点设置
           </Button>
         </div>
@@ -170,18 +173,16 @@ export function WifiHotspot({
             <span className="text-muted-foreground">{hotspot.clients.length} 台</span>
           </div>
           {hotspot.clients.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">还没有设备连入。</p>
+            <EmptyState icon={Wifi}>还没有设备连入。</EmptyState>
           ) : (
-            <ul className="flex min-w-0 flex-col divide-y" aria-label="已连入的设备">
-              {hotspot.clients.map((c) => (
-                <li key={c.mac} className="flex min-w-0 flex-wrap items-center gap-3 py-3">
+            <AnimatedList className="flex min-w-0 flex-col divide-y" label="已连入的设备" items={hotspot.clients} getKey={(c) => c.mac}>{(c) => (
+                <div className="flex min-w-0 flex-wrap items-center gap-3 py-3">
                   <StatusDot tone="good" />
                   <strong>{c.hostname || "未知设备"}</strong>
                   <span className="font-mono break-all text-muted-foreground">{c.ip || "等待分配地址"}</span>
                   <span className="font-mono break-all text-muted-foreground">{c.mac}</span>
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}</AnimatedList>
           )}
         </div>
       )}

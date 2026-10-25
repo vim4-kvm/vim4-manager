@@ -17,7 +17,7 @@ const status = {
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce", timezoneId: "Pacific/Honolulu" });
-  const screenshots = process.env.SCREENSHOTS || "logs/pdcard";
+  const screenshots = process.env.SCREENSHOTS || "/tmp/codex-ui/pdcard";
   await mkdir(screenshots, { recursive: true });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));

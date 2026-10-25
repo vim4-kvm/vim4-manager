@@ -1,3 +1,4 @@
+import { FadeIn } from "@/components/Motion";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InlineError } from "@/components/InlineError";
@@ -8,7 +9,8 @@ import { useActionStore } from "@/stores/action";
 import { useStatusStore } from "@/stores/status";
 import { useCallback, useEffect, useState } from "react";
 import { getUpdates, installUpdate, type Update } from "./api";
-import { DevelopmentTag, isDevelopmentVersion } from "./DevelopmentTag";
+import { DevelopmentBadge } from "@/components/DevelopmentBadge";
+import { isDevelopmentVersion } from "@/lib/version";
 
 
 // NanoKVM, JetKVM and One-KVM install updates from their own settings page,
@@ -63,7 +65,7 @@ export function UpdatesPanel() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <span className="text-muted-foreground">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
-        <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={busy || checking} onClick={() => void check()}>
+        <Button size="sm" variant="outline" disabled={busy || checking} onClick={() => void check()}>
           {checking ? "检查中…" : "重新检查"}
         </Button>
       </div>
@@ -71,7 +73,7 @@ export function UpdatesPanel() {
       {!updates ? (
         !error && <PanelSkeleton />
       ) : (
-        <SettingsCard label="更新"><div className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:pr-3">
+        <SettingsCard label="更新"><FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:pr-3">
           <thead>
             <tr>
               <th>项目</th>
@@ -86,7 +88,7 @@ export function UpdatesPanel() {
               return (
                 <tr key={update.package}>
                   <td>
-                    <span className="flex flex-wrap items-center gap-2 font-medium">{update.name}<DevelopmentTag version={update.installed} /></span>
+                    <span className="flex flex-wrap items-center gap-2 font-medium">{update.name}<DevelopmentBadge version={update.installed} /></span>
                     <a className="font-mono break-all text-muted-foreground" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer">
                       {update.repo}
                     </a>
@@ -102,9 +104,9 @@ export function UpdatesPanel() {
                   </td>
                   <td className="text-right">
                     {update.available && update.selfService && active === SELF_SERVICE[update.package] && (
-                      <a className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
+                      <Button asChild variant="outline" size="sm"><a href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
                         在 {update.name} 中更新
-                      </a>
+                      </a></Button>
                     )}
                     {update.available && !update.selfService && (
                       confirming === update.package ? (
@@ -112,7 +114,7 @@ export function UpdatesPanel() {
                           description={update.package === "vim4-pikvm" ? "PiKVM 运行中会重启。" : "管理面板会重启。"}
                           onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => install(update)} />
                       ) : (
-                        <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={busy} onClick={() => setConfirming(update.package)}>
+                        <Button size="sm" variant="default" disabled={busy} onClick={() => setConfirming(update.package)}>
                           更新
                         </Button>
                       )
@@ -122,7 +124,7 @@ export function UpdatesPanel() {
               );
             })}
           </tbody>
-        </table></div></SettingsCard>
+        </table></FadeIn></SettingsCard>
       )}
     </>
   );

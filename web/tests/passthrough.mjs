@@ -178,7 +178,7 @@ try {
           });
           assert(ring.width >= 12 && Math.abs(ring.width - ring.height) < 0.1,
             `${device}/${theme}/${name}: spinner must render as a square icon: ${JSON.stringify(ring)}`);
-          assert.equal(ring.animation, "spin");
+          assert.equal(ring.animation, "none", "reduced motion keeps the pending indicator static");
           assert.equal(await value("输出"), "切换中…");
           assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
           assert.equal(await detail("输出").count(), 0);

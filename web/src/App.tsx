@@ -31,7 +31,7 @@ function usePage(): PageId {
 export function App() {
   useStatusPolling();
   const page = usePage();
-  return <AppShell page={page} legacy={false}>
+  return <AppShell page={page}>
     {page === "overview" && <Overview />}
     {page === "output" && <PassthroughPanel />}
     {page === "apps" && <Applications />}

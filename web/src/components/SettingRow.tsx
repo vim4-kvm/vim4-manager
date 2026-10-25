@@ -26,7 +26,7 @@ export function SettingRow({ title, description, status, pending = false, contro
         inactive && "[&_[data-slot=switch][data-state=checked]]:bg-primary/40")}>
         {status !== undefined && (
           <span role="status" className="flex max-w-48 items-center gap-1.5 text-right text-sm text-muted-foreground">
-            {pending && <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin" />}
+            {pending && <Loader2 aria-hidden="true" className="size-4 shrink-0 motion-safe:animate-spin" />}
             <FadeText id={status} />
           </span>
         )}

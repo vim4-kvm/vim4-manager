@@ -1,11 +1,7 @@
-/* Legacy page styles sit below components and utilities until phase 3 removes them. */
-@layer theme, base, legacy, components, utilities;
 @import "tailwindcss" source(none);
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "./styles.css" layer(legacy);
 
-/* Only migrated code generates utilities; legacy class names stay inert. */
 @source "./components";
 @source "./shell";
 @source "./pages";
@@ -128,6 +124,8 @@
 }
 
 @layer base {
+  html { color-scheme: light; }
+  html.dark { color-scheme: dark; }
   * {
     @apply border-border outline-ring/50;
   }

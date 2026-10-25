@@ -1,3 +1,5 @@
+import { Network } from "lucide-react";
+import { EmptyState } from "@/components/EmptyState";
 import { StatusDot } from "@/components/StatusDot";
 import { InlineError } from "@/components/InlineError";
 import { AnimatedList } from "@/components/AnimatedList";
@@ -99,9 +101,9 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
       <div className="ml-auto flex flex-wrap items-center gap-2">
         {ip && <CopyButton text={ip} label={`${device.hostName} 的地址`} />}
         {ip && (
-          <Button variant="outline"
+          <Button size="sm" variant="outline"
             type="button"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
+
             aria-label={`测试到 ${device.hostName} 的连接`}
             disabled={ping?.pending || !writable}
             onClick={() => void test()}
@@ -127,13 +129,13 @@ export function TailscaleDevices({ devices, writable }: { devices: TailscaleDevi
         </span>
       </div>
       {devices.length === 0 ? (
-        <p className="text-muted-foreground py-4 text-center text-sm">tailnet 中还没有其他设备。</p>
+        <EmptyState icon={Network}>tailnet 中还没有其他设备。</EmptyState>
       ) : (
         <>
           {online.length > 0 ? (
             <AnimatedList className="flex min-w-0 flex-col divide-y" label="在线设备" items={online} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
           ) : (
-            <p className="text-muted-foreground py-4 text-center text-sm">没有其他在线设备。</p>
+            <EmptyState icon={Network}>没有其他在线设备。</EmptyState>
           )}
           {offline.length > 0 && (
             <Button variant="outline"

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { enter, exit } from "@/lib/motion";
-import { cn } from "@/lib/utils";
 import { AppSidebar } from "./AppSidebar";
 import { pageMeta, type PageId } from "./pages";
 
@@ -42,11 +41,8 @@ function PageTransition({ page, children }: { page: PageId; children: ReactNode 
     exit={{ opacity: 0, transition: exit() }}>{children}</m.div></AnimatePresence>;
 }
 
-/**
- * Sidebar (Sheet below 768px), mobile top bar, page header and toasts.
- * `legacy` pages keep the old stylesheet's layout until they migrate.
- */
-export function AppShell({ page, legacy, children }: { page: PageId; legacy: boolean; children: ReactNode }) {
+/** Sidebar, mobile Sheet and top bar, page header, transitions and toasts. */
+export function AppShell({ page, children }: { page: PageId; children: ReactNode }) {
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -64,7 +60,7 @@ export function AppShell({ page, legacy, children }: { page: PageId; legacy: boo
               className="mx-auto w-full max-w-[880px] px-4 pt-4 pb-16 outline-none md:px-8 md:pt-8">
               <PageTransition page={page}>
                 <PageHeader page={page} />
-                <div className={cn("flex flex-col", legacy ? "legacy gap-4" : "gap-6")}>{children}</div>
+                <div className="flex flex-col gap-6">{children}</div>
               </PageTransition>
             </main>
           </div>

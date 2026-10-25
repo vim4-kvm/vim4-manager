@@ -99,6 +99,7 @@ try {
   await page.getByRole("menu").waitFor();
   assert.equal(await page.getByRole("menuitem", { name: "编辑" }).evaluate((el) => el === document.activeElement), true);
   await page.keyboard.press("ArrowDown");
+  await page.waitForFunction(el => el === document.activeElement, await page.getByRole("menuitem", { name: "断开" }).elementHandle());
   assert.equal(await page.getByRole("menuitem", { name: "断开" }).evaluate((el) => el === document.activeElement), true);
   await page.keyboard.press("Escape");
   await page.getByRole("menu").waitFor({ state: "hidden" });
@@ -108,9 +109,11 @@ try {
   await page.getByRole("menu").waitFor({ state: "hidden" });
   await more.click();
   await page.getByRole("menuitem", { name: "编辑" }).click();
+  await page.getByRole("menu").waitFor({ state: "hidden" });
   await page.getByText("/var/lib/vim4-kvm/nas/home").waitFor();
   assert.equal(await page.getByRole("group", { name: "协议" }).count(), 0, "type is fixed after creation");
   await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByLabel("服务器", { exact: true }).waitFor({ state: "hidden" });
   const edited = requests.filter((r) => r.path === "/api/storage").at(-1).body;
   assert.equal(edited.id, "home");
   assert.equal("password" in edited, false);

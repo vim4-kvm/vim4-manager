@@ -1,3 +1,6 @@
+import { EmptyState } from "@/components/EmptyState";
+import { AnimatedList } from "@/components/AnimatedList";
+import { FadeIn } from "@/components/Motion";
 import { Wifi, WifiHigh, WifiLow, WifiZero } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -34,6 +37,7 @@ function band(frequency: number) {
 
 export function WifiControl() {
   const busy = useActionStore((s) => !!s.busy);
+  const [reading, setReading] = useState(true);
   const [state, setState] = useState<WifiState>();
   const [error, setError] = useState("");
   const [stale, setStale] = useState(true);
@@ -60,7 +64,7 @@ export function WifiControl() {
       } catch {
         if (!cancelled) setStale(true);
       } finally {
-        if (!cancelled) timer = window.setTimeout(refresh, 3000);
+        if (!cancelled) { setReading(false); timer = window.setTimeout(refresh, 3000); }
       }
     }
     void refresh();
@@ -151,8 +155,10 @@ export function WifiControl() {
   const joinPasswordValid = !joining?.secured || PSK_PATTERN.test(password);
   const hotspotName = state?.hotspot?.ssid;
 
+  if (reading && !state) return <SettingsCard label="Wi-Fi"><PanelSkeleton label={label} /></SettingsCard>;
+
   return (
-    <SettingsCard label="Wi-Fi"><div className="flex min-w-0 flex-col gap-5">
+    <SettingsCard label="Wi-Fi"><FadeIn className="flex min-w-0 flex-col gap-5">
         <SettingRow title="Wi-Fi" description="连接周围的无线网络，或让板子发出热点供其他设备直接连入。有线网络不受影响。"
           status={label} pending={!!pending} control={<Switch aria-label="Wi-Fi" checked={!!state?.enabled}
             disabled={locked || !state?.supported || !state.hardwareEnabled}
@@ -194,7 +200,7 @@ export function WifiControl() {
                         </span>
                       </div>
                       <SignalBars signal={current.signal} />
-                      <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => setConfirming({ kind: "disconnect" })}>
+                      <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "disconnect" })}>
                         断开
                       </Button>
                     </>
@@ -208,7 +214,7 @@ export function WifiControl() {
 
                 <div className="flex flex-wrap items-center justify-between gap-3 [&_h4]:font-medium">
                   <h4>附近的网络</h4>
-                  <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked || scanning} aria-busy={scanning} onClick={() => void scan(true)}>
+                  <Button size="sm" variant="outline" disabled={locked || scanning} aria-busy={scanning} onClick={() => void scan(true)}>
                     {scanning && <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />}
                     {scanning ? "扫描中" : "重新扫描"}
                   </Button>
@@ -216,13 +222,12 @@ export function WifiControl() {
                 {networks === undefined ? (
                   <PanelSkeleton label="正在扫描…" rows={2} />
                 ) : visible.length === 0 ? (
-                  <p className="py-4 text-center text-sm text-muted-foreground">没有发现其他网络。</p>
+                  <EmptyState icon={Wifi}>没有发现其他网络。</EmptyState>
                 ) : (
-                  <ul className="flex flex-col divide-y rounded-md border [&_li]:min-w-0" aria-label="附近的网络">
-                    {visible.map((n) => {
+                  <AnimatedList className="flex flex-col divide-y rounded-md border [&_li]:min-w-0" label="附近的网络" items={visible} getKey={(n) => n.ssid}>{(n) => {
                       const open = joining && !joining.hidden && joining.ssid === n.ssid;
                       return (
-                        <li key={n.ssid} className={open ? "bg-accent" : undefined}>
+                        <div className={open ? "bg-accent" : undefined}>
                           <Button variant="outline"
                             type="button"
                             className="flex h-auto w-full min-w-0 flex-wrap items-center justify-start gap-3 whitespace-normal border-0 bg-transparent px-3 py-3 text-left"
@@ -255,10 +260,9 @@ export function WifiControl() {
                               onJoin={() => void join()}
                             />
                           )}
-                        </li>
+                        </div>
                       );
-                    })}
-                  </ul>
+                    }}</AnimatedList>
                 )}
                 <div className="flex flex-wrap items-center gap-4">
                   <Button variant="outline"
@@ -311,9 +315,8 @@ export function WifiControl() {
                   </div>
                 )}
                 {showSaved && saved.length > 0 && (
-                  <ul className="flex flex-col divide-y rounded-md border [&_li]:min-w-0 " aria-label="已保存的网络">
-                    {saved.map((s) => (
-                      <li key={s.id}>
+                  <AnimatedList className="flex flex-col divide-y rounded-md border [&_li]:min-w-0 " label="已保存的网络" items={saved} getKey={(s) => s.id}>{(s) => (
+                      <>
                         <div className="flex min-w-0 flex-wrap items-center gap-3 p-3">
                           <span className="min-w-0 flex-1 break-all font-medium">
                             {s.ssid}
@@ -331,21 +334,19 @@ export function WifiControl() {
                             自动连接
                           </label>
                           {!s.active && (
-                            <Button variant="outline"
-                              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
+                            <Button size="sm" variant="outline"
                               disabled={locked}
                               onClick={() => void act(`正在连接 ${s.ssid}…`, () => wifiWrite("/activate", { id: s.id }))}
                             >
                               连接
                             </Button>
                           )}
-                          <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => setConfirming({ kind: "forget", network: s })}>
+                          <Button size="sm" variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "forget", network: s })}>
                             忘记
                           </Button>
                         </div>
-                      </li>
-                    ))}
-                  </ul>
+                      </>
+                    )}</AnimatedList>
                 )}
               </>
             )}
@@ -367,7 +368,7 @@ export function WifiControl() {
             {error}
           </InlineError>
         )}
-      </div></SettingsCard>
+      </FadeIn></SettingsCard>
   );
 
   function runConfirm(c: Confirm) {
@@ -454,10 +455,10 @@ function JoinForm(props: {
         </label>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" onClick={props.onCancel}>
+        <Button variant="outline" type="button" onClick={props.onCancel}>
           取消
         </Button>
-        <Button variant="outline" type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={props.locked || !props.valid}>
+        <Button variant="default" type="submit" disabled={props.locked || !props.valid}>
           连接
         </Button>
       </div>

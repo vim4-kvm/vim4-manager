@@ -136,7 +136,7 @@ function CurveEditor({
         </span>
         {dirty && (
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-0.5 w-3.5 rounded-sm bg-primary bg-idle border-t border-dashed border-idle" />
+            <span className="h-0.5 w-3.5 rounded-sm bg-idle border-t border-dashed border-idle" />
             正在生效
           </span>
         )}
@@ -182,7 +182,7 @@ function CurveEditor({
             <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
               {THROTTLE_C}° 起 CPU 降频
             </text>
-            {dirty && <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
+            {dirty && <path className="fill-none [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
             <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round]" d={path(draft)} />
             {vertices(draft)
               .slice(0, 2)
@@ -327,22 +327,22 @@ export function FanPanel({
 
         <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
           {!auto && <span className="text-muted-foreground">当前为手动模式，应用后改为自动调速。</span>}
-          <Button variant="outline"
+          <Button size="sm" variant="outline"
             type="button"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
+
             disabled={busy || same(shown, DEFAULT_FAN)}
             onClick={() => setDraft(DEFAULT_FAN)}
           >
             恢复出厂
           </Button>
           {dirty && (
-            <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={busy} onClick={() => setDraft(undefined)}>
+            <Button size="sm" variant="outline" type="button" disabled={busy} onClick={() => setDraft(undefined)}>
               撤销
             </Button>
           )}
-          <Button variant="outline"
+          <Button size="sm" variant="default"
             type="button"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+
             disabled={busy || !!invalid || (!dirty && auto)}
             onClick={() => void apply()}
           >
