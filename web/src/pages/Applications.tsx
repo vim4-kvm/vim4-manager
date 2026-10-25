@@ -59,10 +59,10 @@ export function Applications() {
   return <>
     {waiting ? <MediaWait media={status.media} target={waiting.app.name} onCancel={cancelWaiting} />
       : <MediaSummary media={stale ? undefined : status.media} />}
-    <AnimatedList items={status.apps} getKey={(app) => app.id} className="flex flex-col gap-4">{(app) => {
+    <AnimatedList items={status.apps} getKey={(app) => app.id} className="grid grid-cols-1 gap-4 xl:grid-cols-2" itemClassName="min-w-0 [&>div]:h-full">{(app) => {
       const selected = app.id === status.active;
       const running = app.unit.active === "active";
-      return <SettingsCard className={selected ? "ring-primary/40" : undefined}>
+      return <SettingsCard className={selected ? "border-primary/40 bg-muted/20" : undefined}>
         <SettingRow title={app.name} badges={selected && <Badge variant="secondary">开机启用</Badge>}
           description={<>
             <span className="block">{app.description}</span>

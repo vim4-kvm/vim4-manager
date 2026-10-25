@@ -22,7 +22,7 @@ export function SettingsCard({ title, description, action, children, className, 
       {title && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-4 @sm:px-6">
           <div className="flex min-w-0 flex-1 basis-64 flex-col gap-1">
-            <h2 className="text-sm font-semibold">{title}</h2>
+            <h2 className="text-base font-semibold tracking-tight">{title}</h2>
             {description && <div className="max-w-prose text-sm text-pretty text-muted-foreground">{description}</div>}
           </div>
           {action}

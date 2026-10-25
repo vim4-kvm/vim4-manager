@@ -1,4 +1,4 @@
-import { History } from "lucide-react";
+import { ArrowUpRight, Clock3, Cpu, Fan, History, MemoryStick, MonitorPlay, Network, Plug, Thermometer, Zap, type LucideIcon } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { AnimatedList } from "@/components/AnimatedList";
 import { useId, useState, type ReactNode } from "react";
@@ -42,7 +42,8 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
   const uptime = since(app.unit, now);
   const version = status.system.packages.find((pkg) => pkg.name === `vim4-${app.id}`)?.version;
   return (
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+      <span aria-hidden="true" className="grid size-11 shrink-0 place-items-center rounded-xl border bg-muted/50"><MonitorPlay className="size-5 text-muted-foreground" /></span>
       <div className="mr-auto flex min-w-0 flex-col gap-1">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h2 className="text-base font-semibold tracking-tight">{app.name}</h2>
@@ -65,7 +66,7 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
         <Button variant="outline" asChild><a href="#/apps">更换</a></Button>
         {/* Keep a focusable link while stopped, matching the previous behaviour. */}
         <Button asChild className={cn(!running && "pointer-events-none opacity-50")}>
-          <a href={kvmURL(app.port, app.id)} aria-disabled={!running}>打开 {app.name}</a>
+          <a href={kvmURL(app.port, app.id)} aria-disabled={!running}>打开 {app.name}<ArrowUpRight aria-hidden="true" /></a>
         </Button>
       </div>
     </div>
@@ -105,7 +106,7 @@ function PowerFact({ power, kernel }: { power: Status["power"]; kernel: string }
     : fw ? `${warm ? "本次未重新协商" : "启动固件"} · Rp ${fw.rp === "default" ? "默认电流" : fw.rp === "unknown" ? "未知" : fw.rp}`
     : kernel.startsWith("7.") ? "沿用启动固件初始化 · 协商额度不可读" : "本次开机无可确认的协商额度";
   return (
-    <Fact label="PD 协商" value={value} detail={detail} href={fw ? undefined : "#/services"} destination="底层服务">
+    <Fact card icon={Zap} label="PD 协商" value={value} detail={detail} href={fw ? undefined : "#/services"} destination="底层服务">
       {fw && (
         <div data-pd-capabilities className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
           <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
@@ -153,13 +154,13 @@ function LinkFacts({ hw, power, now }: { hw: Hardware; power: Status["power"]; n
     ? `采集 ${h.captureWidth}×${h.captureHeight}` : undefined;
   const usbConfigured = hw.usb === "configured";
   return (
-    <FactGrid cols={4}>
-      <Fact label="HDMI 输入" href="#/video" destination="视频输入" value={hdmiValue} valueKey={h.signal ? `${h.width}×${h.height}` : "无信号"}
+    <FactGrid cols={4} className="gap-4">
+      <Fact card icon={MonitorPlay} label="HDMI 输入" href="#/video" destination="视频输入" value={hdmiValue} valueKey={h.signal ? `${h.width}×${h.height}` : "无信号"}
         detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
-      <Fact label="USB 键鼠" href="#/services" destination="底层服务" value={usbConfigured ? "已连接" : hw.usb ? hw.usb : "未知"}
+      <Fact card icon={Plug} label="USB 键鼠" href="#/services" destination="底层服务" value={usbConfigured ? "已连接" : hw.usb ? hw.usb : "未知"}
         detail={usbConfigured ? "键盘与鼠标已枚举" : "等待被控机枚举"} tone={usbConfigured ? "good" : "warning"} />
       <PowerFact power={power} kernel={hw.kernel} />
-      <Fact label="开机时长" value={duration(hw.uptimeSeconds)} detail={`开机于 ${clockTime(now - hw.uptimeSeconds * 1000, now).slice(0, -3)}`} />
+      <Fact card icon={Clock3} label="开机时长" value={duration(hw.uptimeSeconds)} detail={`开机于 ${clockTime(now - hw.uptimeSeconds * 1000, now).slice(0, -3)}`} />
     </FactGrid>
   );
 }
@@ -198,22 +199,24 @@ function bytes(n: number): string {
 }
 const watts = (v: number) => `${v.toFixed(2)} W`;
 
-function TrendCard({ title, value, detail, tone, children }: {
+function TrendCard({ title, value, detail, tone, children, icon: Icon }: {
   title: string;
   value: ReactNode;
   detail: ReactNode;
   tone?: Tone;
   children: ReactNode;
+  icon: LucideIcon;
 }) {
   return (
-    <figure className="flex min-w-0 flex-col gap-2">
+    <figure className="flex min-w-0 flex-col gap-3 rounded-xl border bg-card p-4 shadow-xs">
       <figcaption className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-        <span data-trend-title className="text-sm text-secondary-foreground">{title}</span>
-        <span data-trend-value className="col-start-2 row-start-1 flex items-center gap-2 text-lg font-semibold tracking-tight tabular-nums">
+        <span data-trend-title className="text-sm font-medium">{title}</span>
+        <Icon aria-hidden="true" className="size-4 self-center text-muted-foreground" />
+        <span data-trend-value className="col-span-2 row-start-2 mt-1 flex items-center gap-2 text-2xl font-semibold tracking-tight tabular-nums">
           {tone && <StatusDot tone={tone} />}
           {value}
         </span>
-        <span data-trend-detail className="col-span-2 truncate text-xs text-muted-foreground" title={typeof detail === "string" ? detail : undefined}>{detail}</span>
+        <span data-trend-detail className="col-span-2 mt-1 truncate text-xs text-muted-foreground" title={typeof detail === "string" ? detail : undefined}>{detail}</span>
       </figcaption>
       {children}
     </figure>
@@ -245,7 +248,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const lastTx = tx.length ? tx[tx.length - 1].v : 0;
   const lastRx = rx.length ? rx[rx.length - 1].v : 0;
   const netMax = niceCeil(Math.max(1e6, ...tx.map((p) => p.v), ...rx.map((p) => p.v)));
-  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover, height: 64, sampledFrom: history[0]?.t, sampledMinutes: minutes };
+  const shared = { end, windowMs: WINDOW_MS, hover, onHover: setHover, height: 48, sampledFrom: history[0]?.t, sampledMinutes: minutes };
   const percentageAxis = (points: Point[]) => {
     const max = Math.max(0, ...points.map((p) => p.v)) * 1.2;
     const upper = [25, 50, 100].find((v) => v >= max) ?? 100;
@@ -255,11 +258,12 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
   const lastCPU = cpu.length ? cpu[cpu.length - 1].v : undefined;
   const hottest = hw.zones.reduce<Zone | undefined>((a, z) => (!a || z.tempC > a.tempC ? z : a), undefined);
   return (
-    <div data-trends className="grid grid-cols-1 gap-x-8 gap-y-6 @lg:grid-cols-2 @3xl:grid-cols-3">
-      <TrendCard title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent, period)}`}>
+    <div data-trends className="grid grid-cols-1 gap-4 @md:grid-cols-2 @3xl:grid-cols-3">
+      <TrendCard icon={Cpu} title="CPU" value={lastCPU === undefined ? "—" : percent(lastCPU)} detail={`负载 ${hw.load1.toFixed(2)} · ${range(cpu.map((p) => p.v), percent, period)}`}>
         <TrendChart label="CPU 使用率" points={cpu} {...percentageAxis(cpu)} format={percent} {...shared} />
       </TrendCard>
       <TrendCard
+        icon={MemoryStick}
         title="内存"
         value={percent(memUsed * 100)}
         detail={`可用 ${(hw.memAvailableKiB / 1048576).toFixed(1)} / ${(hw.memTotalKiB / 1048576).toFixed(1)} GiB`}
@@ -267,7 +271,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
       >
         <TrendChart label="内存占用" points={mem} {...percentageAxis(mem)} format={percent} {...shared} />
       </TrendCard>
-      <TrendCard title="网络" value={<><small className="text-xs font-normal text-muted-foreground">发送</small>{bitrate(lastTx)}</>} detail={
+      <TrendCard icon={Network} title="网络" value={<><small className="text-xs font-normal text-muted-foreground">发送</small>{bitrate(lastTx)}</>} detail={
         <span data-legend className="inline-flex flex-wrap items-center gap-1.5">
           <span aria-hidden="true" className="h-0.5 w-3 rounded-full bg-chart-1" />发送（主要是视频）
           <span aria-hidden="true" className="ml-2 h-0.5 w-3 rounded-full bg-chart-2" />接收 {bitrate(lastRx)}
@@ -276,13 +280,14 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
         <TrendChart label="网络发送" points={tx} compare={{ label: "接收", points: rx }}
           domain={[0, netMax]} ticks={[0, netMax]} format={bitrate} tickFormat={bitrateTick} {...shared} />
       </TrendCard>
-      <TrendCard title="CPU 动态功耗（估算）" value={lastPower == null ? "—" : watts(lastPower)}
+      <TrendCard icon={Zap} title="CPU 动态功耗（估算）" value={lastPower == null ? "—" : watts(lastPower)}
         detail={powerUnavailable ? "功耗模型或计数器不可用" : lastPower == null ? "需要连续两次有效采样" : "按频率驻留与各核利用率估算 · 不含静态功耗"}>
         <TrendChart label="CPU 动态功耗估算" points={cpuPower} domain={[0, powerMax]}
           ticks={[0, powerMax]} format={watts} maxGapMs={7500}
           currentAvailable={lastPower != null} emptyMessage={powerUnavailable ? "暂无法估算" : "正在采样…"} {...shared} />
       </TrendCard>
       <TrendCard
+        icon={Thermometer}
         title="SoC 温度"
         value={celsius(hw.tempC)}
         detail={hottest && hottest.name !== "soc" ? `最高 ${hottest.name.toUpperCase()} ${celsius(hottest.tempC)}` : range(temp.map((p) => p.v), celsius, period)}
@@ -295,6 +300,7 @@ function BoardCharts({ hw, history, now }: { hw: Hardware; history: Sample[]; no
         })()}
       </TrendCard>
       <TrendCard
+        icon={Fan}
         title="风扇"
         value={hw.fanPercent > 0 ? `${hw.fanPercent}%` : "停转"}
         detail={hw.fanAuto ? "自动 · 占空比" : "手动 · 占空比"}
@@ -425,11 +431,15 @@ function StorageAndVersions({ system }: { system: System }) {
 /** Same shape as the loaded overview; the text stays for screen readers. */
 function OverviewSkeleton() {
   return (
-    <div className="flex flex-col gap-6" aria-busy="true">
+    <div className="@container flex flex-col gap-4" aria-busy="true">
       <span className="sr-only">正在读取…</span>
-      <Skeleton className="h-52 rounded-lg" />
-      <Skeleton className="h-80 rounded-lg" />
-      <Skeleton className="h-32 rounded-lg" />
+      <Skeleton className="h-20 rounded-xl" />
+      <div className="grid grid-cols-1 gap-4 @md:grid-cols-2 @4xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+      </div>
+      <div className="grid grid-cols-1 gap-4 @md:grid-cols-2 @3xl:grid-cols-3">
+        {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+      </div>
     </div>
   );
 }
@@ -439,24 +449,30 @@ export function Overview() {
   if (!status) return <OverviewSkeleton />;
   const hw = status.hardware;
   return (
-    <FadeIn className="flex flex-col gap-6">
+    <FadeIn className="@container flex flex-col gap-4">
       <SettingsCard label="当前状态">
         <ActiveApp status={status} now={now} />
-        <LinkFacts hw={hw} power={status.power} now={now} />
       </SettingsCard>
-      <SettingsCard title="最近 15 分钟" description={samplingDescription(status.history)}>
+      <LinkFacts hw={hw} power={status.power} now={now} />
+      <section aria-labelledby="resource-trends" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <h2 id="resource-trends" className="text-base font-semibold tracking-tight">最近 15 分钟</h2>
+          <p className="text-xs text-muted-foreground">{samplingDescription(status.history)}</p>
+        </div>
         <BoardCharts hw={hw} history={status.history} now={now} />
-      </SettingsCard>
-      <SettingsCard title="最近事件" description="信号、USB、服务与操作记录，管理服务重启后清空。">
-        <EventList events={status.events} now={now} />
-      </SettingsCard>
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <SettingsCard title="网络">
-          <NetworkList links={status.system.links} />
+      </section>
+      <div className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
+        <SettingsCard title="最近事件" description="信号、USB、服务与操作记录，管理服务重启后清空。">
+          <EventList events={status.events} now={now} />
         </SettingsCard>
-        <SettingsCard title="存储与版本">
-          <StorageAndVersions system={status.system} />
-        </SettingsCard>
+        <div className="grid grid-cols-1 gap-4">
+          <SettingsCard title="网络">
+            <NetworkList links={status.system.links} />
+          </SettingsCard>
+          <SettingsCard title="存储与版本">
+            <StorageAndVersions system={status.system} />
+          </SettingsCard>
+        </div>
       </div>
     </FadeIn>
   );

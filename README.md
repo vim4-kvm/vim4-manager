@@ -5,6 +5,12 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
 网络存储页路由约定为 `#/storage`，使用下述 SMB/NFS 后端 API（前端另行实现）。
 
+前端采用 [shadcn-admin](https://github.com/satnaing/shadcn-admin) 的分组导航、顶部工具栏、
+仪表盘布局和 Slate 配色，适配现有设备状态与操作流程。
+桌面侧栏可折叠，手机使用抽屉导航；账户菜单位于右上角，外观选择位于侧栏底部。
+适配范围与截图见 [界面说明](docs/ui-refactor/shadcn-admin.md)，上游授权见
+[MIT 许可证](LICENSES/shadcn-admin.txt)。
+
 匹配的 5.15 / 7.x 共用完整管理器、应用数据和 8080 网关，公共启动器按内核选择硬件接口。
 内核面板按已登记清单读取 release，支持 `7.3.0-vim4kvm-uhd1+` 并标记「正式版」；
 rc7 仍可显示和切换，不显示正式版标记。可用性仍须通过清单的完整产物校验。

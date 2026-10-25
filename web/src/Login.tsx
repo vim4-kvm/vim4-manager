@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
 import { copyText } from "./lib/clipboard";
-import { Eye, EyeOff, LockKeyhole, LucideProvider } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, LucideProvider, Monitor } from "lucide-react";
 import { LazyMotion, MotionConfig } from "motion/react";
 import { InlineError } from "@/components/InlineError";
 import { SettingsCard } from "@/components/SettingsCard";
@@ -177,7 +177,7 @@ function Login() {
   return (
     <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[12vh]">
       <header role="group" aria-label="设备" className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
-        <span className="mb-2 grid size-12 place-items-center rounded-lg bg-primary-fill text-lg font-semibold text-primary-foreground">V4</span>
+        <span aria-hidden="true" className="mb-2 grid size-11 place-items-center rounded-xl bg-primary-fill text-primary-foreground"><Monitor className="size-5" /></span>
         {!state && !error ? (
           <Skeleton className="h-7 w-36" />
         ) : (
@@ -185,7 +185,7 @@ function Login() {
         )}
         <p>VIM4 KVM · {location.host}</p>
       </header>
-      <SettingsCard className="w-full max-w-[400px]" label={setup ? "创建管理员账户" : "设备登录"}>
+      <SettingsCard className="w-full max-w-[400px]" title={setup ? undefined : "登录"} label={setup ? "创建管理员账户" : "设备登录"}>
         {!state ? (
           error ? (
             <div className="flex flex-col items-start gap-4">

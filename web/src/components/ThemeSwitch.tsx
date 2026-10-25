@@ -8,10 +8,10 @@ const icons = { light: Sun, dark: Moon, system: Monitor };
  * Light/dark/system radio group. Arrow keys select immediately and wrap,
  * with one roving tab stop, matching the previous control.
  */
-export function ThemeSwitch({ className }: { className?: string }) {
+export function ThemeSwitch({ className, compact = false }: { className?: string; compact?: boolean }) {
   const theme = useThemePreference();
   return (
-    <div role="radiogroup" aria-label="外观" className={cn("grid grid-cols-3 gap-0.5 rounded-md bg-sidebar-accent p-0.5", className)}>
+    <div role="radiogroup" aria-label="外观" className={cn("grid gap-0.5 rounded-md bg-sidebar-accent p-0.5", compact ? "grid-cols-1" : "grid-cols-3", className)}>
       {themeChoices.map((option, index) => {
         const Icon = icons[option.value];
         const checked = theme === option.value;
@@ -29,7 +29,7 @@ export function ThemeSwitch({ className }: { className?: string }) {
               event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next].focus();
             }}>
             <Icon aria-hidden="true" className="size-3.5" />
-            <span>{option.label}</span>
+            <span className={compact ? "sr-only" : undefined}>{option.label}</span>
           </button>
         );
       })}
