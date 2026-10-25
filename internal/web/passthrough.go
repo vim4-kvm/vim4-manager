@@ -25,8 +25,8 @@ func passthroughRoutes(mux *http.ServeMux, service *board.Service) {
 		if !decode(w, r, &change) {
 			return
 		}
-		if change.Enabled == nil && change.Audio == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 或 audio 布尔值"))
+		if change.Enabled == nil && change.Audio == nil && change.HDR == nil {
+			writeError(w, http.StatusBadRequest, errors.New("需要 enabled、audio 或 hdr 布尔值"))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -36,6 +36,9 @@ func passthroughRoutes(mux *http.ServeMux, service *board.Service) {
 			code := http.StatusInternalServerError
 			if errors.Is(err, board.ErrPassthroughUnsupported) || errors.Is(err, board.ErrBusy) {
 				code = http.StatusConflict
+			}
+			if change.HDR != nil && code != http.StatusConflict {
+				err = errors.New("HDR 设置未能应用，请稍后重试")
 			}
 			writeError(w, code, err)
 			return

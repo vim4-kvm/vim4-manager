@@ -53,6 +53,7 @@ func (f *fakePassthroughProvider) Apply(_ context.Context, prefs PassthroughPref
 		return f.state, f.err
 	}
 	f.state.Enabled, f.state.Audio = prefs.Enabled, prefs.Audio
+	f.state.HDR = prefs.HDR
 	if prefs.Enabled {
 		f.state.State = "running"
 	} else {
@@ -62,6 +63,28 @@ func (f *fakePassthroughProvider) Apply(_ context.Context, prefs PassthroughPref
 }
 
 func boolPointer(value bool) *bool { return &value }
+
+func TestPassthroughHDRMigrationAndPersistence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "passthrough.json")
+	if err := os.WriteFile(path, []byte(`{"enabled":true,"audio":true}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakePassthroughProvider{state: PassthroughState{Supported: true}}
+	controller, err := OpenPassthrough(context.Background(), dir, fake, &Events{Capacity: 10})
+	if err != nil || !fake.state.HDR {
+		t.Fatalf("legacy preference did not default HDR on: %+v %v", fake.state, err)
+	}
+	actual, err := controller.Set(context.Background(), PassthroughChange{HDR: boolPointer(false)})
+	if err != nil || actual.HDR || !actual.Audio || !actual.Enabled {
+		t.Fatalf("HDR-only change affected other preferences: %+v %v", actual, err)
+	}
+	fake.state.HDR = true
+	_, err = OpenPassthrough(context.Background(), dir, fake, &Events{Capacity: 10})
+	if err != nil || fake.state.HDR {
+		t.Fatalf("HDR false did not survive restart: %+v %v", fake.state, err)
+	}
+}
 
 func TestPassthroughChangeWaitsForStatusInsteadOfReportingBusy(t *testing.T) {
 	fake := &fakePassthroughProvider{state: PassthroughState{Supported: true, State: "off"}}

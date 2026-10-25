@@ -66,7 +66,8 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
   const [state, setState] = useState<PassthroughState>();
   const [error, setError] = useState<string>();
   const [readStale, setReadStale] = useState(true);
-  const [pending, setPending] = useState<"starting" | "stopping" | "audio">();
+  const [pending, setPending] = useState<"starting" | "stopping" | "audio" | "hdr">();
+  const [hdrTarget, setHdrTarget] = useState(true);
   const [description, setDescription] = useState<ReactNode>(descriptions.off);
   const mounted = useRef(false);
   const actionPending = useRef(false);
@@ -106,20 +107,26 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     return () => { controller.abort(); clearTimeout(timer); };
   }, [busy, pending, accept]);
 
-  async function change(body: { enabled?: boolean; audio?: boolean }) {
+  async function change(body: { enabled?: boolean; audio?: boolean; hdr?: boolean }) {
     if (actionPending.current) return;
     actionPending.current = true;
-    const transition = body.enabled === undefined ? "audio" : body.enabled ? "starting" : "stopping";
+    const transition = body.hdr !== undefined ? "hdr" : body.enabled === undefined ? "audio" : body.enabled ? "starting" : "stopping";
+    if (body.hdr !== undefined) setHdrTarget(body.hdr);
     setPending(transition);
-    const verb = body.enabled === undefined ? "保存声音设置" : body.enabled ? "开启透传" : "关闭透传";
-    await run(transition === "audio" ? "正在保存声音设置…" : labels[transition], async () => {
+    const verb = transition === "hdr" ? "保存 HDR 设置" : body.enabled === undefined ? "保存声音设置" : body.enabled ? "开启透传" : "关闭透传";
+    await run(transition === "hdr" ? "正在切换 HDR…" : transition === "audio" ? "正在保存声音设置…" : labels[transition], async () => {
       try {
         const next = await request<PassthroughState>("/api/passthrough", body, AbortSignal.timeout(20000));
         if (mounted.current) accept(next);
       } catch (e) {
-        throw new Error(`${verb}失败：${e instanceof Error ? e.message : String(e)}`);
+        let reason = e instanceof Error ? e.message : String(e);
+        if (transition === "hdr" && !/^[\u3400-\u9fff\s，。；、！…（）·]+$/.test(reason.replaceAll("HDR", ""))) {
+          reason = "HDR 设置未能应用，请稍后重试";
+        }
+        throw new Error(`${verb}失败：${reason}`);
       }
-    }, body.enabled === undefined ? "声音设置已保存" : body.enabled ? "透传已开启" : "透传已关闭");
+    }, transition === "hdr" ? body.hdr ? "HDR 透传已开启" : "已改为 HDR 转 SDR 输出"
+      : body.enabled === undefined ? "声音设置已保存" : body.enabled ? "透传已开启" : "透传已关闭");
     // A failed or lost response may still have changed the kernel. Keep the
     // old facts and lock controls until a fresh GET establishes actual state.
     if (mounted.current) {
@@ -133,7 +140,7 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     {error ? <p className="edid-error" role="alert">读取失败：{error}</p> : <p className="muted">正在读取透传状态…</p>}
   </div></section>;
 
-  const current = pending && pending !== "audio" ? pending : state.state;
+  const current = pending === "starting" || pending === "stopping" ? pending : state.state;
   const transitioning = current === "starting" || current === "stopping";
   const locked = busy || stale || readStale || !!pending || transitioning || !state.supported;
   const enabled = current === "starting" || (current !== "stopping" && current !== "unsupported" && state.enabled);
@@ -150,7 +157,10 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     outputDetail = output.scaled && input
       ? `已缩放，显示器不支持 ${mode(input.width, input.height, input.refreshHz)}` : output.colorFormat;
     if (output.hdrToSdr) {
-      outputDetail = output.scaled ? `${outputDetail} · HDR 已转为 SDR` : "HDR 已转为 SDR";
+      const mapping = monitor && !monitor.hdr ? "HDR 已转为 SDR · 显示器不支持 HDR" : "HDR 已转为 SDR";
+      outputDetail = output.scaled ? `${outputDetail} · ${mapping}` : mapping;
+    } else if (input && ["HDR10", "HLG"].includes(input.hdr)) {
+      outputDetail = `${input.hdr} · BT.2020 · ${output.colorFormat.replace(/ limited$/, "")}`;
     }
   }
   if (transitioning) {
@@ -159,6 +169,15 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     outputTone = "idle";
   }
   const audioUnsupported = !!monitor && !monitor.audio;
+  const hdr = state.hdr ?? true;
+  const hdrUnsupported = !!monitor && !monitor.hdr;
+  const hdrLabel = pending === "hdr" ? "正在切换…"
+    : current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
+    : !state.enabled ? "透传开启后生效" : hdrUnsupported ? "显示器不支持 HDR"
+    : !input ? "等待输入信号" : input.hdr === "SDR" ? "输入为 SDR"
+    : hdr && current === "running" && output && !output.hdrToSdr ? "HDR 输出中"
+    : !hdr && current === "running" && output?.hdrToSdr ? "已转为 SDR" : "正在应用…";
+  const hdrInactive = pending !== "hdr" && (transitioning || !state.enabled || hdrUnsupported || !input || input.hdr === "SDR");
   const audioEffective = state.enabled && state.audio && !!input?.audio && !!monitor?.audio
     && (state.audioState ? state.audioState === "running" : current === "running");
   const audioLabel = current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
@@ -183,6 +202,10 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
       <p className="muted passthrough-description">{description}</p>
       {error && <p className="edid-error" role="alert">刷新失败：{error}，显示的是上次读取的状态。</p>}
     </div>
+    {state.supported && <SwitchRow title="HDR" description="开启时把 HDR 画面原样送到显示器，关闭时转为 SDR 显示。远程 KVM 不受影响。"
+      label={hdrLabel} checked={pending === "hdr" ? hdrTarget : hdr} inactive={hdrInactive}
+      pending={pending === "hdr"} disabled={locked || (state.enabled && hdrUnsupported)}
+      onToggle={() => void change({ hdr: !hdr })} />}
     {state.supported && <SwitchRow title="声音" description="把 HDMI IN 的声音送到显示器扬声器。"
       label={audioLabel} checked={state.audio} inactive={!audioEffective} disabled={locked || (state.enabled && audioUnsupported)}
       onToggle={() => void change({ audio: !state.audio })} />}

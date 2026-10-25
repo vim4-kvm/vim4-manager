@@ -21,11 +21,13 @@ var ErrPassthroughUnsupported = errors.New("当前内核不支持")
 type PassthroughPreferences struct {
 	Enabled bool `json:"enabled"`
 	Audio   bool `json:"audio"`
+	HDR     bool `json:"hdr"`
 }
 
 type PassthroughChange struct {
 	Enabled *bool `json:"enabled"`
 	Audio   *bool `json:"audio"`
+	HDR     *bool `json:"hdr"`
 }
 
 type PassthroughInput struct {
@@ -59,6 +61,7 @@ type PassthroughState struct {
 	Supported  bool                `json:"supported"`
 	Enabled    bool                `json:"enabled"`
 	Audio      bool                `json:"audio"`
+	HDR        bool                `json:"hdr"`
 	AudioState string              `json:"audioState,omitempty"`
 	State      string              `json:"state"`
 	Reason     string              `json:"reason,omitempty"`
@@ -109,7 +112,7 @@ func (p kernelPassthroughProvider) Apply(ctx context.Context, prefs PassthroughP
 	if !state.Supported {
 		return state, ErrPassthroughUnsupported
 	}
-	actual, err := p.command(ctx, "passthrough-set", strconv.FormatBool(prefs.Enabled), strconv.FormatBool(prefs.Audio))
+	actual, err := p.command(ctx, "passthrough-set", strconv.FormatBool(prefs.Enabled), strconv.FormatBool(prefs.Audio), strconv.FormatBool(prefs.HDR))
 	if err != nil {
 		if after, readErr := p.Status(ctx); readErr == nil {
 			state = after
@@ -143,7 +146,7 @@ func OpenPassthrough(ctx context.Context, dir string, provider PassthroughProvid
 		return nil, fmt.Errorf("读取透传设置失败：%w", err)
 	}
 	if err == nil {
-		var prefs PassthroughPreferences
+		prefs := PassthroughPreferences{HDR: true}
 		if err = json.Unmarshal(data, &prefs); err != nil {
 			return nil, fmt.Errorf("透传设置无效：%w", err)
 		}
@@ -189,13 +192,16 @@ func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (Passth
 	if !before.Supported {
 		return before, p.failure(ErrPassthroughUnsupported)
 	}
-	previous := PassthroughPreferences{Enabled: before.Enabled, Audio: before.Audio}
+	previous := PassthroughPreferences{Enabled: before.Enabled, Audio: before.Audio, HDR: before.HDR}
 	next := previous
 	if change.Enabled != nil {
 		next.Enabled = *change.Enabled
 	}
 	if change.Audio != nil {
 		next.Audio = *change.Audio
+	}
+	if change.HDR != nil {
+		next.HDR = *change.HDR
 	}
 	state, err := p.provider.Apply(ctx, next)
 	if err != nil {

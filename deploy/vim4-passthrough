@@ -382,7 +382,7 @@ class VendorPassthrough:
             self.readback_bad_since = None
         return actual
 
-    def tick(self, enabled):
+    def tick(self, enabled, hdr_preference=True):
         self.observe_hpd()
         self.blank(enabled)
         state = self.snapshot(enabled)
@@ -420,9 +420,13 @@ class VendorPassthrough:
         hdr = input_state['hdr'] != 'SDR'
         hdr_cap = self.read(TX + 'hdr_cap')
         eotf = 'Hybrid Log-Gamma' if input_state['hdr'] == 'HLG' else 'SMPTE ST 2084'
-        native_hdr = native and hdr and bool(re.search(re.escape(eotf) + r':\s*1', hdr_cap))
-        self.output_color = ('422', 12) if native_hdr else ('444', 8)
+        native_hdr = native and hdr and hdr_preference and bool(re.search(re.escape(eotf) + r':\s*1', hdr_cap))
+        deep_color = '422,12bit' in self.read(TX + 'dc_cap').splitlines()
+        self.output_color = ('422', 12) if native and hdr and deep_color else ('444', 8)
         mapped = hdr and not native_hdr
+        if native:
+            self.update('/sys/module/aml_media/parameters/force_output', 1)
+            self.update('/sys/module/aml_media/parameters/hdr_policy', 2 if mapped else 1)
         if mapped and not native:
             mapping = self.path('/sys/class/vdin/vdin0/hdr_sdr')
             if not mapping.exists() or mapping.read_text().strip() != '1':
@@ -456,7 +460,7 @@ class VendorPassthrough:
             if native_hdr and (f'DRM.eotf: {expected}' not in packets or
                                'AVI.extended_colorimetry: BT.2020' not in packets):
                 return state
-            if mapped and ('AVI.colorimetry: BT.709' not in packets or 'DRM.eotf: ST 2084' in packets or 'DRM.eotf: HLG' in packets):
+            if mapped and ('AVI.colorimetry: BT.709' not in packets or 'DRM PKT not enable' not in packets):
                 return state
         frame = int(self.read('/sys/module/aml_media/parameters/display_frame_count'))
         now = time.monotonic()
@@ -475,14 +479,14 @@ class VendorPassthrough:
 
     def status(self):
         if not self.supported():
-            return {'supported': False, 'enabled': False, 'audio': False, 'state': 'unsupported'}
+            return {'supported': False, 'enabled': False, 'audio': False, 'hdr': True, 'state': 'unsupported'}
         requested = self.load(RUNTIME + 'request.json')
         if requested is None:
-            return self.snapshot(False)
+            return dict(self.snapshot(False), hdr=True)
         observed = self.load(RUNTIME + 'state.json')
         if not observed or observed.get('revision') != requested['revision'] or time.monotonic() - observed['heartbeat'] > 4:
             raise ValueError('透传控制服务未响应')
-        state = dict(observed['state'], audio=requested.get('audio', False))
+        state = dict(observed['state'], audio=requested.get('audio', False), hdr=requested.get('hdr', True))
         audio = self.load(RUNTIME + 'audio-state.json', {})
         fallback = 'starting' if time.monotonic() - requested['revision'] / 1e9 < 4 else 'error'
         state['audioState'] = 'off' if not state['audio'] else (
@@ -490,12 +494,12 @@ class VendorPassthrough:
             and time.monotonic() - audio.get('heartbeat', 0) < 4 else fallback)
         return state
 
-    def set(self, enabled, audio):
+    def set(self, enabled, audio, hdr=True):
         if not self.supported():
             raise ValueError('当前内核或 VFM 路由未通过透传资格验证')
         if audio and not self.path('/usr/libexec/vim4_passthrough_audio.py').is_file():
             raise ValueError('音频控制服务未安装，未更改当前设置')
-        request = {'enabled': enabled, 'audio': audio, 'revision': time.monotonic_ns()}
+        request = {'enabled': enabled, 'audio': audio, 'hdr': hdr, 'revision': time.monotonic_ns()}
         previous = self.load(RUNTIME + 'request.json')
         atomic_json(self.path(RUNTIME + 'request.json'), request)
         try:
@@ -525,7 +529,7 @@ class VendorPassthrough:
     def cycle(self, request):
         observed = {'revision': request['revision']}
         try:
-            observed['state'] = self.tick(request['enabled'])
+            observed['state'] = self.tick(request['enabled'], request.get('hdr', True))
             self.last_error = None
         except (OSError, ValueError) as error:
             for recover in (lambda: self.blank(request['enabled']),
@@ -577,8 +581,8 @@ def main(args):
     controller = VendorPassthrough()
     if args == ['status']:
         print(json.dumps(controller.status()))
-    elif len(args) == 3 and args[0] == 'set' and all(value in ('true', 'false') for value in args[1:]):
-        print(json.dumps(controller.set(args[1] == 'true', args[2] == 'true')))
+    elif len(args) == 4 and args[0] == 'set' and all(value in ('true', 'false') for value in args[1:]):
+        print(json.dumps(controller.set(*(value == 'true' for value in args[1:]))))
     elif args == ['watch']:
         controller.path(RUNTIME).mkdir(mode=0o700, parents=True, exist_ok=True)
         controller.watch()

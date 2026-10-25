@@ -65,6 +65,8 @@ class VendorPassthroughTest(unittest.TestCase):
         path.write_text(value)
 
     def native_fixture(self):
+        self.put('/sys/module/aml_media/parameters/hdr_policy', '1')
+        self.put('/sys/module/aml_media/parameters/force_output', '1')
         self.put('/sys/module/aml_media/parameters/vdin0_native_hdr', 'Y')
         self.put('/sys/class/vfm/map', 'tvpath { vdin0(1) amvideo}')
         self.put('/sys/class/video4linux/video0/status', 'vfm_started: 0\nfmt_valid: 0\nsm_state: 5\ndraining: 1')
@@ -72,6 +74,33 @@ class VendorPassthroughTest(unittest.TestCase):
         self.put(passthrough.TX + 'dc_cap', '444,8bit\n422,12bit')
         self.put(passthrough.TX + 'attr', '422,12bit\n\r')
         self.put(passthrough.TX + 'hdmitx_pkt_dump', 'AVI.extended_colorimetry: BT.2020\nDRM.eotf: ST 2084')
+
+    def test_hdr_preference_only_changes_display_and_reports_actual_packets(self):
+        self.native_fixture()
+        with patch.object(self.controller, 'write', wraps=self.controller.write) as write:
+            self.controller.tick(True, False)
+            self.put('/sys/module/aml_media/parameters/display_frame_count', '130')
+            self.assertEqual(self.controller.tick(True, False)['state'], 'starting')
+            self.put(passthrough.TX + 'hdmitx_pkt_dump', 'AVI.colorimetry: BT.709\nDRM PKT not enable')
+            self.controller.tick(True, False)
+            self.put('/sys/module/aml_media/parameters/display_frame_count', '160')
+            mapped = self.controller.tick(True, False)
+            self.assertEqual(mapped['state'], 'running')
+            self.assertTrue(mapped['output']['hdrToSdr'])
+            self.assertEqual(self.controller.read('/sys/module/aml_media/parameters/hdr_policy'), '2')
+            self.assertFalse(any('/vdin/' in call.args[0] or '/hdmirx/' in call.args[0] for call in write.call_args_list))
+        self.put(passthrough.TX + 'attr', '422,12bit')
+        self.put(passthrough.TX + 'hdmitx_pkt_dump', 'AVI.extended_colorimetry: BT.2020\nDRM.eotf: ST 2084')
+        self.controller.tick(True, True)
+        self.put('/sys/module/aml_media/parameters/display_frame_count', '190')
+        self.assertFalse(self.controller.tick(True, True)['output']['hdrToSdr'])
+        self.assertEqual(self.controller.read('/sys/module/aml_media/parameters/hdr_policy'), '1')
+
+    def test_sdr_sink_overrides_hdr_preference_without_touching_capture(self):
+        self.native_fixture()
+        self.put(passthrough.TX + 'hdr_cap', 'SMPTE ST 2084: 0')
+        self.controller.tick(True, True)
+        self.assertEqual(self.controller.read('/sys/module/aml_media/parameters/hdr_policy'), '2')
 
     def test_native_hdr_uses_direct_display_and_independent_capture_without_modeset(self):
         self.native_fixture()

@@ -28,6 +28,7 @@ func (f *fakePassthrough) Apply(_ context.Context, prefs board.PassthroughPrefer
 		return f.state, f.writeErr
 	}
 	f.state.Enabled, f.state.Audio = prefs.Enabled, prefs.Audio
+	f.state.HDR = prefs.HDR
 	f.state.State = "no-signal"
 	return f.state, f.err
 }
@@ -50,6 +51,10 @@ func TestPassthroughAPI(t *testing.T) {
 		{"POST", `{}`, 400},
 		{"POST", `{"enabled":"true"}`, 400},
 		{"POST", `{"audio":1}`, 400},
+		{"POST", `{"hdr":false}`, 200},
+		{"POST", `{"hdr":true}`, 200},
+		{"POST", `{"hdr":"false"}`, 400},
+		{"POST", `{"hdr":null}`, 400},
 		{"POST", `{"enabled":null}`, 400},
 		{"POST", `broken`, 400},
 	} {
@@ -74,6 +79,14 @@ func TestPassthroughAPI(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != 500 || !strings.Contains(w.Body.String(), "apply failed") {
 		t.Fatalf("apply failure: %d %s", w.Code, w.Body.String())
+	}
+	fake.writeErr = errors.New("sudo: /usr/libexec/broken.py: Traceback")
+	hdrRequest := httptest.NewRequest("POST", "/api/passthrough", strings.NewReader(`{"hdr":false}`))
+	hdrRequest.Header.Set("Content-Type", "application/json")
+	hdrResponse := httptest.NewRecorder()
+	h.ServeHTTP(hdrResponse, hdrRequest)
+	if hdrResponse.Code != 500 || !strings.Contains(hdrResponse.Body.String(), "HDR 设置未能应用，请稍后重试") || strings.Contains(hdrResponse.Body.String(), "sudo") {
+		t.Fatalf("HDR error exposed internal details: %s", hdrResponse.Body.String())
 	}
 	fake.writeErr = nil
 	fake.err = errors.New("read failed")
