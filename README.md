@@ -421,6 +421,11 @@ TX 的模式别名、颜色空白/后缀及数值读回会规范化；ready 短�
 读回异常仅报告状态，不触发同一模式反复重设。只有实际输入模式或 sink 变化才允许一批 modeset，
 失败也不循环重试。status 只读，唯一硬件模式写入者为持有独占 flock 的 watch 服务；
 每批真正重设将原因、原始读回及不匹配项写入 journal。
+HDMI OUT 热插拔同时监听内核 `hdmitx_hpd` uevent 和 HPD 读回，重新确认 sink/EDID 后
+恢复模式，避免短脉冲漏采及驱动稍后回退 RGB 的竞态。透传期间使用厂商 DRM
+`osd0/blank`、`osd1/blank` 持久策略隐藏控制台，而非只缓存一次 fb blank；
+原策略保存在 `/run/vim4-passthrough/osd-before.json`，关闭时恢复，服务重启不丢失。
+热插拔期间无效 EDID、暂时缺失的 sysfs 及错误清理失败不会退出 watch 或解除 OSD 屏蔽。
 API 用 `input`、`monitor` 对象是否存在表示有输入信号、显示器已连接；无此对象时前端不推测参数。
 
 浏览器回归：`node web/tests/passthrough.mjs`，沿用 `PLAYWRIGHT_MODULE` 和 `TEST_URL`；

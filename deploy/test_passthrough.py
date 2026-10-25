@@ -40,6 +40,8 @@ class VendorPassthroughTest(unittest.TestCase):
             passthrough.VIDEO + 'axis': '0 0 3839 2159',
             '/sys/class/display/mode': '2160p60hz',
             '/sys/class/graphics/fb0/blank': '',
+            '/sys/class/drm/card0/osd0/blank': 'osd-0 blank status is 0',
+            '/sys/class/drm/card0/osd1/blank': 'osd-1 blank status is 0',
             '/sys/class/hdmirx/hdmirx0/info': 'Hactive: 3840\nVactive: 2160\nFrame Rate: 5998\nInterlace: 0\nHDR EOTF: SDR\nColor Space: 2-YUV444',
             '/sys/class/video4linux/video0/name': 'vfm_cap',
             '/sys/class/video4linux/video0/status': 'vfm_started: 1\nfmt_valid: 1\nsm_state: 5\ndraining: 0',
@@ -87,6 +89,7 @@ class VendorPassthroughTest(unittest.TestCase):
         with patch.object(self.controller, 'write', wraps=self.controller.write) as write:
             self.assertEqual(self.controller.tick(True)['state'], 'no-monitor')
             self.assertTrue(all(call.args[0].startswith(('/sys/class/video/', '/sys/class/graphics/'))
+                                or call.args[0] in passthrough.OSD_BLANKS
                                 for call in write.call_args_list))
 
     def test_off_keeps_tee_route_and_reveals_console(self):
@@ -231,6 +234,8 @@ class VendorPassthroughTest(unittest.TestCase):
 
     def hardware_write(self, name, value):
         passthrough.VendorPassthrough.write(self.controller, name, value)
+        if name == passthrough.TX + 'test_attr':
+            self.put(passthrough.TX + 'attr', value)
         if name == passthrough.TX + 'disp_mode':
             frequency = int(re.search(r'p(\d+)hz', value)[1])
             fractional = int(self.controller.read(passthrough.TX + 'frac_rate_policy'))
@@ -333,6 +338,102 @@ class VendorPassthroughTest(unittest.TestCase):
                 with self.assertRaises(BlockingIOError):
                     self.controller.watch()
                 tick.assert_not_called()
+
+    def test_persistent_osd_guard_survives_restart_and_restores_original_policy(self):
+        self.put(passthrough.OSD_BLANKS[1], 'osd-1 blank status is 1')
+        self.controller.tick(True)
+        self.assertTrue(all(passthrough.scalar(self.controller.read(name)) == 1 for name in passthrough.OSD_BLANKS))
+        self.controller = passthrough.VendorPassthrough(self.controller.root, self.controller.release)
+        self.controller.tick(True)
+        self.controller.tick(False)
+        self.assertEqual([passthrough.scalar(self.controller.read(name)) for name in passthrough.OSD_BLANKS], [0, 1])
+        self.assertFalse(self.controller.path(passthrough.OSD_SAVED).exists())
+
+    def test_software_blank_cache_does_not_override_persistent_guard_readback(self):
+        self.controller.tick(True)
+        self.put(passthrough.OSD_BLANKS[0], 'osd-0 blank status is 0')
+        with patch.object(self.controller, 'write', wraps=self.controller.write) as write:
+            self.controller.tick(True)
+            write.assert_any_call(passthrough.OSD_BLANKS[0], 1)
+            self.assert_no_modeset(write)
+
+    def test_hpd_reconnect_restores_driver_rgb_reset_once_and_hides_console(self):
+        self.controller.tick(True)
+        with patch.object(self.controller, 'write', side_effect=self.hardware_write) as write:
+            self.put(passthrough.TX + 'hpd_state', '0')
+            with patch.object(passthrough.time, 'monotonic', return_value=100):
+                self.assertEqual(self.controller.tick(True)['state'], 'no-monitor')
+            self.put(passthrough.TX + 'hpd_state', '1')
+            self.put(passthrough.TX + 'rawedid', '00')
+            with patch.object(passthrough.time, 'monotonic', return_value=101):
+                failed = self.controller.cycle({'enabled': True, 'revision': 1})
+                self.assertIn('EDID', failed['error'])
+            self.assertTrue(all(self.controller.read(name) == '1' for name in passthrough.OSD_BLANKS))
+            edid = bytearray(128)
+            edid[:8] = bytes.fromhex('00ffffffffffff00')
+            edid[-1] = -sum(edid) % 256
+            self.put(passthrough.TX + 'rawedid', edid.hex())
+            with patch.object(passthrough.time, 'monotonic', return_value=102):
+                self.assertEqual(self.controller.tick(True)['state'], 'starting')
+            self.put(passthrough.TX + 'attr', 'rgb,8bit')
+            self.put(passthrough.TX + 'disp_mode', 'sname: 1080p60hz\nh/v_freq: 67500/60000')
+            for now in (103, 104, 106, 107):
+                self.put('/sys/module/aml_media/parameters/display_frame_count', str(200 + now))
+                with patch.object(passthrough.time, 'monotonic', return_value=now):
+                    self.controller.tick(True)
+            self.assertEqual(sum(call.args[0] == passthrough.TX + 'disp_mode' for call in write.call_args_list), 1)
+            self.assertEqual(self.controller.read(passthrough.TX + 'attr'), '444,8bit')
+            self.assertTrue(all(self.controller.read(name) == '1' for name in passthrough.OSD_BLANKS))
+            self.assertFalse(any(call.args[0].startswith('/sys/class/graphics/') and call.args[1] == 0 for call in write.call_args_list))
+
+    def test_edid_change_without_hpd_edge_requalifies_sink(self):
+        self.controller.tick(True)
+        edid = bytearray.fromhex(self.controller.read(passthrough.TX + 'rawedid'))
+        edid[10] = 1
+        edid[-1] = 0
+        edid[-1] = -sum(edid) % 256
+        self.put(passthrough.TX + 'rawedid', edid.hex())
+        self.put(passthrough.TX + 'attr', 'rgb,8bit')
+        with patch.object(self.controller, 'write', side_effect=self.hardware_write) as write:
+            for now in (100, 102, 104, 105):
+                self.put('/sys/module/aml_media/parameters/display_frame_count', str(200 + now))
+                with patch.object(passthrough.time, 'monotonic', return_value=now):
+                    self.controller.tick(True)
+            self.assertEqual(sum(call.args[0] == passthrough.TX + 'disp_mode' for call in write.call_args_list), 1)
+
+    def test_error_cleanup_failure_does_not_terminate_watch_cycle(self):
+        with patch.object(self.controller, 'tick', side_effect=ValueError('EDID transient')), \
+                patch.object(self.controller, 'blank', side_effect=OSError('OSD temporarily unavailable')), \
+                patch.object(self.controller, 'update', side_effect=OSError('VD1 temporarily unavailable')):
+            result = self.controller.cycle({'enabled': True, 'revision': 1})
+        self.assertEqual(result['state']['state'], 'starting')
+        self.assertEqual(result['error'], 'EDID transient')
+        self.assertIn('heartbeat', result)
+        self.assertEqual(self.controller.cycle({'enabled': True, 'revision': 2})['revision'], 2)
+
+    def test_kernel_hpd_events_recover_edge_missed_by_polling(self):
+        self.controller.tick(True)
+        events = Mock()
+        events.recvfrom.side_effect = [
+            (b'SUBSYSTEM=amhdmitx\0hdmitx_hpd=0\0', (0, 1)),
+            (b'SUBSYSTEM=amhdmitx\0hdmitx_hpd=1\0', (0, 1)), BlockingIOError(),
+        ]
+        self.controller.drain_hotplug(events)
+        self.assertEqual(self.controller.last_hpd, 1)
+        self.assertTrue(self.controller.reconnecting)
+        self.assertIsNone(self.controller.mode_key)
+
+    def test_other_or_userspace_uevents_do_not_reconfigure_output(self):
+        self.controller.tick(True)
+        key = self.controller.mode_key
+        events = Mock()
+        events.recvfrom.side_effect = [
+            (b'SUBSYSTEM=amhdmitx\0hdmitx_hpd=1\0', (123, 1)),
+            (b'SUBSYSTEM=other\0hdmitx_hpd=1\0', (0, 1)), BlockingIOError(),
+        ]
+        self.controller.drain_hotplug(events)
+        self.assertEqual(self.controller.mode_key, key)
+        self.assertFalse(self.controller.reconnecting)
 
 
 if __name__ == '__main__':
