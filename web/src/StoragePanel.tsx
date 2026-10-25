@@ -255,7 +255,7 @@ export function StoragePanel() {
                     {room && (
                       <div className="flex max-w-sm flex-col gap-2 text-xs">
                         {room.ratio !== undefined && (
-                          <span className={`block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:rounded-full${room.ratio > 0.95 ? " [&>span]:bg-destructive" : room.ratio > 0.85 ? " [&>span]:bg-warning" : " [&>span]:bg-primary"}`}>
+                          <span className={`block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:rounded-full${room.ratio > 0.95 ? " [&>span]:bg-destructive-fill" : room.ratio > 0.85 ? " [&>span]:bg-warning" : " [&>span]:bg-primary"}`}>
                             <span style={{ width: `${Math.max(2, room.ratio * 100)}%` }} />
                           </span>
                         )}

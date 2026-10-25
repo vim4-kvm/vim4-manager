@@ -368,7 +368,7 @@ function NetworkList({ links }: { links: Link[] }) {
   );
 }
 
-const meterTones: Record<Tone, string> = { good: "bg-success", warning: "bg-warning", critical: "bg-destructive", idle: "bg-idle" };
+const meterTones: Record<Tone, string> = { good: "bg-success", warning: "bg-warning", critical: "bg-destructive-fill", idle: "bg-idle" };
 
 function Meter({ fraction, tone }: { fraction: number; tone: Tone }) {
   const pct = Math.round(Math.min(1, Math.max(0, fraction)) * 100);

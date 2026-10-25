@@ -29,6 +29,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-fill: var(--destructive-fill);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
@@ -71,7 +72,9 @@
   --muted-foreground: #6f767f;
   --accent: #f7f8fa;
   --accent-foreground: #1d2025;
-  --destructive: #ee3a3e;
+  /* Foregrounds meet 4.5:1 on white and their 8–10% tint; dots keep brand red. */
+  --destructive: #ca3135;
+  --destructive-fill: #ee3a3e;
   --success: #1fa855;
   --success-foreground: #15803f;
   --warning: #f5a524;
@@ -108,6 +111,7 @@
   --accent: #232429;
   --accent-foreground: #e9eaec;
   --destructive: #ff5a5f;
+  --destructive-fill: #ff5a5f;
   --success: #3ccf72;
   --success-foreground: #4fd884;
   --warning: #f7b23b;

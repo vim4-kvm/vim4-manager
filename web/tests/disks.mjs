@@ -1,6 +1,30 @@
 import assert from "node:assert/strict";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ channel: "chrome", headless: true });
+// Destructive text must stay >= 4.5:1 on its own tinted button, at rest and on hover, in both themes.
+async function destructiveContrast(page) {
+  return page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const rgba = (value) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const result = [...context.getImageData(0, 0, 1, 1).data];
+      result[3] /= 255;
+      return result;
+    };
+    const blend = (top, bottom) => top.slice(0, 3).map((v, i) => v * (top[3] ?? 1) + bottom[i] * (1 - (top[3] ?? 1)));
+    const surface = (el) => el ? blend(rgba(getComputedStyle(el).backgroundColor), surface(el.parentElement)) : [255, 255, 255];
+    const lum = (c) => { const l = c.map((v) => v / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return l[0] * .2126 + l[1] * .7152 + l[2] * .0722; };
+    return [...document.querySelectorAll("main button[data-variant=destructive]:not(:disabled)")].map((el) => {
+      const a = lum(rgba(getComputedStyle(el).color)), b = lum(surface(el));
+      return { text: el.textContent, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
+    });
+  });
+}
+
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const status = { active: "nanokvm", apps: [{ id: "nanokvm", name: "NanoKVM", port: 8080, description: "",
@@ -56,6 +80,17 @@ try {
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/disks`);
   await page.getByRole("heading", { name: "数据盘", level: 1 }).waitFor();
   await page.getByRole("button", { name: /^readme\.txt/ }).waitFor();
+  for (const theme of ["浅色", "深色"]) {
+    await page.getByRole("radiogroup", { name: "外观" }).getByRole("radio", { name: theme, exact: true }).click();
+    const rest = await destructiveContrast(page);
+    await page.getByRole("button", { name: "格式化…" }).hover();
+    await page.waitForTimeout(200);
+    const hover = await destructiveContrast(page);
+    assert(rest.length >= 2, "format and delete buttons are measured");
+    for (const value of [...rest, ...hover]) assert(value.ratio >= 4.5, `${theme} destructive contrast ${JSON.stringify(value)}`);
+  }
+  await page.getByRole("radiogroup", { name: "外观" }).getByRole("radio", { name: "系统", exact: true }).click();
+  await page.mouse.move(0, 0);
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).count(), 0, "row actions are not clickable while hidden");
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).getAttribute("href"), "/api/disks/file?disk=disk.img&path=%2Freadme.txt");

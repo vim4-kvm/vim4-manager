@@ -5,7 +5,7 @@ export type Tone = "good" | "warning" | "critical" | "idle";
 const tones: Record<Tone, string> = {
   good: "bg-success",
   warning: "bg-warning",
-  critical: "bg-destructive",
+  critical: "bg-destructive-fill",
   idle: "bg-idle",
 };
 

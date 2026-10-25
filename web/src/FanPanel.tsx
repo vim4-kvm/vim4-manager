@@ -179,7 +179,7 @@ function CurveEditor({
                 {t}°
               </text>
             ))}
-            <rect className="fill-destructive/10" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
+            <rect className="fill-destructive-fill/10" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
             <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
               {THROTTLE_C}° 起 CPU 降频
             </text>
