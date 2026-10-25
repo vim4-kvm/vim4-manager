@@ -452,6 +452,15 @@ HDMI OUT 热插拔同时监听内核 `hdmitx_hpd` uevent 和 HPD 读回，重新
 热插拔期间无效 EDID、暂时缺失的 sysfs 及错误清理失败不会退出 watch 或解除 OSD 屏蔽。
 API 用 `input`、`monitor` 对象是否存在表示有输入信号、显示器已连接；无此对象时前端不推测参数。
 
+`hdr` 为持久化偏好，旧配置缺省为 true；POST 可仅提交 `{"hdr":false}`，
+关闭透传时也可预设。原生双路径使用 VPP `hdr_policy=1` 跟随源，或
+`force_output=BT709`、`hdr_policy=2` 将显示映射为 SDR；非 HDR 显示器总是映射。
+硬件写入仍只在 watch 中发生，不重开 RX 或重配 VDIN1。HDR 开关保持 422 12-bit
+链路配置，避免只因 EOTF 变化重设 HDMI 时序。实际输出以 DRM/AVI 读回确认，
+不把已保存偏好当作应用成功。hdrdual6 在 SDR 过渡的零 DRM 包结束后关闭 DRM，
+强制 SDR 的 T7 VD1 复用完整 VDIN 用户增益表；HDR10 的 white/peak 与 KVM 同步，
+HLG 使用厂商 HLG 曲线。错误内部细节只进入服务日志，HDR API 返回中文原因。
+
 浏览器回归：`node web/tests/passthrough.mjs`，沿用 `PLAYWRIGHT_MODULE` 和 `TEST_URL`；
 默认在 `/tmp/codex-ui/passthrough-*.png` 输出桌面/手机、浅色/深色的 40 张状态截图。
 

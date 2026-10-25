@@ -18,7 +18,7 @@ const status = {
   system: { links: [], disk: { totalBytes: 1, freeBytes: 1 }, packages: [] }, events: [], history: [],
 };
 function fixture(state = "running") {
-  return { supported: state !== "unsupported", enabled: !["off", "unsupported"].includes(state), audio: true, state,
+  return { supported: state !== "unsupported", enabled: !["off", "unsupported"].includes(state), audio: true, hdr: true, state,
     input: ["no-signal", "unsupported"].includes(state) ? undefined : { ...input },
     monitor: ["no-monitor", "unsupported"].includes(state) ? undefined : { ...monitor },
     output: state === "running" ? { ...output } : undefined };
@@ -64,7 +64,7 @@ try {
     const patch = route.request().postDataJSON();
     writes.push(patch);
     if (holdWrite) await holdWrite;
-    if (writeError) return route.fulfill({ status: 500, json: { error: "内核拒绝操作" } });
+    if (writeError) return route.fulfill({ status: 500, json: { error: typeof writeError === "string" ? writeError : "内核拒绝操作" } });
     state = { ...state, ...patch, state: (patch.enabled ?? state.enabled) ? "running" : "off" };
     return route.fulfill({ json: state });
   });
@@ -72,6 +72,7 @@ try {
   const card = page.getByRole("region", { name: "透传", exact: true });
   const toggle = card.getByRole("switch", { name: "透传", exact: true });
   const audio = card.getByRole("switch", { name: "声音", exact: true });
+  const hdr = card.getByRole("switch", { name: "HDR", exact: true });
   const rowStatus = title => card.locator(".wifi-row").filter({ has: page.getByRole("heading", { name: title, exact: true }) }).getByRole("status");
   const fact = label => card.locator(".edid-fact").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) });
   const value = label => fact(label).locator("dd").first().textContent();
@@ -187,7 +188,10 @@ try {
           });
           assert.equal(await audio.getAttribute("aria-checked"), "true", "saved audio remains on");
           if (name === "running") assert.equal(strength, 1, "effective audio uses the full accent");
-          else assert(strength > 0 && strength < 0.6, "inactive audio uses a subdued accent in either theme");
+          else {
+            assert(strength > 0, "inactive preference stays visible");
+            assert.equal(await audio.evaluate(element => element.classList.contains("is-inactive")), true);
+          }
           if (["off", "no-monitor"].includes(name)) assert(await audio.isEnabled(), "inactive audio preference stays editable");
         }
         const hint = page.locator('.nav-item[href="#/output"] .nav-hint');
@@ -236,7 +240,7 @@ try {
           assert.equal(await fact("输出").locator(".muted").textContent(), "已缩放，显示器不支持 3840×2160 23.98Hz");
           assert.equal(await fact("输出").locator(".status-warning").count(), 1);
         } else {
-          assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR");
+          assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR · 显示器不支持 HDR");
         }
         await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${kind}.png`, fullPage: true });
@@ -365,12 +369,73 @@ try {
   assert.equal(await page.locator('.nav-item[href="#/output"] .nav-hint').textContent(), "受保护");
   delete status.passthrough;
 
+  for (const [device, width, height] of [["desktop", 1440, 1100], ["mobile", 390, 844]]) {
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ colorScheme: "light" });
+    for (const [name, current, edit, label, checked, disabled, inactive] of [
+      ["hdr-output", "running", () => {}, "HDR 输出中", true, false, false],
+      ["hdr-to-sdr", "running", next => { next.hdr = false; next.output.hdrToSdr = true; }, "已转为 SDR", false, false, false],
+      ["hdr-starting", "starting", () => {}, "透传开启后生效", true, true, true],
+      ["hdr-stopping", "stopping", () => {}, "已关闭", true, true, true],
+      ["hdr-preset", "off", () => {}, "透传开启后生效", true, false, true],
+      ["hdr-no-support", "running", next => { next.monitor.hdr = false; next.output.hdrToSdr = true; }, "显示器不支持 HDR", true, true, true],
+      ["hdr-no-input", "no-signal", () => {}, "等待输入信号", true, false, true],
+      ["hdr-sdr-input", "running", next => { next.input.hdr = "SDR"; }, "输入为 SDR", true, false, true],
+      ["hdr-applying", "video-error", () => {}, "正在应用…", true, false, false],
+    ]) {
+      state = fixture(current);
+      if (state.input) state.input.hdr = "HDR10";
+      edit(state);
+      await reload();
+      assert.equal(await rowStatus("HDR").textContent(), label);
+      assert.equal(await hdr.getAttribute("aria-checked"), String(checked));
+      assert.equal(await hdr.isDisabled(), disabled);
+      assert.equal(await hdr.evaluate(element => element.classList.contains("is-inactive")), inactive);
+      await checkLayout(device);
+      assert(await hdr.evaluate(element => element.getBoundingClientRect().width === 40), "switch must not shrink");
+      if (name === "hdr-no-support") assert.match(await fact("输出").textContent(), /HDR 已转为 SDR · 显示器不支持 HDR/);
+      if (name === "hdr-output") assert.match(await fact("输出").textContent(), /HDR10 · BT.2020/);
+      if (name === "hdr-to-sdr") assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR");
+      if (["hdr-output", "hdr-to-sdr", "hdr-preset", "hdr-no-support", "hdr-sdr-input"].includes(name)) {
+        await page.screenshot({ path: `${shots}/${name}-${device}.png`, fullPage: true });
+      }
+    }
+    state = fixture();
+    state.input.hdr = "HLG";
+    await reload();
+    assert.match(await fact("输出").textContent(), /HLG · BT.2020/);
+    holdWrite = new Promise(resolve => { release = resolve; });
+    await hdr.click();
+    await rowStatus("HDR").getByText("正在切换…", { exact: true }).waitFor();
+    assert.equal(await hdr.getAttribute("aria-checked"), "false");
+    assert(await hdr.isDisabled());
+    assert(await toggle.isDisabled());
+    assert(await audio.isDisabled());
+    assert.equal(await rowStatus("HDR").locator(".spinner").count(), 1);
+    assert.equal(await hdr.evaluate(element => element.classList.contains("is-inactive")), false);
+    await page.screenshot({ path: `${shots}/hdr-pending-${device}.png`, fullPage: true });
+    release();
+    holdWrite = undefined;
+    await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]').disabled);
+    assert.deepEqual(writes.at(-1), { hdr: false });
+    for (const failure of ["sudo: /usr/libexec/failure.py Traceback: PermissionError", "HDR 设置未能应用，请稍后重试"]) {
+      writeError = failure;
+      await hdr.click();
+      await page.locator(".banner-critical").getByText("保存 HDR 设置失败：HDR 设置未能应用，请稍后重试", { exact: true }).waitFor();
+      assert.doesNotMatch(await page.locator(".banner-critical").textContent(), /sudo:|\/usr\/|Traceback|PermissionError/);
+      await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]').disabled);
+    }
+    await page.screenshot({ path: `${shots}/hdr-failure-${device}.png`, fullPage: true });
+    writeError = false;
+  }
+
   readError = true;
   await page.goto(`${base}/#/output`);
+  await page.reload();
   await card.getByRole("alert").getByText("读取失败：读取连接中断", { exact: true }).waitFor();
   assert.equal(await card.locator("dl").count(), 0);
   assert.deepEqual(errors, []);
-  console.log("PASS: passthrough states, facts, HDR/scaling, audio, failures, stale, busy/poll lifecycle; 48 screenshots");
+  console.log("PASS: passthrough states, HDR preference table, safe errors, facts, audio, stale, busy/poll lifecycle; 62 screenshots");
 } finally {
   await browser.close();
 }

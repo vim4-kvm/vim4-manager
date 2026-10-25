@@ -2850,8 +2850,8 @@ def main(argv):
             if result.returncode:
                 raise ValueError(result.stderr.strip() or '透传状态读取失败')
             print(result.stdout.strip())
-        case ['passthrough-set', enabled, audio] if enabled in ('true', 'false') and audio in ('true', 'false'):
-            result = subprocess.run(['/usr/libexec/vim4-passthrough', 'set', enabled, audio],
+        case ['passthrough-set', enabled, audio, hdr] if all(value in ('true', 'false') for value in (enabled, audio, hdr)):
+            result = subprocess.run(['/usr/libexec/vim4-passthrough', 'set', enabled, audio, hdr],
                                     capture_output=True, text=True, timeout=10)
             if result.returncode:
                 raise ValueError(result.stderr.strip() or '透传设置失败')

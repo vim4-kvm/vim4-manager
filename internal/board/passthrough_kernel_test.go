@@ -30,7 +30,7 @@ func TestKernelPassthroughFailedApplyReturnsActualState(t *testing.T) {
 		case 1:
 			return `{"supported":true,"enabled":true,"state":"running"}`, nil
 		case 2:
-			if !reflect.DeepEqual(args, []string{"-n", Helper, "passthrough-set", "false", "false"}) {
+			if !reflect.DeepEqual(args, []string{"-n", Helper, "passthrough-set", "false", "false", "false"}) {
 				t.Fatalf("unexpected set: %v", args)
 			}
 			return "", errors.New("modeset failed")

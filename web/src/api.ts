@@ -4,6 +4,7 @@ export interface PassthroughState {
   supported: boolean;
   enabled: boolean;
   audio: boolean;
+  hdr: boolean;
   audioState?: "off" | "starting" | "waiting" | "running" | "unavailable" | "error";
   state: "unsupported" | "off" | "starting" | "stopping" | "running" | "no-signal" | "no-monitor" | "protected" | "unsupported-format" | "video-error";
   reason?: string;

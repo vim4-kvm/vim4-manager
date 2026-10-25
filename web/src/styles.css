@@ -3065,8 +3065,8 @@ a.readout:hover .readout-chevron {
   text-wrap: pretty;
 }
 
-.passthrough-card .wifi-switch.is-inactive[aria-checked="true"]:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 45%, transparent);
+.passthrough-card .wifi-switch.is-inactive[aria-checked="true"] {
+  background: var(--rule-strong);
 }
 
 .passthrough-row .wifi-action > [role="status"] {
