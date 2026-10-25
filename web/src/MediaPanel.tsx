@@ -1,5 +1,6 @@
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
+import { FileColumns } from "@/components/FileColumns";
 import { useEffect, useState } from "react";
 import { request, type Media, type MediaImage } from "./api";
 import { Disc3, HardDrive, Loader2 } from "lucide-react";
@@ -215,8 +216,8 @@ export function MediaPanel() {
                     {sources[source] ?? source}
                     {source === "data" && <a className="text-xs text-primary" href="#/disks">管理文件 →</a>}
                   </h4>
-                  <AnimatedList className="flex flex-col gap-2" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
-                    <label className="flex min-w-0 cursor-pointer flex-wrap items-center gap-3 rounded-md border px-3 py-2.5 transition-colors hover:bg-accent/60 has-checked:border-primary has-checked:bg-primary/5 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-primary">
+                  <AnimatedList className="flex flex-col divide-y" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
+                    <label className="flex min-w-0 cursor-pointer items-center gap-3 py-2.5 transition-colors hover:bg-accent/60 has-checked:bg-primary/5 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-primary">
                       <input
                         type="radio"
                         name="media-image"
@@ -225,9 +226,9 @@ export function MediaPanel() {
                         disabled={locked}
                         onChange={() => { setImageID(image.id); setReadonly(true); }}
                       />
-                      <MediaIcon cdrom={image.cdrom} />
-                      <span className="min-w-0 flex-1 break-all text-sm">{image.name}</span>
-                      <span className="ml-auto text-xs text-muted-foreground tabular-nums">{image.cdrom ? "光盘" : "磁盘"} · {size(image.size)}</span>
+                      <FileColumns size={<>{image.cdrom ? "光盘" : "磁盘"} · {size(image.size)}</>}>
+                        <MediaIcon cdrom={image.cdrom} /><span className="min-w-0 text-sm">{image.name}</span>
+                      </FileColumns>
                     </label>
                   )}</AnimatedList>
                 </div>

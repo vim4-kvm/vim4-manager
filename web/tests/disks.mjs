@@ -41,7 +41,8 @@ try {
       attached: true, readOnly: false, editing: false, snapshots: [] },
   ];
   const files = {
-    "/": [{ name: "drivers", dir: true, size: 0, mtime: 1760000000 }, { name: "readme.txt", dir: false, size: 12, mtime: 1760000000 }],
+    "/": [{ name: "drivers", dir: true, size: 0, mtime: 1760000000 }, { name: "readme.txt", dir: false, size: 12, mtime: 1760000000 },
+      { name: "a-longer-file-name.bin", dir: false, size: 2048, mtime: 1760000600 }],
     "/drivers": [],
   };
   const requests = [];
@@ -80,6 +81,18 @@ try {
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/disks`);
   await page.getByRole("heading", { name: "数据盘", level: 1 }).waitFor();
   await page.getByRole("button", { name: /^readme\.txt/ }).waitFor();
+  const fileRow = page.getByRole("button", { name: /^readme\.txt/ });
+  const otherRow = page.getByRole("button", { name: /^a-longer-file-name/ });
+  const right = async (locator) => { const box = await locator.boundingBox(); return box.x + box.width; };
+  const sizeEdge = await right(fileRow.getByText("12 B", { exact: true }));
+  assert(Math.abs(sizeEdge - await right(otherRow.getByText("2 KiB", { exact: true }))) < 1, "sizes share a fixed right-aligned track");
+  const dates = [fileRow, otherRow].map(row => row.getByText(/2025\//));
+  assert(Math.abs(await right(dates[0]) - await right(dates[1])) < 1, "dates share the trailing track");
+  const rowEdge = await right(fileRow);
+  assert(Math.abs(rowEdge - await right(dates[0])) < 2, "trailing date is flush with the content edge");
+  await fileRow.hover();
+  assert(Math.abs(sizeEdge - await right(fileRow.getByText("12 B", { exact: true }))) < 1, "hover actions do not move metadata");
+  await page.mouse.move(0, 0);
   for (const theme of ["浅色", "深色"]) {
     await page.getByRole("radiogroup", { name: "外观" }).getByRole("radio", { name: theme, exact: true }).click();
     const rest = await destructiveContrast(page);
@@ -209,6 +222,10 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole("button", { name: "打开 readme.txt 操作菜单" }).click();
+  assert(await page.getByRole("menuitem", { name: "下载 readme.txt" }).isVisible());
+  assert.equal(await page.getByRole("menuitem", { name: "删除", exact: true }).count(), 0, "touch menu respects attached read-only state");
+  await page.keyboard.press("Escape");
   if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/disks-mobile.png`, fullPage: true });
   failDisks = true;
   await page.reload();
@@ -217,5 +234,9 @@ try {
   failDisks = false;
   await page.getByRole("button", { name: "重新读取数据盘" }).click();
   await page.getByRole("button", { name: "格式化…" }).waitFor();
+  await page.getByRole("button", { name: "打开 readme.txt 操作菜单" }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "删除 readme.txt" }).waitFor();
+  await page.keyboard.press("Escape");
   console.log("PASS: create, upload with leave guard, drop guard, folders, armed delete, snapshot delete, resize presets, format, attached lockout, read failure recovery and mobile layout");
 } finally { await browser.close(); }

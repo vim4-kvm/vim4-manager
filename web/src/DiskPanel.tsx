@@ -1,6 +1,8 @@
 import { Spinner } from "@/components/Spinner";
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
+import { FileColumns } from "@/components/FileColumns";
+import { FileActions } from "@/components/FileActions";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,7 +73,7 @@ function Action({ working, className, children, ...props }: React.ComponentProps
   );
 }
 
-// Keep the original four-second arming window inside the shared confirmation.
+// Destructive actions require an explicit confirmation without a time limit.
 function ArmedButton({ label, armedLabel, ariaLabel, disabled, working, onConfirm }: {
   label: string; armedLabel: string; ariaLabel: string; disabled: boolean; working: boolean; onConfirm: () => void;
 }) {
@@ -229,6 +231,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<string>();
   const [renaming, setRenaming] = useState<string>();
+  const [deleting, setDeleting] = useState<DiskEntry>();
   const [newName, setNewName] = useState("");
   const [folder, setFolder] = useState<string>();
   const [pending, setPending] = useState<File[]>();
@@ -395,7 +398,9 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
       <ConfirmDialog open={!!pending} onOpenChange={(open) => { if (!open) setPending(undefined); }} title="覆盖" confirm="覆盖" destructive
         description={<>当前文件夹已有 {conflicts.map((file) => `「${file.name}」`).join("、")}，是否覆盖？</>}
         onConfirm={() => { if (pending) void startUpload(pending, true); }} />
-
+      <ConfirmDialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(undefined); }}
+        title={`删除 ${deleting?.name ?? ""}`} confirm={deleting?.dir ? "删除全部内容" : "确认删除"} destructive disabled={locked}
+        onConfirm={() => { if (deleting) void mutate(`rm:${deleting.name}`, `正在删除 ${deleting.name}…`, () => request("/api/disks/rm", { disk: disk.name, path: join(shown, deleting.name) }), `已删除 ${deleting.name}`); }} />
 
       {folder !== undefined && (
         <form
@@ -434,7 +439,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
               const target = join(shown, entry.name);
               const open = selected === entry.name;
               return (
-                <div key={entry.name} role="row" className={`group/file flex min-w-0 flex-wrap items-center gap-2 py-1.5${open ? " -mx-2 rounded-md bg-accent px-2" : ""}`}>
+                <div key={entry.name} role="row" className="group/file relative flex min-w-0 flex-wrap items-center gap-2 py-1.5">
                   {renaming === entry.name ? (
                     <form
                       className="flex w-full min-w-0 flex-wrap items-center gap-2 [&_input]:min-w-24 [&_input]:flex-1 "
@@ -453,31 +458,21 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                   ) : (
                     <>
                       <Button variant="ghost"
-                        className="h-auto min-w-0 flex-1 basis-56 justify-start gap-2 px-2 py-2 text-left font-normal whitespace-normal"
+                        className="h-auto w-full min-w-0 justify-start px-0 py-2 text-left font-normal whitespace-normal"
                         aria-expanded={entry.dir ? undefined : open}
                         onClick={() => (entry.dir ? setPath(target) : setSelected(open ? undefined : entry.name))}
                       >
-                        <FileIcon dir={entry.dir} />
-                        <span className="min-w-0 flex-1 break-all text-sm">{entry.name}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">{entry.dir ? "" : bytes(entry.size)}</span>
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums hidden @lg:block">{entry.mtime ? when(entry.mtime) : ""}</span>
+                        <FileColumns size={entry.dir ? "" : bytes(entry.size)} date={entry.mtime ? when(entry.mtime) : ""} actions={!entry.dir || !readOnly}>
+                          <FileIcon dir={entry.dir} /><span className="min-w-0 text-sm">{entry.name}</span>
+                        </FileColumns>
                       </Button>
-                      <span className={`ml-auto flex flex-wrap items-center justify-end gap-2 ${open ? "" : "invisible group-hover/file:visible group-focus-within/file:visible [@media(hover:none)]:visible"}`}>
-                        {!entry.dir && <Button asChild variant="outline"><a href={diskFileURL(disk.name, target)} download={entry.name} aria-label={`下载 ${entry.name}`}>下载</a></Button>}
-                        {!readOnly && (
-                          <>
-                            <Button variant="outline" aria-label={`重命名 ${entry.name}`} disabled={locked} onClick={() => { setRenaming(entry.name); setNewName(entry.name); }}>重命名</Button>
-                            <ArmedButton
-                              label="删除"
-                              armedLabel={entry.dir ? "删除全部内容" : "确认删除"}
-                              ariaLabel={`删除 ${entry.name}`}
-                              disabled={locked}
-                              working={doing === `rm:${entry.name}`}
-                              onConfirm={() => void mutate(`rm:${entry.name}`, `正在删除 ${entry.name}…`, () => request("/api/disks/rm", { disk: disk.name, path: target }), `已删除 ${entry.name}`)}
-                            />
-                          </>
-                        )}
-                      </span>
+                      <FileActions name={entry.name} expanded={open} actions={[
+                        ...(!entry.dir ? [{ label: "下载", name: `下载 ${entry.name}`, href: diskFileURL(disk.name, target), download: entry.name }] : []),
+                        ...(!readOnly ? [
+                          { label: "重命名", name: `重命名 ${entry.name}`, disabled: locked, onSelect: () => { setRenaming(entry.name); setNewName(entry.name); } },
+                          { label: "删除", name: `删除 ${entry.name}`, disabled: locked, destructive: true, working: doing === `rm:${entry.name}`, onSelect: () => setDeleting(entry) },
+                        ] : []),
+                      ]} />
                       {open && !entry.dir && (
                         <p className="col-span-full flex flex-wrap gap-x-4 gap-y-1 px-3 pb-3 text-xs text-muted-foreground  tabular-nums">
                           <span>{bytes(entry.size)}{entry.size >= 1024 ? `（${entry.size.toLocaleString("zh-CN")} 字节）` : ""}</span>

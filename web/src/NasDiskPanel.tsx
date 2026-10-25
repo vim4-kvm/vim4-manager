@@ -1,4 +1,6 @@
 import { Badge } from "@/components/ui/badge";
+import { AnimatedList } from "@/components/AnimatedList";
+import { FileColumns } from "@/components/FileColumns";
 import { Segmented, SegmentedOption } from "@/components/Segmented";
 import { Spinner } from "@/components/Spinner";
 import { Input } from "@/components/ui/input";
@@ -339,18 +341,18 @@ export function NasDiskSetup({
         ) : dirs.names.length === 0 ? (
           <p className="text-muted-foreground p-3 text-center text-sm">没有子文件夹。</p>
         ) : (
-          <ul className="flex max-h-64 flex-col overflow-auto [&_button]:h-auto [&_button]:w-full [&_button]:justify-start [&_button]:whitespace-normal [&_button_span]:break-all" aria-label="子文件夹">
-            {dirs.names.map((name) => (
-              <li key={name}>
-                <Button variant="outline" type="button" onClick={() => go(`${setup.path === "/" ? "" : setup.path}/${name}`)}>
+          <div>
+          <AnimatedList className="flex max-h-64 flex-col divide-y overflow-auto" label="子文件夹" items={dirs.names} getKey={(name) => name}>{(name) => (
+                <Button variant="ghost" className="h-auto w-full px-0 py-2 text-left font-normal" type="button" onClick={() => go(`${setup.path === "/" ? "" : setup.path}/${name}`)}>
+                  <FileColumns>
                   <Folder aria-hidden="true" className="size-4 shrink-0" />
                   <span>{name}</span>
                   <span className="ml-auto" aria-hidden="true">›</span>
+                  </FileColumns>
                 </Button>
-              </li>
-            ))}
-            {dirs.truncated && <li className="text-muted-foreground p-3 text-center text-sm">只显示前 500 个文件夹</li>}
-          </ul>
+            )}</AnimatedList>
+            {dirs.truncated && <p className="p-3 text-center text-sm text-muted-foreground">只显示前 500 个文件夹</p>}
+          </div>
         )}
         {dirs && !readOnlyOnly && (
           <div className="border-t pt-3">
