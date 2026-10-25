@@ -20,7 +20,7 @@ export interface PageMeta {
 export const PAGE_GROUPS = ["控制台", "设备", "系统"] as const;
 
 export const PAGES: PageMeta[] = [
-  { id: "overview", title: "概览", description: "设备状态、资源趋势和最近事件。", icon: LayoutDashboard, group: "控制台", wide: true },
+  { id: "overview", title: "概览", description: "设备状态、资源趋势与常用操作。", icon: LayoutDashboard, group: "控制台", wide: true },
   { id: "apps", title: "KVM 界面", description: "四个界面共用采集、编码器和键鼠，同一时间只运行一个。", icon: MonitorPlay, group: "控制台", wide: true },
   { id: "media", title: "虚拟介质", description: "挂载到被控电脑的 U 盘或光盘。四个界面共用同一个 USB 存储设备，切换界面不会改变已挂载的介质。", icon: Disc3, group: "控制台" },
   { id: "disks", title: "数据盘", description: "在板子上创建 U 盘镜像，上传或取回文件，挂载后被控电脑当作普通 U 盘使用。", icon: HardDrive, group: "控制台", wide: true },

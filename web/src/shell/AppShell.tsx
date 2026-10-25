@@ -78,7 +78,7 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
             <main ref={main} tabIndex={-1} aria-labelledby="page-title"
               className={cn("mx-auto w-full px-4 py-6 pb-16 outline-none md:px-6 lg:px-8", pageMeta(page).wide ? "max-w-7xl" : "max-w-4xl")}>
               <PageTransition page={page}>
-                <PageHeader page={page} />
+                {page !== "overview" && <PageHeader page={page} />}
                 <div className="flex flex-col gap-6">{children}</div>
               </PageTransition>
             </main>
