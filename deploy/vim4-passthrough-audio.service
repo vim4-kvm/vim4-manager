@@ -1,0 +1,14 @@
+[Unit]
+Description=VIM4 independent HDMI PCM audio bridge
+After=vim4-passthrough.service
+PartOf=vim4-passthrough.service
+
+[Service]
+ExecStart=/usr/libexec/vim4-passthrough audio-watch
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=vim4-passthrough
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+Environment=PYTHONDONTWRITEBYTECODE=1
+UMask=0077

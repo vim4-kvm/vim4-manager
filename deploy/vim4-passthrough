@@ -420,18 +420,25 @@ class VendorPassthrough:
         observed = self.load(RUNTIME + 'state.json')
         if not observed or observed.get('revision') != requested['revision'] or time.monotonic() - observed['heartbeat'] > 4:
             raise ValueError('透传控制服务未响应')
-        return observed['state']
+        state = dict(observed['state'], audio=requested.get('audio', False))
+        audio = self.load(RUNTIME + 'audio-state.json', {})
+        fallback = 'starting' if time.monotonic() - requested['revision'] / 1e9 < 4 else 'error'
+        state['audioState'] = 'off' if not state['audio'] else (
+            audio.get('state', 'starting') if audio.get('revision') == requested['revision']
+            and time.monotonic() - audio.get('heartbeat', 0) < 4 else fallback)
+        return state
 
     def set(self, enabled, audio):
         if not self.supported():
             raise ValueError('当前内核或 VFM 路由未通过透传资格验证')
-        if audio:
-            raise ValueError('厂商 HDMI 音频直通尚未验证，未更改当前设置')
-        request = {'enabled': enabled, 'revision': time.monotonic_ns()}
+        if audio and not self.path('/usr/libexec/vim4_passthrough_audio.py').is_file():
+            raise ValueError('音频控制服务未安装，未更改当前设置')
+        request = {'enabled': enabled, 'audio': audio, 'revision': time.monotonic_ns()}
         previous = self.load(RUNTIME + 'request.json')
         atomic_json(self.path(RUNTIME + 'request.json'), request)
         try:
-            self.run(['systemctl', 'start', 'vim4-passthrough.service'], check=True, timeout=3, capture_output=True)
+            units = ['vim4-passthrough.service'] + (['vim4-passthrough-audio.service'] if audio else [])
+            self.run(['systemctl', 'start', *units], check=True, timeout=3, capture_output=True)
             deadline = time.monotonic() + 6
             while time.monotonic() < deadline:
                 observed = self.load(RUNTIME + 'state.json')
@@ -506,6 +513,12 @@ def main(args):
         controller.watch()
     elif args == ['prepare']:
         controller.prepare()
+    elif args == ['audio-watch']:
+        from vim4_passthrough_audio import watch
+        watch()
+    elif len(args) == 2 and args[0] == 'audio-pcm':
+        from vim4_passthrough_audio import bridge
+        bridge(int(args[1]))
     else:
         raise ValueError('Invalid passthrough command')
 
