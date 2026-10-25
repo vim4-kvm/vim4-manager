@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -19,9 +19,15 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirm,
   busy?: boolean;
   closeOnConfirm?: boolean;
 }) {
+  const trigger = useRef<HTMLElement | null>(null);
+  const wasOpen = useRef(false);
+  // Capture before the portal moves focus; dialogs can be mounted while closed.
+  if (open && !wasOpen.current) trigger.current = document.activeElement as HTMLElement;
+  wasOpen.current = open;
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto"
+        onCloseAutoFocus={(event) => { event.preventDefault(); if (trigger.current?.isConnected) trigger.current.focus(); }}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}

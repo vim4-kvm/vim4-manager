@@ -1,7 +1,17 @@
+import { FadeIn } from "@/components/Motion";
+import { AnimatedList } from "@/components/AnimatedList";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Check, Laptop, Monitor, Smartphone, Terminal, UserRound } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { DetailsDialog } from "@/components/DetailsDialog";
+import { InlineError } from "@/components/InlineError";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
+import { SettingRow } from "@/components/SettingRow";
+import { SettingsCard } from "@/components/SettingsCard";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { request } from "./api";
 import { logout, useAccount } from "./auth";
-import { AccountIcon, Avatar } from "./AccountMenu";
 
 interface Device {
   id: string;
@@ -106,7 +116,7 @@ export function AccountPanel() {
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
   const trigger = useRef<HTMLElement | null>(null);
-  const dialog = useRef<HTMLElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
 
   async function refresh(signal?: AbortSignal) {
     setLoading(true);
@@ -252,25 +262,22 @@ export function AccountPanel() {
   return (
     <>
       {message && (
-        <div className="account-success" role="status">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="m5 12 4 4L19 6" />
-          </svg>
+        <div data-account-success className="flex items-center gap-3 rounded-md border border-success/30 bg-card p-3 text-sm text-success-foreground [&_button]:ml-auto [&_button]:size-7 [&_button]:border-0" role="status">
+          <Check className="size-4 shrink-0" aria-hidden="true" />
           <span>{message}</span>
-          <button aria-label="关闭提示" onClick={() => setMessage("")}>
+          <Button variant="outline" aria-label="关闭提示" onClick={() => setMessage("")}>
             ×
-          </button>
+          </Button>
         </div>
       )}
-      <section className="card account-card">
-        <div className="account-card-head">
-          <Avatar username={signedInName} />
-          <div className="account-identity">
+      <SettingsCard><div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 [&>div]:min-w-0 [&>div]:flex-1 [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
+          <UserRound className="size-5 text-primary" aria-hidden="true" />
+          <div className="flex min-w-0 flex-1 flex-col [&_strong]:font-semibold [&_small]:text-xs [&_small]:text-muted-foreground">
             <strong>{signedInName}</strong>
             <small>管理员</small>
           </div>
-          <button
-            className="button"
+          <Button variant="outline"
             disabled={busy}
             onClick={async () => {
               setBusy(true);
@@ -284,41 +291,19 @@ export function AccountPanel() {
             }}
           >
             {busy && !mode ? "正在退出…" : "退出登录"}
-          </button>
+          </Button>
         </div>
-        <dl className="account-facts">
-          <div>
-            <dt>用户名</dt>
-            <dd>{signedInName}</dd>
-            <button className="account-text-button" aria-label="修改用户名" onClick={() => open("username")}>
-              修改
-            </button>
-          </div>
-          <div>
-            <dt>密码</dt>
-            <dd>
-              {account
-                ? `上次修改 ${localDate(account.passwordChanged)}（${passwordAge(account.passwordChanged)}）`
-                : "—"}
-            </dd>
-            <button
-              className="account-text-button"
-              aria-label="修改密码"
-              disabled={!account}
-              onClick={() => open("password")}
-            >
-              修改
-            </button>
-          </div>
-        </dl>
+        <SettingRow title="用户名" status={signedInName} control={<Button variant="outline" className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline" aria-label="修改用户名" onClick={() => open("username")}>修改</Button>} />
+        <SettingRow title="密码" status={account ? `上次修改 ${localDate(account.passwordChanged)}（${passwordAge(account.passwordChanged)}）` : "—"}
+          control={<Button variant="outline" className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline" aria-label="修改密码" disabled={!account} onClick={() => open("password")}>修改</Button>} />
         {error && !mode && (
-          <p className="account-error" role="alert">
+          <InlineError>
             {error}
-          </p>
+          </InlineError>
         )}
-      </section>
-      <section className="card account-card">
-        <div className="account-card-head">
+      </div></SettingsCard>
+      <SettingsCard data-account-devices><div className="flex min-w-0 flex-col gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-3 [&>div]:min-w-0 [&>div]:flex-1 [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
           <div>
             <h3>登录设备</h3>
             <p>已登录管理面板的浏览器和工具。退出后需要重新输入密码。</p>
@@ -327,84 +312,77 @@ export function AccountPanel() {
             !loading &&
             !loadFailed &&
             (others ? (
-              <button className="button" disabled={busy || !!revoking.length} onClick={() => open("others")}>
+              <Button variant="outline" disabled={busy || !!revoking.length} onClick={() => open("others")}>
                 退出其他设备
-              </button>
+              </Button>
             ) : (
-              <span className="account-only">仅本设备</span>
+              <span className="text-xs text-muted-foreground">仅本设备</span>
             ))}
         </div>
-        <div className="account-devices" role="table" aria-label="登录设备" aria-busy={loading}>
-          <div className="account-device-header" role="row">
+        <div className="min-w-0" role="table" aria-label="登录设备" aria-busy={loading}>
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,180px)_90px_56px] items-center gap-3 border-b py-2 text-xs text-muted-foreground md:grid" role="row">
             <span role="columnheader">设备</span>
             <span role="columnheader">地址</span>
             <span role="columnheader">最后活动</span>
             <span role="columnheader" aria-label="操作" />
           </div>
           {loading ? (
-            [0, 1, 2].map((row) => (
-              <div key={row} className="account-skeleton" aria-label="正在读取登录设备">
-                <span />
-              </div>
-            ))
+            <PanelSkeleton label="正在读取登录设备" />
           ) : loadFailed ? (
-            <div className="account-load-error" role="alert">
+            <div className="flex flex-wrap items-center gap-3 py-4 text-sm text-destructive" role="alert">
               无法读取登录设备{" "}
-              <button className="account-text-button" onClick={() => void refresh()}>
+              <Button variant="outline" className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline" onClick={() => void refresh()}>
                 重试
-              </button>
+              </Button>
             </div>
           ) : (
-            [...(account?.sessions || [])]
-              .sort(
+            <FadeIn><AnimatedList as="div" role="rowgroup" items={[...(account?.sessions || [])].sort(
                 (a, b) => Number(b.current) - Number(a.current) || Date.parse(b.lastActive) - Date.parse(a.lastActive),
-              )
-              .map((device) => {
+              )} getKey={(device) => device.id}>{(device) => {
                 const info = deviceInfo(device.userAgent);
                 const address = addressInfo(device.address);
                 return (
-                  <div className="account-device" role="row" key={device.id}>
-                    <span className="account-device-name" role="cell">
-                      <AccountIcon kind={info.icon} />
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b py-3 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,180px)_90px_56px]" role="row" key={device.id}>
+                    <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 [&>span]:break-all" role="cell">
+                      {info.icon === "terminal" ? <Terminal className="size-4 shrink-0" /> : info.icon === "phone" ? <Smartphone className="size-4 shrink-0" /> : info.icon === "laptop" ? <Laptop className="size-4 shrink-0" /> : <Monitor className="size-4 shrink-0" />}
                       <span>{info.name}</span>
-                      {device.current && <span className="tag development-tag">本设备</span>}
+                      {device.current && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-primary/5 text-primary">本设备</span>}
                     </span>
-                    <div className="account-device-details">
-                      <span className="account-device-address" role="cell">
-                        <span className="mono">{address.label}</span>
+                    <div className="col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-2 md:contents">
+                      <span className="min-w-0 break-all text-xs text-muted-foreground md:col-start-2 md:row-start-1" role="cell">
+                        <span className="font-mono break-all">{address.label}</span>
                         {address.tailscale && <small> Tailscale</small>}
                         {rowErrors[device.id] && (
-                          <span className="account-error" role="alert">
+                          <span className="text-xs text-destructive" role="alert">
                             {rowErrors[device.id]}
                           </span>
                         )}
                       </span>
-                      <span className="account-device-active" role="cell" title={localDate(device.lastActive, true)}>
+                      <span className="text-xs text-muted-foreground md:col-start-3 md:row-start-1" role="cell" title={localDate(device.lastActive, true)}>
                         {lastActive(device.lastActive)}
                       </span>
                     </div>
-                    <span className="account-device-actions" role="cell">
+                    <span className="col-start-2 row-span-2 row-start-1 justify-self-end md:col-start-4 md:row-span-1" role="cell">
                       {!device.current && (
-                        <button
-                          className="button small"
+                        <Button size="sm" variant="outline"
                           disabled={revoking.includes(device.id) || busy}
                           onClick={() => void revoke(device.id)}
                         >
                           {revoking.includes(device.id) ? "退出中…" : "退出"}
-                        </button>
+                        </Button>
                       )}
                     </span>
                   </div>
                 );
-              })
+              }}</AnimatedList></FadeIn>
           )}
         </div>
-      </section>
-      <div className="account-notes">
+      </div></SettingsCard>
+      <div data-account-notes className="space-y-2 text-xs text-muted-foreground [&_code]:break-all [&_code]:font-mono">
         <p>
           忘记密码时，SSH 登录板子运行 <code>{RESET_COMMAND}</code>，所有设备会同时退出。
-          <button
-            className="account-text-button"
+          <Button variant="outline"
+            className="h-auto border-0 bg-transparent px-0 py-0 text-sm text-primary hover:bg-transparent hover:underline"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(RESET_COMMAND);
@@ -415,67 +393,22 @@ export function AccountPanel() {
             }}
           >
             {copied ? "已复制" : "复制命令"}
-          </button>
+          </Button>
         </p>
         <p>{KVM_AUTH_NOTE}</p>
       </div>
-      {mode && (
-        <div
-          className="auth-modal"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) close();
-          }}
-        >
-          <section
-            ref={dialog}
-            className="card account-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-label={title}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                event.preventDefault();
-                close();
-              }
-              if (event.key === "Tab") {
-                const items = [...dialog.current!.querySelectorAll<HTMLElement>("input, button:not(:disabled)")];
-                const first = items[0],
-                  last = items[items.length - 1];
-                if (event.shiftKey && document.activeElement === first) {
-                  event.preventDefault();
-                  last?.focus();
-                }
-                if (!event.shiftKey && document.activeElement === last) {
-                  event.preventDefault();
-                  first?.focus();
-                }
-              }
-            }}
-          >
-            <h3>{title}</h3>
-            {mode === "others" ? (
-              <>
-                <p>其他 {others} 个设备将退出，正在使用的 KVM 连接会断开。</p>
-                {error && (
-                  <p className="account-error" role="alert">
-                    {error}
-                  </p>
-                )}
-                <div className="account-dialog-actions">
-                  <button className="button" disabled={busy} onClick={close}>
-                    取消
-                  </button>
-                  <button className="button primary" disabled={busy} onClick={() => void save()}>
-                    {busy ? "正在退出…" : "确认退出"}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <form className="account-form" onSubmit={submit} noValidate>
+      {mode === "others" && <ConfirmDialog open title={title} description={<>其他 {others} 个设备将退出，正在使用的 KVM 连接会断开。</>}
+        confirm={busy ? "正在退出…" : "确认退出"} busy={busy} closeOnConfirm={false}
+        onOpenChange={(open) => { if (!open) close(); }} onConfirm={() => void save()}>
+        {error && <InlineError>{error}</InlineError>}
+      </ConfirmDialog>}
+      {mode && mode !== "others" && <DetailsDialog open title={title} onOpenChange={(open) => { if (!open) close(); }}>
+        <div ref={dialog}>
+              <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
                 {inputs.map((input) => (
-                  <div className="account-field" key={input.name}>
+                  <div className="flex min-w-0 flex-col gap-2 text-sm" key={input.name}>
                     <label htmlFor={input.name}>{input.label}</label>
-                    <input
+                    <Input
                       id={input.name}
                       name={input.name}
                       type={input.type}
@@ -489,29 +422,27 @@ export function AccountPanel() {
                         setFields((value) => ({ ...value, [input.name]: "" }));
                       }}
                     />
-                    <span id={`${input.name}-error`} className="account-field-error">
+                    <span id={`${input.name}-error`} className="min-h-4 text-xs text-destructive">
                       {fields[input.name]}
                     </span>
                   </div>
                 ))}
                 {error && (
-                  <p className="account-error" role="alert">
+                  <InlineError>
                     {error}
-                  </p>
+                  </InlineError>
                 )}
-                <div className="account-dialog-actions">
-                  <button type="button" className="button" disabled={busy} onClick={close}>
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
+                  <Button variant="outline" type="button" disabled={busy} onClick={close}>
                     取消
-                  </button>
-                  <button className="button primary" disabled={busy}>
+                  </Button>
+                  <Button variant="default" disabled={busy}>
                     {busy ? "正在保存…" : "保存"}
-                  </button>
+                  </Button>
                 </div>
               </form>
-            )}
-          </section>
         </div>
-      )}
+      </DetailsDialog>}
     </>
   );
 }

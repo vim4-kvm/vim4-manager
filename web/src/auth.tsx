@@ -1,3 +1,6 @@
+import { Button } from "@/components/ui/button";
+import { InlineError } from "@/components/InlineError";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { useEffect, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSessionStore } from "./stores/session";
@@ -62,14 +65,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (error) {
     return (
-      <div className="auth-shell">
-        <p>无法连接板子，请检查网络后重试</p>
-        <button className="button" onClick={() => location.reload()}>
+      <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6">
+        <InlineError>无法连接板子，请检查网络后重试</InlineError>
+        <Button variant="outline" onClick={() => location.reload()}>
           重试
-        </button>
+        </Button>
       </div>
     );
   }
-  if (username === undefined) return <div className="auth-shell">正在连接…</div>;
+  if (username === undefined) return <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6"><PanelSkeleton label="正在连接…" /></div>;
   return children;
 }
