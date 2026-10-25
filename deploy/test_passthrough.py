@@ -96,6 +96,10 @@ class VendorPassthroughTest(unittest.TestCase):
         self.put(passthrough.TX + 'hdmitx_pkt_dump', 'DRM.eotf: ST 2084')
         self.assertEqual(self.controller.tick(True)['state'], 'starting')
         self.put('/sys/module/aml_media/parameters/display_frame_count', '150')
+        self.assertEqual(self.controller.tick(True)['state'], 'starting')
+        self.put(passthrough.TX + 'hdmitx_pkt_dump', 'AVI.extended_colorimetry: BT.2020\nDRM.eotf: ST 2084')
+        self.assertEqual(self.controller.tick(True)['state'], 'starting')
+        self.put('/sys/module/aml_media/parameters/display_frame_count', '170')
         self.assertEqual(self.controller.tick(True)['state'], 'running')
 
     def test_running_requires_advancing_scanout_and_steady_ticks_do_not_reconfigure(self):

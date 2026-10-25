@@ -453,7 +453,8 @@ class VendorPassthrough:
         if native:
             packets = self.read(TX + 'hdmitx_pkt_dump')
             expected = 'HLG' if input_state['hdr'] == 'HLG' else 'ST 2084'
-            if native_hdr and f'DRM.eotf: {expected}' not in packets:
+            if native_hdr and (f'DRM.eotf: {expected}' not in packets or
+                               'AVI.extended_colorimetry: BT.2020' not in packets):
                 return state
             if mapped and ('AVI.colorimetry: BT.709' not in packets or 'DRM.eotf: ST 2084' in packets or 'DRM.eotf: HLG' in packets):
                 return state
