@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { Button } from "@/components/ui/button";
 import { DEFAULT_HDR_CURVE, type HDRCurve } from "./api";
 
 // Slider ranges. SDR white runs high to low so that "right" means brighter.
@@ -92,18 +93,18 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
   const summary = `映射曲线：${curve.white} 尼特映射为 SDR 白的 ${pct(srgb(mapNits(curve.white, curve)))}，${curve.peak} 尼特以上为满白`;
 
   return (
-    <figure className="hdr-chart">
+    <figure className="flex min-w-0 flex-col gap-3 [&_figcaption]:flex [&_figcaption]:flex-wrap [&_figcaption]:gap-4">
       <figcaption>
-        <span className="hdr-legend">
-          <span className="hdr-key" aria-hidden="true" />
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="h-0.5 w-3.5 rounded-sm bg-primary" aria-hidden="true" />
           当前曲线
         </span>
-        <span className="hdr-legend">
-          <span className="hdr-key hdr-key-muted" aria-hidden="true" />
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="h-0.5 w-3.5 rounded-sm bg-idle" aria-hidden="true" />
           厂商默认
         </span>
       </figcaption>
-      <div className="hdr-plot" ref={ref}>
+      <div className="relative min-w-0 [&_svg]:block [&_svg]:overflow-visible [&_svg]:touch-pan-y [&_svg]:outline-none [&_svg:focus-visible]:ring-3 [&_svg:focus-visible]:ring-ring/50" ref={ref}>
         {width > 0 && (
           <svg
             width={width}
@@ -118,46 +119,46 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--primary)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
               </linearGradient>
             </defs>
             <path fill={`url(#${gradientId})`} d={`${path(curve)}L${x(NITS_MAX)},${y(0)}L${x(NITS_MIN)},${y(0)}Z`} />
             {yTicks.map((v) => (
               <g key={v}>
-                <line className="hdr-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-                <text className="hdr-tick" x={PAD_LEFT - 6} y={y(v) + 4} textAnchor="end">
+                <line className="stroke-border stroke-1 [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
+                <text className="fill-muted-foreground text-[11px] tabular-nums" x={PAD_LEFT - 6} y={y(v) + 4} textAnchor="end">
                   {pct(v)}
                 </text>
               </g>
             ))}
             {xTicks.map((n) => (
-              <text key={n} className="hdr-tick" x={x(n)} y={PAD_TOP + HEIGHT + 15} textAnchor="middle">
+              <text key={n} className="fill-muted-foreground text-[11px] tabular-nums" x={x(n)} y={PAD_TOP + HEIGHT + 15} textAnchor="middle">
                 {nitsLabel(n)}
               </text>
             ))}
-            <line className="hdr-marker" x1={x(curve.white)} x2={x(curve.white)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
-            <line className="hdr-marker" x1={x(curve.peak)} x2={x(curve.peak)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
-            <text className="hdr-tick" x={x(curve.white) - 6} y={PAD_TOP + HEIGHT - 6} textAnchor="end">
+            <line className="stroke-input stroke-1 [stroke-dasharray:2_3]" x1={x(curve.white)} x2={x(curve.white)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+            <line className="stroke-input stroke-1 [stroke-dasharray:2_3]" x1={x(curve.peak)} x2={x(curve.peak)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+            <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.white) - 6} y={PAD_TOP + HEIGHT - 6} textAnchor="end">
               桌面白
             </text>
-            <text className="hdr-tick" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
+            <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
               高光上限
             </text>
-            <path className="hdr-line hdr-line-muted" d={path(VENDOR)} />
-            <path className="hdr-line" d={path(curve)} />
-            <circle className="hdr-dot" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
+            <path className="fill-none [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground" d={path(VENDOR)} />
+            <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round]" d={path(curve)} />
+            <circle className="fill-primary stroke-card stroke-3" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
             {active !== undefined && (
               <>
-                <line className="hdr-crosshair" x1={x(active)} x2={x(active)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
-                <circle className="hdr-dot" cx={x(active)} cy={y(srgb(mapNits(active, curve)))} r={4} />
+                <line className="stroke-muted-foreground stroke-1 [stroke-dasharray:2_3]" x1={x(active)} x2={x(active)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+                <circle className="fill-primary stroke-card stroke-3" cx={x(active)} cy={y(srgb(mapNits(active, curve)))} r={4} />
               </>
             )}
           </svg>
         )}
         {active !== undefined && width > 0 && (
           <div
-            className="hdr-tooltip"
+            className="pointer-events-none absolute z-10 flex items-baseline gap-2 rounded-md border bg-popover px-2 py-1 text-xs tabular-nums shadow-md"
             style={{ left: Math.min(Math.max(x(active) - 70, 0), width - 160), top: 0 }}
           >
             <strong>{pct(srgb(mapNits(active, curve)))}</strong>
@@ -167,7 +168,7 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           </div>
         )}
       </div>
-      <div className="hdr-axis-note muted">
+      <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
         <span>输入亮度（尼特，对数刻度）</span>
         <span>
           桌面白 {curve.white} · 高光上限 {nitsLabel(curve.peak)}
@@ -191,12 +192,12 @@ function Ramp({ curve }: { curve: HDRCurve }) {
   const strip = (cells: { n: number; color: string }[]) =>
     cells.map((c, i) => <span key={i} style={{ background: c.color }} title={`${nitsLabel(c.n)} 尼特`} />);
   return (
-    <div className="hdr-ramp" role="img" aria-label={`映射后的灰阶：黑到桌面白 ${curve.white} 尼特，再到高光上限 ${curve.peak} 尼特`}>
-      <div className="hdr-ramp-body">{strip(body)}</div>
-      <div className="hdr-ramp-highlights">{strip(highlights)}</div>
-      <span className="muted">黑</span>
-      <span className="muted">桌面白 {curve.white}</span>
-      <span className="muted">高光 {nitsLabel(curve.peak)}</span>
+    <div className="grid grid-cols-[4fr_1fr] gap-x-0.5 gap-y-1.5 text-xs [&>span:nth-of-type(1)]:col-start-1 [&>span:nth-of-type(1)]:row-start-2 [&>span:nth-of-type(2)]:col-start-1 [&>span:nth-of-type(2)]:row-start-2 [&>span:nth-of-type(2)]:justify-self-end [&>span:nth-of-type(3)]:col-start-2 [&>span:nth-of-type(3)]:row-start-2 [&>span:nth-of-type(3)]:justify-self-end" role="img" aria-label={`映射后的灰阶：黑到桌面白 ${curve.white} 尼特，再到高光上限 ${curve.peak} 尼特`}>
+      <div className="grid h-6 auto-cols-fr grid-flow-col overflow-hidden rounded-l-md border border-input">{strip(body)}</div>
+      <div className="grid h-6 auto-cols-fr grid-flow-col overflow-hidden rounded-r-md border border-input">{strip(highlights)}</div>
+      <span className="text-muted-foreground">黑</span>
+      <span className="text-muted-foreground">桌面白 {curve.white}</span>
+      <span className="text-muted-foreground">高光 {nitsLabel(curve.peak)}</span>
     </div>
   );
 }
@@ -222,17 +223,17 @@ function Slider({
   onCommit: () => void;
 }) {
   return (
-    <label className="hdr-slider">
-      <span className="hdr-slider-head">
+    <label className="flex flex-col gap-1 text-sm">
+      <span className="flex flex-wrap justify-between gap-3 [&_strong]:font-medium [&_strong]:tabular-nums">
         <span>{label}</span>
         <strong>{value}</strong>
       </span>
       <input
         type="range"
+        className="my-2 h-2 w-full cursor-pointer accent-primary focus-visible:outline-ring disabled:opacity-50"
         min={0}
         max={1000}
         value={position}
-        style={{ "--range-fill": `${position / 10}%` } as CSSProperties}
         disabled={disabled}
         aria-valuetext={value}
         onChange={(e) => onInput(Number(e.target.value))}
@@ -240,11 +241,11 @@ function Slider({
         onKeyUp={onCommit}
         onBlur={onCommit}
       />
-      <span className="hdr-slider-ends muted" aria-hidden="true">
+      <span className="flex justify-between text-xs text-muted-foreground" aria-hidden="true">
         <span>{ends[0]}</span>
         <span>{ends[1]}</span>
       </span>
-      <small className="muted">{detail}</small>
+      <small className="text-muted-foreground">{detail}</small>
     </label>
   );
 }
@@ -313,9 +314,9 @@ export function HDRPanel({
   const live = hdr && hdr !== "SDR";
 
   return (
-    <div className="hdr-panel">
-      <div className="hdr-controls">
-        <div className="hdr-sliders">
+    <div className="grid min-w-0 gap-6 @2xl:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-5">
+        <div className="flex flex-col gap-5">
           <Slider
             label="桌面亮度"
             value={`SDR 白 ${draft.white} 尼特`}
@@ -341,13 +342,13 @@ export function HDRPanel({
           />
         </div>
         <Ramp curve={draft} />
-        <div className="hdr-actions">
-          <span className="muted">
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
+          <span className="text-muted-foreground">
             {live ? "拖动时网页画面实时变化，松开后保存。" : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。"}
           </span>
-          <button className="button small" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
+          <Button variant="outline" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
             恢复默认
-          </button>
+          </Button>
         </div>
       </div>
       <CurveChart curve={draft} />

@@ -1,4 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { InlineError } from "@/components/InlineError";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
+import { useEffect, useState, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { useSessionStore } from "./stores/session";
 
 export interface AuthState {
   configured: boolean;
@@ -21,8 +26,8 @@ export function safeNext(value: string | null) {
   return value?.startsWith("/") && !value.startsWith("//") && !/[\\\r\n\t]/.test(value) ? value : "/#/overview";
 }
 
-const AccountContext = createContext({ username: "", setUsername: (_: string) => {} });
-export const useAccount = () => useContext(AccountContext);
+export const useAccount = () =>
+  useSessionStore(useShallow((s) => ({ username: s.username ?? "", setUsername: s.setUsername })));
 
 export async function logout() {
   const response = await fetch("/__vim4/api/auth/logout", {
@@ -35,7 +40,8 @@ export async function logout() {
 }
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const [username, setUsername] = useState<string>();
+  const username = useSessionStore((s) => s.username);
+  const setUsername = useSessionStore((s) => s.setUsername);
   const [error, setError] = useState(false);
 
   useEffect(() => {
@@ -55,18 +61,18 @@ export function AuthGate({ children }: { children: ReactNode }) {
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
-  }, []);
+  }, [setUsername]);
 
   if (error) {
     return (
-      <div className="auth-shell">
-        <p>无法连接板子，请检查网络后重试</p>
-        <button className="button" onClick={() => location.reload()}>
+      <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6">
+        <InlineError>无法连接板子，请检查网络后重试</InlineError>
+        <Button variant="outline" onClick={() => location.reload()}>
           重试
-        </button>
+        </Button>
       </div>
     );
   }
-  if (username === undefined) return <div className="auth-shell">正在连接…</div>;
-  return <AccountContext.Provider value={{ username, setUsername }}>{children}</AccountContext.Provider>;
+  if (username === undefined) return <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6"><PanelSkeleton label="正在连接…" /></div>;
+  return children;
 }

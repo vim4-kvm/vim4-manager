@@ -1,14 +1,23 @@
+import { FadeIn } from "@/components/Motion";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InlineError } from "@/components/InlineError";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
+import { SettingsCard } from "@/components/SettingsCard";
+import { StatusLabel, type Tone } from "@/components/StatusDot";
+import { useActionStore } from "@/stores/action";
+import { useStatusStore } from "@/stores/status";
 import { useCallback, useEffect, useState } from "react";
 import { getUpdates, installUpdate, type Update } from "./api";
-import { DevelopmentTag, isDevelopmentVersion } from "./DevelopmentTag";
+import { DevelopmentBadge } from "@/components/DevelopmentBadge";
+import { isDevelopmentVersion } from "@/lib/version";
 
-type Run = (label: string, action: () => Promise<unknown>, done: string) => Promise<boolean>;
 
 // NanoKVM, JetKVM and One-KVM install updates from their own settings page,
 // which is only reachable while that application is the running one.
 const SELF_SERVICE: Record<string, string> = { "vim4-nanokvm": "nanokvm", "vim4-jetkvm": "jetkvm", "vim4-onekvm": "onekvm" };
 
-function state(update: Update): { tone: string; label: string } {
+function state(update: Update): { tone: Tone; label: string } {
   if (!update.installed) return { tone: "idle", label: "未安装" };
   if (update.error) return { tone: "warning", label: update.error };
   if (update.available) return { tone: "warning", label: `可更新到 ${update.latest}` };
@@ -16,7 +25,10 @@ function state(update: Update): { tone: string; label: string } {
   return { tone: "good", label: "已是最新" };
 }
 
-export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; active?: string }) {
+export function UpdatesPanel() {
+  const busy = useActionStore((s) => !!s.busy);
+  const run = useActionStore((s) => s.run);
+  const active = useStatusStore((s) => s.status?.active);
   const [updates, setUpdates] = useState<Update[]>();
   const [error, setError] = useState<string>();
   const [checking, setChecking] = useState(false);
@@ -51,21 +63,22 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
 
   return (
     <>
-      <div className="updates-head">
-        <span className="muted">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
-        <button className="button small" disabled={busy || checking} onClick={() => void check()}>
+      <SettingsCard label="更新">
+      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-sm">
+        <span className="max-w-prose min-w-0 flex-1 basis-64 text-pretty text-muted-foreground">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
+        <Button variant="outline" disabled={busy || checking} onClick={() => void check()}>
           {checking ? "检查中…" : "重新检查"}
-        </button>
+        </Button>
       </div>
-      {error && <p className="edid-error" role="alert">检查失败：{error}</p>}
+      {error && <InlineError>检查失败：{error}</InlineError>}
       {!updates ? (
-        !error && <div className="skeleton" />
+        !error && <PanelSkeleton />
       ) : (
-        <div className="card table-card updates"><table className="table">
+        <FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:align-middle [&_td:not(:last-child)]:pr-4 [&_th:not(:last-child)]:pr-4 [&_tr:last-child_td]:pb-0">
           <thead>
             <tr>
               <th>项目</th>
-              <th className="hide-narrow">已安装</th>
+              <th className="hidden md:table-cell">已安装</th>
               <th>状态</th>
               <th aria-label="操作" />
             </tr>
@@ -76,38 +89,35 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
               return (
                 <tr key={update.package}>
                   <td>
-                    <span className="cell-title">{update.name}<DevelopmentTag version={update.installed} /></span>
-                    <a className="mono muted" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer">
+                    <span className="flex flex-wrap items-center gap-2 font-medium">{update.name}<DevelopmentBadge version={update.installed} /></span>
+                    <a className="font-mono break-all text-muted-foreground" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer">
                       {update.repo}
                     </a>
                   </td>
-                  <td className="mono muted hide-narrow package-version">{update.installed || "—"}</td>
+                  <td className="font-mono break-all text-muted-foreground hidden md:table-cell text-xs">{update.installed || "—"}</td>
                   <td>
-                    <span className={`status status-${tone}`}>
-                      <span className="lamp" aria-hidden="true" />
+                    <StatusLabel tone={tone}>
                       {label}
-                    </span>
+                    </StatusLabel>
                     {update.available && update.selfService && active !== SELF_SERVICE[update.package] && (
-                      <span className="muted update-hint">切换到 {update.name} 后在其设置中更新</span>
+                      <span className="text-muted-foreground mt-1 block text-xs">切换到 {update.name} 后在其设置中更新</span>
                     )}
                   </td>
-                  <td className="cell-action">
+                  <td className="text-right">
                     {update.available && update.selfService && active === SELF_SERVICE[update.package] && (
-                      <a className="button small" href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
+                      <Button asChild variant="outline"><a href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
                         在 {update.name} 中更新
-                      </a>
+                      </a></Button>
                     )}
                     {update.available && !update.selfService && (
                       confirming === update.package ? (
-                        <span className="confirm" role="alertdialog" aria-label={`确认更新 ${update.name}`}>
-                          <span>{update.package === "vim4-pikvm" ? "PiKVM 运行中会重启。" : "管理面板会重启。"}</span>
-                          <button className="button small" onClick={() => setConfirming(undefined)}>取消</button>
-                          <button className="button small primary" disabled={busy} onClick={() => install(update)}>更新</button>
-                        </span>
+                        <ConfirmDialog open title={`确认更新 ${update.name}`} confirm="更新" disabled={busy}
+                          description={update.package === "vim4-pikvm" ? "PiKVM 运行中会重启。" : "管理面板会重启。"}
+                          onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => install(update)} />
                       ) : (
-                        <button className="button small primary" disabled={busy} onClick={() => setConfirming(update.package)}>
+                        <Button variant="default" disabled={busy} onClick={() => setConfirming(update.package)}>
                           更新
-                        </button>
+                        </Button>
                       )
                     )}
                   </td>
@@ -115,8 +125,9 @@ export function UpdatesPanel({ busy, run, active }: { busy: boolean; run: Run; a
               );
             })}
           </tbody>
-        </table></div>
+        </table></FadeIn>
       )}
+      </SettingsCard>
     </>
   );
 }

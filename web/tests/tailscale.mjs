@@ -4,7 +4,7 @@ const { chromium } = await import(
 );
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: "reduce" });
   const online = {
     installed: true,
     running: true,

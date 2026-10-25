@@ -1,5 +1,8 @@
+import { Segmented, SegmentedOption, SegmentedStatic } from "@/components/Segmented";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { useWidth } from "./Charts";
+import { useWidth } from "./components/TrendChart";
 import type { FanTriggers } from "./api";
 
 // Mirrors kvim4/kvim4n device tree thresholds.
@@ -126,24 +129,24 @@ function CurveEditor({
   const hoverDuty = hover === undefined ? undefined : fanDuty(draft, hover);
 
   return (
-    <div className="fan-editor">
-      <div className="fan-legend" aria-hidden={!dirty}>
-        <span className="hdr-legend">
-          <span className="hdr-key" />
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap gap-4 text-xs text-muted-foreground" aria-hidden={!dirty}>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-0.5 w-3.5 rounded-sm bg-primary" />
           {dirty ? "调整后" : "当前曲线"}
         </span>
         {dirty && (
-          <span className="hdr-legend">
-            <span className="hdr-key hdr-key-muted fan-key-dashed" />
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-0.5 w-3.5 rounded-sm bg-idle border-t border-dashed border-idle" />
             正在生效
           </span>
         )}
-        <span className="hdr-legend">
-          <span className="fan-key-dot" />
+        <span className="inline-flex items-center gap-1.5">
+          <span className="size-2 rounded-full bg-primary" />
           当前 {tempC.toFixed(1)} °C · {percent}%
         </span>
       </div>
-      <div className="chart" ref={ref}>
+      <div className="relative min-w-0 [&_svg]:block [&_svg]:overflow-visible" ref={ref}>
         {width > 0 && (
           <svg
             width={width}
@@ -154,49 +157,49 @@ function CurveEditor({
             onPointerUp={() => (dragging.current = undefined)}
             onPointerCancel={() => (dragging.current = undefined)}
             onPointerLeave={() => setHover(undefined)}
-            className={disabled ? "is-disabled" : undefined}
+            className={disabled ? "pointer-events-none opacity-50" : undefined}
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--primary)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
               </linearGradient>
             </defs>
             <path fill={`url(#${gradientId})`} d={`${path(draft)}L${x(T_MAX)},${y(0)}Z`} />
             {[0, 50, 100].map((v) => (
               <g key={v}>
-                <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-                <text className="chart-tick" x={PAD_LEFT - 8} y={y(v)} textAnchor="end" dominantBaseline="middle">
+                <line className="stroke-border stroke-1 [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
+                <text className="fill-muted-foreground text-[11px] tabular-nums" x={PAD_LEFT - 8} y={y(v)} textAnchor="end" dominantBaseline="middle">
                   {v}%
                 </text>
               </g>
             ))}
             {[20, 40, 60, 80, 100].map((t) => (
-              <text key={t} className="chart-tick" x={x(t)} y={PAD_TOP + HEIGHT + 16} textAnchor="middle">
+              <text key={t} className="fill-muted-foreground text-[11px] tabular-nums" x={x(t)} y={PAD_TOP + HEIGHT + 16} textAnchor="middle">
                 {t}°
               </text>
             ))}
-            <rect className="fan-throttle" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
-            <text className="chart-tick" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
+            <rect className="fill-destructive-fill/10" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
+            <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
               {THROTTLE_C}° 起 CPU 降频
             </text>
-            {dirty && <path className="chart-line chart-line-muted fan-line-saved" d={path(saved)} />}
-            <path className="chart-line" d={path(draft)} />
+            {dirty && <path className="fill-none [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
+            <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round]" d={path(draft)} />
             {vertices(draft)
               .slice(0, 2)
               .map(([tc, d]) => (
-                <circle key={tc} className="fan-vertex" cx={x(tc)} cy={y(d)} r={3} />
+                <circle key={tc} className="fill-card stroke-primary stroke-2" cx={x(tc)} cy={y(d)} r={3} />
               ))}
             {hover !== undefined && hoverDuty !== undefined && !dragging.current && (
-              <line className="chart-crosshair" x1={x(hover)} x2={x(hover)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+              <line className="stroke-muted-foreground stroke-1 [stroke-dasharray:2_3]" x1={x(hover)} x2={x(hover)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
             )}
-            <circle className="fan-current" cx={x(tempC)} cy={y(percent)} r={5} />
+            <circle className="pointer-events-none fill-primary stroke-card stroke-3" cx={x(tempC)} cy={y(percent)} r={5} />
             {HANDLES.map(({ key: k, label, duty }) => {
               const [lo, hi] = LIMITS[k](draft);
               return (
                 <g
                   key={k}
-                  className="fan-handle"
+                  className="group/handle cursor-ew-resize outline-none"
                   role="slider"
                   tabIndex={disabled ? -1 : 0}
                   aria-label={label}
@@ -215,9 +218,9 @@ function CurveEditor({
                     setHover(undefined);
                   }}
                 >
-                  <circle className="fan-handle-hit" cx={x(draft[k])} cy={y(duty)} r={18} />
-                  <circle className="fan-handle-dot" cx={x(draft[k])} cy={y(duty)} r={7} />
-                  <text className="fan-handle-label" x={x(draft[k])} y={y(duty) - 14} textAnchor="middle">
+                  <circle className="fill-transparent group-hover/handle:fill-primary/10 group-focus-visible/handle:fill-primary/10" cx={x(draft[k])} cy={y(duty)} r={18} />
+                  <circle className="fill-card stroke-primary stroke-2 group-hover/handle:[r:8] group-focus-visible/handle:[r:8]" cx={x(draft[k])} cy={y(duty)} r={7} />
+                  <text className="pointer-events-none fill-foreground stroke-card stroke-4 text-[11.5px] font-semibold tabular-nums [paint-order:stroke] [stroke-linejoin:round]" x={x(draft[k])} y={y(duty) - 14} textAnchor="middle">
                     {draft[k]}°
                   </text>
                 </g>
@@ -227,7 +230,7 @@ function CurveEditor({
         )}
         {hover !== undefined && hoverDuty !== undefined && width > 0 && (
           <div
-            className="chart-tooltip"
+            className="pointer-events-none absolute top-0 z-10 flex items-baseline gap-2 rounded-md border bg-popover px-2 py-1 text-xs tabular-nums shadow-md"
             style={{
               left: x(hover),
               top: PAD_TOP + HEIGHT - 34,
@@ -271,33 +274,21 @@ export function FanPanel({
   };
 
   return (
-    <div className="fan-panel">
-      <div className="fan-controls">
-        <div className="segmented" role="group" aria-label="预设曲线">
+    <div className="grid min-w-0 gap-6 @2xl:grid-cols-2">
+      <div className="flex min-w-0 flex-col gap-5">
+        <Segmented label="预设曲线">
           {PRESETS.map((p) => (
-            <button
-              key={p.name}
-              type="button"
-              aria-pressed={preset === p}
-              disabled={busy}
-              onClick={() => setDraft(p.triggers)}
-            >
-              <strong>{p.name}</strong>
-              <span>{p.detail}</span>
-            </button>
+            <SegmentedOption key={p.name} title={p.name} detail={p.detail} pressed={preset === p} disabled={busy} onClick={() => setDraft(p.triggers)} />
           ))}
-          <span className={`segmented-custom${preset ? "" : " is-active"}`} aria-hidden={!!preset}>
-            <strong>自定义</strong>
-            <span>拖动曲线</span>
-          </span>
-        </div>
+          {!preset && <SegmentedStatic title="自定义" detail="拖动曲线" />}
+        </Segmented>
 
-        <div className="fan-fields">
+        <div className="grid grid-cols-3 gap-3">
           {HANDLES.map(({ key, label, duty }) => (
-            <label key={key} className="fan-field">
-              <span className="field-label">{label}</span>
-              <span className="fan-input">
-                <input
+            <label key={key} className="flex min-w-0 flex-col gap-2 text-xs">
+              <span className="text-xs font-medium">{label}</span>
+              <span className="flex items-center gap-1.5 text-sm text-muted-foreground [&_input]:px-2 [&_input]:tabular-nums [&_input]:text-foreground">
+                <Input
                   type="number"
                   inputMode="numeric"
                   value={Number.isNaN(shown[key]) ? "" : shown[key]}
@@ -306,14 +297,14 @@ export function FanPanel({
                 />
                 <span>°C</span>
               </span>
-              <span className="field-hint">占空比 {duty}%</span>
+              <span className="text-xs text-muted-foreground">占空比 {duty}%</span>
             </label>
           ))}
         </div>
 
-        <p className="fan-summary">
+        <p className="text-sm text-muted-foreground">
           {invalid ? (
-            <span className="fan-problem" role="alert">
+            <span className="text-destructive" role="alert">
               {invalid}
             </span>
           ) : (
@@ -323,29 +314,27 @@ export function FanPanel({
           )}
         </p>
 
-        <div className="fan-actions">
-          {!auto && <span className="muted">当前为手动模式，应用后改为自动调速。</span>}
-          <button
+        <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
+          {!auto && <span className="mr-auto text-sm text-muted-foreground">当前为手动模式，应用后改为自动调速。</span>}
+          <Button variant="outline"
             type="button"
-            className="button small"
             disabled={busy || same(shown, DEFAULT_FAN)}
             onClick={() => setDraft(DEFAULT_FAN)}
           >
             恢复出厂
-          </button>
+          </Button>
           {dirty && (
-            <button type="button" className="button small" disabled={busy} onClick={() => setDraft(undefined)}>
+            <Button variant="outline" type="button" disabled={busy} onClick={() => setDraft(undefined)}>
               撤销
-            </button>
+            </Button>
           )}
-          <button
+          <Button variant="default"
             type="button"
-            className="button small primary"
             disabled={busy || !!invalid || (!dirty && auto)}
             onClick={() => void apply()}
           >
             {auto ? "应用曲线" : "应用并启用自动"}
-          </button>
+          </Button>
         </div>
       </div>
       <CurveEditor

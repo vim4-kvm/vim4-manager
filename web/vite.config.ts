@@ -1,9 +1,12 @@
 import { defineConfig } from "vite";
+import path from "node:path";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // Keep offline development local; VIM4_MANAGER selects an explicit backend.
 export default defineConfig({
-  plugins: [react(), { name: "login-route", configureServer(server) {
+  resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
+  plugins: [react(), tailwindcss(), { name: "login-route", configureServer(server) {
     server.middlewares.use((req, _res, next) => {
       if (req.url?.split("?")[0] === "/__vim4/login") req.url = "/login.html" + (req.url.includes("?") ? "?" + req.url.split("?")[1] : "");
       next();

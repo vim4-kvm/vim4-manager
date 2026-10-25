@@ -1,6 +1,19 @@
+import { Segmented, SegmentedOption } from "@/components/Segmented";
+import { Spinner } from "@/components/Spinner";
+import { FadeIn } from "@/components/Motion";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { Fact, FactGrid } from "@/components/FactGrid";
+import { InlineError } from "@/components/InlineError";
+import { SettingRow } from "@/components/SettingRow";
+import { SettingsCard } from "@/components/SettingsCard";
+import { Switch } from "@/components/ui/switch";
+import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
 import { request } from "./api";
-import { CopyButton } from "./Icons";
+import { CopyButton } from "@/components/CopyButton";
 import { TailscaleDevices, type TailscaleDevice } from "./TailscaleDevices";
 
 export const OFFICIAL_CONTROL = "https://controlplane.tailscale.com";
@@ -54,7 +67,9 @@ function phase(state: TailscaleState) {
   }
 }
 
-export function TailscalePanel({ busy }: { busy: boolean }) {
+export function TailscalePanel() {
+  const busy = useActionStore((s) => !!s.busy);
+  const [reading, setReading] = useState(true);
   const [state, setState] = useState<TailscaleState>();
   const [stale, setStale] = useState(true);
   const [pending, setPending] = useState<Action>();
@@ -78,7 +93,7 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
       } catch {
         if (!cancelled) setStale(true);
       } finally {
-        if (!cancelled) timer = window.setTimeout(refresh, 3000);
+        if (!cancelled) { setReading(false); timer = window.setTimeout(refresh, 3000); }
       }
     }
     void refresh();
@@ -151,63 +166,37 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
             login: "未登录",
           }[current ?? "absent"];
 
+  if (reading && !state) return <SettingsCard label="Tailscale"><PanelSkeleton label={label} /></SettingsCard>;
+
   return (
-    <section aria-label="Tailscale">
-      <div className="wifi-card tailscale-card">
-        <div className="wifi-row">
-          <div>
-            <h3>Tailscale</h3>
-            <p className="muted">把板子加入 tailnet，在外网通过 Tailscale 地址访问管理面板和 KVM 界面。</p>
-          </div>
-          <div className="wifi-action">
-            <span className="muted" role="status">
-              {(jobRunning || pending) && <span className="spinner" aria-hidden="true" />}
-              {label}
-            </span>
-            {switchable && (
-              <button
-                type="button"
-                className="wifi-switch"
-                role="switch"
-                aria-label="Tailscale 连接"
-                aria-checked={connected}
-                disabled={locked}
-                onClick={() => connected ? setConfirming("down") : void act("up")}
-              >
-                <span />
-              </button>
-            )}
-          </div>
-        </div>
+    <SettingsCard label="Tailscale"><FadeIn className="flex min-w-0 flex-col gap-5">
+        <SettingRow title="Tailscale" description="把板子加入 tailnet，在外网通过 Tailscale 地址访问管理面板和 KVM 界面。"
+          status={label} pending={jobRunning || !!pending}
+          control={switchable && <Switch aria-label="Tailscale 连接" checked={connected} disabled={locked}
+            onCheckedChange={() => connected ? setConfirming("down") : void act("up")} />} />
 
         {state && !stale && current === "absent" && !jobRunning && (
-          <div className="tailscale-body">
-            <p className="muted">从 Tailscale 官方签名软件源下载安装，通常需要半分钟到几分钟。</p>
+          <div className="flex min-w-0 flex-col gap-4">
+            <p className="text-muted-foreground">从 Tailscale 官方签名软件源下载安装，通常需要半分钟到几分钟。</p>
             <div>
-              <button className="button primary" disabled={locked} onClick={() => void act("install")}>
+              <Button variant="default" disabled={locked} onClick={() => void act("install")}>
                 安装 Tailscale
-              </button>
+              </Button>
             </div>
           </div>
         )}
 
 
         {state && (current === "login" || changing) && !jobRunning && (
-          <div className="tailscale-body">
-            <fieldset className="field tailscale-control" disabled={locked}>
+          <div className="flex min-w-0 flex-col gap-4">
+            <fieldset className="flex min-w-0 flex-col gap-3 text-sm [&_legend]:mb-2 [&_legend]:font-medium" disabled={locked}>
               <legend>控制服务器</legend>
-              <div className="segmented tailscale-servers" role="group" aria-label="控制服务器">
-                <button type="button" aria-pressed={!custom} onClick={() => setCustom(false)}>
-                  <strong>Tailscale 官方</strong>
-                  <span>login.tailscale.com</span>
-                </button>
-                <button type="button" aria-pressed={custom} onClick={() => setCustom(true)}>
-                  <strong>自建</strong>
-                  <span>Headscale 等兼容服务</span>
-                </button>
-              </div>
+              <Segmented label="控制服务器" className="max-sm:grid-cols-1">
+                <SegmentedOption title="Tailscale 官方" detail="login.tailscale.com" pressed={!custom} onClick={() => setCustom(false)} />
+                <SegmentedOption title="自建" detail="Headscale 等兼容服务" pressed={custom} onClick={() => setCustom(true)} />
+              </Segmented>
               {custom && (
-                <input
+                <Input
                   aria-label="控制服务器地址"
                   placeholder="https://headscale.example.com"
                   value={control}
@@ -217,136 +206,112 @@ export function TailscalePanel({ busy }: { busy: boolean }) {
                   onChange={(e) => setControl(e.target.value)}
                 />
               )}
-              {custom && !controlValid && <span className="field-hint">只填协议、域名和端口，例如 https://hs.example.com:8443</span>}
+              {custom && !controlValid && <span className="text-xs text-muted-foreground">只填协议、域名和端口，例如 https://hs.example.com:8443</span>}
             </fieldset>
             {link ? (
-              <div className="tailscale-login">
+              <div className="flex flex-col items-start gap-3">
                 <span>在浏览器中打开登录页面并授权此设备，完成后这里会自动更新。</span>
-                <a className="button primary" href={link} target="_blank" rel="noreferrer noopener">
+                <Button asChild variant="default"><a href={link} target="_blank" rel="noreferrer noopener">
                   打开登录页面
-                </a>
-                <code className="mono tailscale-url">{link}</code>
+                </a></Button>
+                <code className="font-mono break-all max-w-full break-all text-xs">{link}</code>
               </div>
             ) : (
               <div>
-                <button
-                  className="button primary"
+                <Button variant="default"
                   disabled={locked || (custom && !control.trim()) || !controlValid}
                   aria-busy={pending === "login"}
                   onClick={() => changing && state.controlURL !== (custom ? control.trim() : OFFICIAL_CONTROL)
                     ? setConfirming("login") : void act("login")}
                 >
-                  {pending === "login" && <span className="spinner" aria-hidden="true" />}
+                  {pending === "login" && <Spinner />}
                   获取登录链接
-                </button>
+                </Button>
               </div>
             )}
           </div>
         )}
 
         {state && current === "approval" && (
-          <p className="tailscale-body muted">已登录，等待 tailnet 管理员在控制台批准此设备。</p>
+          <p className="flex min-w-0 flex-col gap-4 text-muted-foreground">已登录，等待 tailnet 管理员在控制台批准此设备。</p>
         )}
 
         {state && (current === "online" || current === "offline") && (
-          <dl className="facts tailscale-facts">
+          <FactGrid cols={3}>
             {state.tailnet && (
-              <div>
-                <dt>Tailnet</dt>
-                <dd>{state.tailnet}</dd>
-              </div>
+              <Fact label="Tailnet" value={state.tailnet} />
             )}
-            <div>
-              <dt>访问地址</dt>
-              <dd>
+            <Fact label="控制服务器" value={state.controlURL || OFFICIAL_CONTROL} />
+            {state.version && (
+              <Fact label="版本" value={state.version} />
+            )}
+            <Fact label="访问地址" className="@md:col-span-3" value={<div className="flex flex-col gap-2 text-sm font-normal">
                 {accessURLs(state).length ? (
-                  <ul className="ts-urls">
+                  <ul className="grid grid-cols-[auto_minmax(0,auto)_1fr] items-center gap-x-4 gap-y-1 [&_li]:contents">
                     {accessURLs(state).map(({ label, url }) => (
                       <li key={url}>
-                        <span className="ts-url-label">{label}</span>
-                        <span className="ts-url-value">
-                          <a className="mono" href={url} target="_blank" rel="noreferrer noopener">
-                            {url}
-                          </a>
-                          <CopyButton text={url} label={`${label}地址`} />
-                        </span>
+                        <span className="text-xs text-muted-foreground">{label}</span>
+                        <a className="font-mono [overflow-wrap:anywhere]" href={url} target="_blank" rel="noreferrer noopener">
+                          {url}
+                        </a>
+                        <span className="justify-self-start"><CopyButton text={url} label={`${label}地址`} /></span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <span className="mono">—</span>
+                  <span className="font-mono break-all">—</span>
                 )}
-                <span className="muted">从同一 tailnet 中的设备打开；MagicDNS 名称需该设备启用 MagicDNS。</span>
-              </dd>
-            </div>
-            <div>
-              <dt>控制服务器</dt>
-              <dd className="mono">{state.controlURL || OFFICIAL_CONTROL}</dd>
-            </div>
-            {state.version && (
-              <div>
-                <dt>版本</dt>
-                <dd className="mono">{state.version}</dd>
-              </div>
-            )}
-          </dl>
+                <span className="text-xs text-muted-foreground">从同一 tailnet 中的设备打开；MagicDNS 名称需该设备启用 MagicDNS。</span>
+              </div>} />
+          </FactGrid>
         )}
 
         {connected && state?.devices && <TailscaleDevices devices={state.devices} writable={writable} />}
 
         {connected && (
-          <p className="tailscale-note">
+          <p className="text-xs text-muted-foreground">
             管理面板与 KVM 界面使用统一登录；MCP、VNC 等接口使用各自的密钥。请用 Tailscale ACL 限制可访问此设备的成员。
           </p>
         )}
 
         {state?.installed && !jobRunning && !stale && (
-          <div className="tailscale-manage">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {(current === "online" || current === "offline" || current === "approval") && (
-              <button className="button small" disabled={locked} onClick={() => setChanging(!changing)}>
+              <Button variant="outline" disabled={locked} onClick={() => setChanging(!changing)}>
                 {changing ? "取消切换" : "切换控制服务器"}
-              </button>
+              </Button>
             )}
             {(current === "online" || current === "offline" || current === "approval") && (
-              <button className="button small" disabled={locked} onClick={() => setConfirming("logout")}>
+              <Button variant="outline" disabled={locked} onClick={() => setConfirming("logout")}>
                 退出登录
-              </button>
+              </Button>
             )}
-            <button className="button small" disabled={locked} onClick={() => setConfirming("uninstall")}>
+            <Button variant="outline" disabled={locked} onClick={() => setConfirming("uninstall")}>
               卸载
-            </button>
+            </Button>
           </div>
         )}
 
         {confirming && (
-          <div className="confirm" role="alertdialog" aria-label={{ down: "断开 Tailscale", login: "切换控制服务器", logout: "退出 Tailscale 登录", uninstall: "卸载 Tailscale" }[confirming]}>
-            <span>
-              {confirming === "down" ? "断开后，通过 Tailscale 的远程会话会立即中断，需要通过局域网重新连接。"
-                : confirming === "login" ? `将控制服务器从 ${state?.controlURL} 切换为 ${custom ? control.trim() : OFFICIAL_CONTROL}，需要重新授权设备。`
-                : confirming === "logout"
-                ? "退出后此设备从 tailnet 中移除，通过 Tailscale 地址的会话会断开，需要重新登录授权。"
-                : "卸载会停止 Tailscale 并删除软件包，通过 Tailscale 地址的会话会断开。"}
-            </span>
-            <button className="button" onClick={() => setConfirming(undefined)}>
-              取消
-            </button>
-            <button className="button danger" disabled={locked} onClick={() => void act(confirming)}>
-              {{ down: "断开", login: "确认切换", logout: "退出登录", uninstall: "卸载" }[confirming]}
-            </button>
-          </div>
+          <ConfirmDialog open title={{ down: "断开 Tailscale", login: "切换控制服务器", logout: "退出 Tailscale 登录", uninstall: "卸载 Tailscale" }[confirming]}
+            description={confirming === "down" ? "断开后，通过 Tailscale 的远程会话会立即中断，需要通过局域网重新连接。"
+              : confirming === "login" ? `将控制服务器从 ${state?.controlURL} 切换为 ${custom ? control.trim() : OFFICIAL_CONTROL}，需要重新授权设备。`
+              : confirming === "logout" ? "退出后此设备从 tailnet 中移除，通过 Tailscale 地址的会话会断开，需要重新登录授权。"
+              : "卸载会停止 Tailscale 并删除软件包，通过 Tailscale 地址的会话会断开。"}
+            confirm={{ down: "断开", login: "确认切换", logout: "退出登录", uninstall: "卸载" }[confirming]}
+            destructive disabled={locked} onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => void act(confirming)} />
         )}
 
         {error && (
-          <p className="wifi-error" role="alert">
+          <InlineError>
             {error}
-          </p>
+          </InlineError>
         )}
         {job?.error && job.action in JOB_LABEL && job.error !== error && (
-          <p className="wifi-error" role="alert">
+          <InlineError>
             {job.error}
-          </p>
+          </InlineError>
         )}
-      </div>
-    </section>
+      </FadeIn></SettingsCard>
   );
 }

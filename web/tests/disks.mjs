@@ -1,8 +1,32 @@
 import assert from "node:assert/strict";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ channel: "chrome", headless: true });
+// Destructive text must stay >= 4.5:1 on its own tinted button, at rest and on hover, in both themes.
+async function destructiveContrast(page) {
+  return page.evaluate(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const rgba = (value) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = value;
+      context.fillRect(0, 0, 1, 1);
+      const result = [...context.getImageData(0, 0, 1, 1).data];
+      result[3] /= 255;
+      return result;
+    };
+    const blend = (top, bottom) => top.slice(0, 3).map((v, i) => v * (top[3] ?? 1) + bottom[i] * (1 - (top[3] ?? 1)));
+    const surface = (el) => el ? blend(rgba(getComputedStyle(el).backgroundColor), surface(el.parentElement)) : [255, 255, 255];
+    const lum = (c) => { const l = c.map((v) => v / 255).map((v) => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4); return l[0] * .2126 + l[1] * .7152 + l[2] * .0722; };
+    return [...document.querySelectorAll("main button[data-variant=destructive]:not(:disabled)")].map((el) => {
+      const a = lum(rgba(getComputedStyle(el).color)), b = lum(surface(el));
+      return { text: el.textContent, ratio: (Math.max(a, b) + .05) / (Math.min(a, b) + .05) };
+    });
+  });
+}
+
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const status = { active: "nanokvm", apps: [{ id: "nanokvm", name: "NanoKVM", port: 8080, description: "",
     unit: { name: "nanokvm.service", loaded: true, active: "active", enabled: "enabled", sub: "running" } }], platform: [],
     media: { known: true, inserted: false, token: "", name: "", cdrom: false, readOnly: false, connected: false, pikvm: false },
@@ -17,7 +41,8 @@ try {
       attached: true, readOnly: false, editing: false, snapshots: [] },
   ];
   const files = {
-    "/": [{ name: "drivers", dir: true, size: 0, mtime: 1760000000 }, { name: "readme.txt", dir: false, size: 12, mtime: 1760000000 }],
+    "/": [{ name: "drivers", dir: true, size: 0, mtime: 1760000000 }, { name: "readme.txt", dir: false, size: 12, mtime: 1760000000 },
+      { name: "a-longer-file-name.bin", dir: false, size: 2048, mtime: 1760000600 }],
     "/drivers": [],
   };
   const requests = [];
@@ -54,20 +79,43 @@ try {
 
   await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/disks`);
-  await page.getByRole("heading", { name: "数据盘", level: 2 }).waitFor();
+  await page.getByRole("heading", { name: "数据盘", level: 1 }).waitFor();
   await page.getByRole("button", { name: /^readme\.txt/ }).waitFor();
+  const fileRow = page.getByRole("button", { name: /^readme\.txt/ });
+  const otherRow = page.getByRole("button", { name: /^a-longer-file-name/ });
+  const right = async (locator) => { const box = await locator.boundingBox(); return box.x + box.width; };
+  const sizeEdge = await right(fileRow.getByText("12 B", { exact: true }));
+  assert(Math.abs(sizeEdge - await right(otherRow.getByText("2 KiB", { exact: true }))) < 1, "sizes share a fixed right-aligned track");
+  const dates = [fileRow, otherRow].map(row => row.getByText(/2025\//));
+  assert(Math.abs(await right(dates[0]) - await right(dates[1])) < 1, "dates share the trailing track");
+  const rowEdge = await right(fileRow);
+  assert(Math.abs(rowEdge - await right(dates[0])) < 2, "trailing date is flush with the content edge");
+  await fileRow.hover();
+  assert(Math.abs(sizeEdge - await right(fileRow.getByText("12 B", { exact: true }))) < 1, "hover actions do not move metadata");
+  await page.mouse.move(0, 0);
+  for (const theme of ["浅色", "深色"]) {
+    await page.getByRole("radiogroup", { name: "外观" }).getByRole("radio", { name: theme, exact: true }).click();
+    const rest = await destructiveContrast(page);
+    await page.getByRole("button", { name: "格式化…" }).hover();
+    await page.waitForTimeout(200);
+    const hover = await destructiveContrast(page);
+    assert(rest.length >= 2, "format and delete buttons are measured");
+    for (const value of [...rest, ...hover]) assert(value.ratio >= 4.5, `${theme} destructive contrast ${JSON.stringify(value)}`);
+  }
+  await page.getByRole("radiogroup", { name: "外观" }).getByRole("radio", { name: "系统", exact: true }).click();
+  await page.mouse.move(0, 0);
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).count(), 0, "row actions are not clickable while hidden");
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).getAttribute("href"), "/api/disks/file?disk=disk.img&path=%2Freadme.txt");
   await page.getByText("/readme.txt", { exact: true }).waitFor();
-  assert.equal(await page.locator(".disk-card.is-checked").getByText("空闲").count(), 1);
+  assert.equal(await page.getByRole("radio", { checked: true }).locator("..").getByText("空闲").count(), 1);
 
   // A stray drop outside the file list must not navigate away.
   const dropOutside = () => page.evaluate(() => {
     const data = new DataTransfer();
     data.items.add(new File(["x"], "stray.txt"));
     const event = new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true });
-    document.querySelector(".page-head").dispatchEvent(event);
+    document.getElementById("page-title").dispatchEvent(event);
     return event.defaultPrevented;
   });
   assert.equal(await dropOutside(), true, "window drop guard prevents file navigation");
@@ -119,8 +167,11 @@ try {
   await page.getByRole("button", { name: "删除 readme.txt" }).click();
   await page.getByRole("button", { name: "确认删除" }).waitFor();
   await page.waitForTimeout(4200);
-  await page.getByRole("button", { name: "删除 readme.txt" }).waitFor();
-  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "an armed delete disarms on its own");
+  assert(await page.getByRole("alertdialog", { name: "删除 readme.txt" }).isVisible(), "the delete confirmation stays open until the user acts");
+  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "waiting never deletes");
+  await page.keyboard.press("Escape");
+  await page.getByRole("alertdialog").waitFor({ state: "detached" });
+  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "Escape cancels the delete");
   await page.getByRole("button", { name: "删除 readme.txt" }).click();
   await page.getByRole("button", { name: "确认删除" }).click();
   await page.getByText("已删除 readme.txt").waitFor();
@@ -153,15 +204,15 @@ try {
 
   await page.getByRole("radio", { name: /tools\.img/ }).check({ force: true });
   await page.getByText(/数据盘正挂载在被控电脑上/).waitFor();
-  assert.equal(await page.locator(".disk-card.is-checked").getByText("已挂载到被控电脑").count(), 1);
+  assert.equal(await page.getByRole("radio", { checked: true }).locator("..").getByText("已挂载到被控电脑").count(), 1);
   await page.evaluate(() => {
     const data = new DataTransfer();
     data.items.add(new File(["x"], "x.txt"));
-    document.querySelector(".disk-files").dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
+    document.querySelector('[aria-label="文件"]').dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await page.locator(".disk-files.is-dragging.is-blocked").waitFor();
-  assert.equal(await page.locator(".disk-files").getAttribute("data-drop"), "数据盘挂载在被控电脑上，不能上传");
-  await page.evaluate(() => document.querySelector(".disk-files").dispatchEvent(new DragEvent("drop", { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true })));
+  await page.getByRole("region", { name: "文件", exact: true }).filter({ has: page.getByText(/数据盘正挂载/) }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "文件", exact: true }).getAttribute("data-drop"), "数据盘挂载在被控电脑上，不能上传");
+  await page.evaluate(() => document.querySelector('[aria-label="文件"]').dispatchEvent(new DragEvent("drop", { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true })));
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("button", { name: "上传文件" }).isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: "格式化…" }).isDisabled(), true);
@@ -171,6 +222,10 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.getByRole("button", { name: "打开 readme.txt 操作菜单" }).click();
+  assert(await page.getByRole("menuitem", { name: "下载 readme.txt" }).isVisible());
+  assert.equal(await page.getByRole("menuitem", { name: "删除", exact: true }).count(), 0, "touch menu respects attached read-only state");
+  await page.keyboard.press("Escape");
   if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/disks-mobile.png`, fullPage: true });
   failDisks = true;
   await page.reload();
@@ -179,5 +234,14 @@ try {
   failDisks = false;
   await page.getByRole("button", { name: "重新读取数据盘" }).click();
   await page.getByRole("button", { name: "格式化…" }).waitFor();
+  await page.getByRole("button", { name: "打开 readme.txt 操作菜单" }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "删除 readme.txt" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "打开 readme.txt 操作菜单" }).evaluate(el => new Promise((resolve, reject) => {
+    const start = performance.now();
+    const check = () => document.activeElement === el ? resolve() : performance.now() - start > 2000 ? reject(new Error("file menu trigger did not regain focus")) : requestAnimationFrame(check);
+    check();
+  }));
   console.log("PASS: create, upload with leave guard, drop guard, folders, armed delete, snapshot delete, resize presets, format, attached lockout, read failure recovery and mobile layout");
 } finally { await browser.close(); }

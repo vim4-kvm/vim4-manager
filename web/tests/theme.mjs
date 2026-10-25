@@ -12,7 +12,8 @@ const status = {
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 async function expectTheme(page, theme) {
   await page.waitForFunction((value) => document.documentElement.dataset.theme === value, theme);
-  assert.equal(await page.locator("html").evaluate((el) => el.style.colorScheme), theme);
+  assert.equal(await page.locator("html").evaluate((el) => getComputedStyle(el).colorScheme), theme);
+  assert.equal(await page.locator("html").evaluate((el) => el.classList.contains("dark")), theme === "dark", "Tailwind dark class follows the theme");
 }
 async function context(options = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", ...options });
@@ -65,10 +66,11 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  assert.equal(await appearance.count(), 1, "only the mobile control is accessible");
+  assert.equal(await appearance.count(), 0, "the phone control lives in the closed menu sheet");
+  await page.getByRole("button", { name: "打开菜单", exact: true }).click();
+  assert.equal(await appearance.count(), 1, "only the menu sheet control is accessible");
   assert.equal(await appearance.locator("svg").count(), 3);
-  assert.equal(await appearance.locator("button span").count(), 0, "mobile control uses icons");
-  await appearance.getByRole("radio", { name: "跟随系统", exact: true }).click();
+  await appearance.getByRole("radio", { name: "系统", exact: true }).click();
   await appearance.getByRole("radio", { name: "深色", exact: true }).click();
   await expectTheme(page, "dark");
   await page.waitForFunction(() => !document.documentElement.classList.contains("theme-switching"));
@@ -81,12 +83,13 @@ try {
     await firstFrame.addInitScript(({ key, stored }) => {
       localStorage.setItem(key, stored);
       document.addEventListener("DOMContentLoaded", () => {
-        window.initialTheme = [document.documentElement.dataset.theme, document.documentElement.style.colorScheme];
+        window.initialTheme = [document.documentElement.dataset.theme, getComputedStyle(document.documentElement).colorScheme,
+          document.documentElement.classList.contains("dark") ? "dark" : "light"];
       }, { once: true });
     }, { key, stored });
     const first = await firstFrame.newPage();
     await first.goto(url, { waitUntil: "domcontentloaded" });
-    assert.deepEqual(await first.evaluate(() => window.initialTheme), [expected, expected]);
+    assert.deepEqual(await first.evaluate(() => window.initialTheme), [expected, expected, expected]);
     await expectTheme(first, expected);
     await firstFrame.close();
   }

@@ -1,0 +1,111 @@
+{
+  "unit": "bytes",
+  "gzip": "sum of individually gzip-compressed JS, CSS and HTML files; Node zlib default level",
+  "baseline": "origin/main@fa088412c73c767a919441d96d4f9f6f9a31b12d",
+  "before": {
+    "js": {
+      "bytes": 435416,
+      "gzip": 134269
+    },
+    "css": {
+      "bytes": 73945,
+      "gzip": 13820
+    },
+    "html": {
+      "bytes": 1495,
+      "gzip": 831
+    },
+    "total": {
+      "bytes": 510856,
+      "gzip": 148920
+    }
+  },
+  "after": {
+    "js": {
+      "bytes": 807059,
+      "gzip": 254596
+    },
+    "css": {
+      "bytes": 96908,
+      "gzip": 16433
+    },
+    "html": {
+      "bytes": 2030,
+      "gzip": 1056
+    },
+    "total": {
+      "bytes": 905997,
+      "gzip": 272085
+    },
+    "initialJs": {
+      "index.html": {
+        "bytes": 750103,
+        "gzip": 236340
+      },
+      "login.html": {
+        "bytes": 370815,
+        "gzip": 122956
+      }
+    }
+  },
+  "polish": {
+    "note": "lazy page chunks, async LazyMotion features, unused tooltip/collapsible removed; initialJs = entry script plus its static imports (excludes lazily loaded page and animation chunks)",
+    "js": {
+      "bytes": 807035,
+      "gzip": 279033
+    },
+    "css": {
+      "bytes": 97924,
+      "gzip": 16688
+    },
+    "html": {
+      "bytes": 3186,
+      "gzip": 1300
+    },
+    "total": {
+      "bytes": 908145,
+      "gzip": 297021
+    },
+    "initialJs": {
+      "index.html": {
+        "bytes": 467795,
+        "gzip": 154302
+      },
+      "login.html": {
+        "bytes": 325959,
+        "gzip": 110317
+      }
+    },
+    "jsChunks": 40
+  },
+  "final": {
+    "note": "Final contrast, list and action changes; same gzip method as polish.",
+    "js": {
+      "bytes": 808778,
+      "gzip": 279722
+    },
+    "css": {
+      "bytes": 98046,
+      "gzip": 16690
+    },
+    "html": {
+      "bytes": 3184,
+      "gzip": 1295
+    },
+    "total": {
+      "bytes": 910008,
+      "gzip": 297707
+    },
+    "initialJs": {
+      "index.html": {
+        "bytes": 468736,
+        "gzip": 154722
+      },
+      "login.html": {
+        "bytes": 362732,
+        "gzip": 120816
+      }
+    },
+    "jsChunks": 40
+  }
+}

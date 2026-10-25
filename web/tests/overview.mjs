@@ -25,7 +25,8 @@ try {
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: {} }));
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
   await (await import("./auth-fixture.mjs")).authenticated(page);
-  const charts = page.locator(".trend");
+  const charts = page.locator("[data-trends] figure");
+  const fact = (label) => page.locator("div:has(> dt)").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) });
   const reload = async () => {
     await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
     await page.reload();
@@ -33,29 +34,29 @@ try {
   };
   await reload();
   await page.getByText(/已采样 3 分钟/).waitFor();
-  const appDetail = page.locator(".lead-detail");
-  assert.equal(await appDetail.locator(".package-version > span").first().textContent(), "2.5.1+vim4.20261018.32");
-  assert.equal(await appDetail.locator(".package-version").getAttribute("title"), status.system.packages[0].version);
+  const appDetail = page.locator("[data-app-detail]");
+  assert.equal(await appDetail.locator("[data-version] > span").first().textContent(), "2.5.1+vim4.20261018.32");
+  assert.equal(await appDetail.locator("[data-version]").getAttribute("title"), status.system.packages[0].version);
   assert.equal(await appDetail.getByText("开发版", { exact: true }).count(), 1);
-  assert.equal(await appDetail.locator(".mono").textContent(), `${new URL(page.url()).hostname}:8080`);
+  assert.equal(await appDetail.locator("[data-host]").textContent(), `${new URL(page.url()).hostname}:8080`);
   assert.equal(await appDetail.locator("a").count(), 0);
-  assert.match(await charts.first().locator(".trend-detail").textContent(), /· 最近 3 分钟 1% – 13%$/);
-  assert.match(await charts.nth(4).locator(".trend-detail").textContent(), /^最近 3 分钟 /);
+  assert.match(await charts.first().locator("[data-trend-detail]").textContent(), /· 最近 3 分钟 1% – 13%$/);
+  assert.match(await charts.nth(4).locator("[data-trend-detail]").textContent(), /^最近 3 分钟 /);
   for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /最近 3 分钟/);
-  assert.equal(await page.locator(".chart-unsampled").count(), 6);
+  assert.equal(await page.locator("[data-chart=unsampled]").count(), 6);
   assert.equal(await page.getByText("尚未采样", { exact: true }).count(), 6);
-  assert.deepEqual(await charts.locator(".trend-title").allTextContents(), ["CPU", "内存", "网络", "CPU 动态功耗（估算）", "SoC 温度", "风扇"]);
-  const hdmi = page.locator(".readout").filter({ hasText: "HDMI 输入" });
+  assert.deepEqual(await charts.locator("[data-trend-title]").allTextContents(), ["CPU", "内存", "网络", "CPU 动态功耗（估算）", "SoC 温度", "风扇"]);
+  const hdmi = fact("HDMI 输入");
   assert.doesNotMatch(await hdmi.textContent(), /采集/);
-  const uptime = page.locator(".readout").filter({ hasText: "开机时长" });
+  const uptime = fact("开机时长");
   for (const [label, href] of [["HDMI 输入", "#/video"], ["USB 键鼠", "#/services"], ["PD 协商", "#/services"]]) {
     assert.equal(await page.getByRole("link", { name: new RegExp(label) }).getAttribute("href"), href);
   }
   assert.equal(await uptime.evaluate((el) => el.matches("a") || !!el.querySelector("a")), false);
-  assert.match(await uptime.locator(".readout-detail").textContent(), /^开机于 (\d+\/\d+ )?\d{2}:\d{2}$/);
+  assert.match(await uptime.locator("dd").last().textContent(), /^开机于 (\d+\/\d+ )?\d{2}:\d{2}$/);
   assert.doesNotMatch(await uptime.textContent(), /负载/);
-  assert.equal(await charts.nth(2).locator(".trend-value small").textContent(), "发送");
-  assert.match(await charts.nth(2).locator(".legend").textContent(), /接收 7 kbps/);
+  assert.equal(await charts.nth(2).locator("[data-trend-value] small").textContent(), "发送");
+  assert.match(await charts.nth(2).locator("[data-legend]").textContent(), /接收 7 kbps/);
   await page.getByText("暂无事件", { exact: true }).waitFor();
   assert.ok((await page.getByRole("heading", { name: "最近事件", exact: true }).boundingBox()).y < 900);
   await hdmi.click();
@@ -67,12 +68,12 @@ try {
   for (const [cpu, upper] of [[13, "25%"], [40, "50%"], [90, "100%"]]) {
     status.history = history(15, cpu);
     await reload();
-    assert.equal(await charts.first().locator(".chart-tick").nth(1).textContent(), upper);
-    assert.equal(await page.locator(".chart-unsampled").count(), 0);
+    assert.equal(await charts.first().locator("[data-chart=tick]").nth(1).textContent(), upper);
+    assert.equal(await page.locator("[data-chart=unsampled]").count(), 0);
     assert.equal(await page.getByText("尚未采样", { exact: true }).count(), 0);
     assert.equal(await page.getByText(/已采样/).count(), 0);
-    assert.match(await charts.first().locator(".trend-detail").textContent(), /· 15 分钟 /);
-    assert.match(await charts.nth(4).locator(".trend-detail").textContent(), /^15 分钟 /);
+    assert.match(await charts.first().locator("[data-trend-detail]").textContent(), /· 15 分钟 /);
+    assert.match(await charts.nth(4).locator("[data-trend-detail]").textContent(), /^15 分钟 /);
     for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /最近 15 分钟/);
   }
   status.hardware.hdmi.captureWidth = 1920;
@@ -81,9 +82,9 @@ try {
   status.events = Array.from({ length: 7 }, (_, i) => ({ t: now - i * 5000, tone: "good", text: `事件 ${i + 1}` }));
   await reload();
   assert.match(await hdmi.textContent(), /采集 1920×1080/);
-  assert.equal(await page.locator(".event").count(), 5);
+  assert.equal(await page.locator("[data-event]").count(), 5);
   await page.getByRole("button", { name: "显示全部 7 条" }).click();
-  assert.equal(await page.locator(".event").count(), 7);
+  assert.equal(await page.locator("[data-event]").count(), 7);
 
   // Keep pointer hover from competing with keyboard selection as charts scroll.
   await page.mouse.move(0, 0);
@@ -94,7 +95,7 @@ try {
       await chart.getByRole("img").scrollIntoViewIfNeeded();
       await chart.getByRole("img").focus();
       await page.keyboard.press("ArrowLeft");
-      const tooltip = chart.locator(".chart-tooltip");
+      const tooltip = chart.locator("[data-chart=tooltip]");
       await tooltip.waitFor({ state: "visible" });
       await page.waitForFunction((el) => {
         const b = el.getBoundingClientRect();
@@ -102,7 +103,7 @@ try {
           && el.contains(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2));
       }, await tooltip.elementHandle());
       await page.keyboard.press("ArrowRight");
-      assert.equal(await page.locator(".chart-crosshair").count(), 6, "crosshairs remain linked");
+      assert.equal(await page.locator("[data-chart=crosshair]").count(), 6, "crosshairs remain linked");
     }
   }
   console.log("PASS: overview history, axes, readouts, order, events, responsive layout and keyboard tooltips");

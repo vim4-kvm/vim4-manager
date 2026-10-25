@@ -1,9 +1,18 @@
+import { Spinner } from "@/components/Spinner";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
-import { copyText, Icon } from "./Icons";
-import { ThemeSwitch } from "./theme";
-import "./styles.css";
+import { copyText } from "./lib/clipboard";
+import { Eye, EyeOff, LockKeyhole, LucideProvider } from "lucide-react";
+import { LazyMotion, MotionConfig } from "motion/react";
+import { InlineError } from "@/components/InlineError";
+import { SettingsCard } from "@/components/SettingsCard";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Collapse } from "@/components/Motion";
+import { ThemeSwitch } from "./components/ThemeSwitch";
+import "./index.css";
 
 const connectionError = "无法连接板子，请检查网络后重试";
 const resetCommand = "sudo vim4-manager set-password";
@@ -12,18 +21,6 @@ function passwordProblem(username: string, password: string) {
   if ([...password].length < 8 || [...password].length > 128) return "密码须为 8–128 个字符";
   if (password === username) return "密码不能与用户名相同";
   return "";
-}
-
-function ErrorNotice({ message }: { message: string }) {
-  return (
-    <div className="auth-message" role="alert">
-      <svg viewBox="0 0 24 24" aria-hidden="true">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 7v6m0 3h.01" />
-      </svg>
-      <span>{message}</span>
-    </div>
-  );
 }
 
 function ResetCommand() {
@@ -43,11 +40,11 @@ function ResetCommand() {
   }
 
   return (
-    <div className="auth-command">
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md border bg-muted p-3 text-xs [&_code]:min-w-0 [&_code]:break-all [&_code]:font-mono [&_button]:h-7 [&_button]:shrink-0 [&_button]:text-xs">
       <code>{resetCommand}</code>
-      <button type="button" onClick={() => void copy()} aria-live="polite">
+      <Button variant="outline" type="button" onClick={() => void copy()} aria-live="polite">
         {status || "复制"}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -178,37 +175,37 @@ function Login() {
   }
 
   return (
-    <main className="auth-shell">
-      <header className="auth-identity">
-        <span className="auth-logo">V4</span>
+    <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[12vh]">
+      <header role="group" aria-label="设备" className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
+        <span className="mb-2 grid size-12 place-items-center rounded-lg bg-primary-fill text-lg font-semibold text-primary-foreground">V4</span>
         {!state && !error ? (
-          <span className="auth-skeleton auth-name-skeleton" />
+          <Skeleton className="h-7 w-36" />
         ) : (
           <h1>{hostname}</h1>
         )}
         <p>VIM4 KVM · {location.host}</p>
       </header>
-      <section className="auth-card" aria-label={setup ? "创建管理员账户" : "设备登录"}>
+      <SettingsCard className="w-full max-w-[400px]" label={setup ? "创建管理员账户" : "设备登录"}>
         {!state ? (
           error ? (
-            <div className="auth-load-error">
-              <ErrorNotice message={error} />
-              <button className="button" onClick={() => {
+            <div className="flex flex-col items-start gap-4">
+              <InlineError>{error}</InlineError>
+              <Button variant="outline" onClick={() => {
                 setError("");
                 setLoadAttempt((attempt) => attempt + 1);
               }}>
                 重试
-              </button>
+              </Button>
             </div>
           ) : (
-            <div className="auth-loading" role="status" aria-label="正在连接">
-              <span className="auth-skeleton" />
-              <span className="auth-skeleton" />
-              <span className="auth-skeleton" />
+            <div className="flex flex-col gap-4" role="status" aria-label="正在连接">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
             </div>
           )
         ) : setup && !state.setupAllowed ? (
-          <div className="auth-setup">
+          <div className="mb-5 space-y-3 text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-foreground">
             <h2>需要在局域网内完成设置</h2>
             <p>为防止他人抢先设置，首次设置只能在板子所在的局域网内进行。也可以 SSH 登录板子运行：</p>
             <ResetCommand />
@@ -216,15 +213,15 @@ function Login() {
         ) : (
           <>
             {setup && (
-              <div className="auth-setup">
+              <div className="mb-5 space-y-3 text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-foreground">
                 <h2>创建管理员账户</h2>
                 <p>此账户用于登录管理面板和 KVM 界面。</p>
               </div>
             )}
-            <form className={setup ? "auth-setup-form" : undefined} onSubmit={submit} noValidate>
-              <div className="auth-field">
+            <form className="flex flex-col gap-4" onSubmit={submit} noValidate>
+              <div className="flex min-w-0 flex-col gap-2 text-sm">
                 <label htmlFor="username">用户名</label>
-                <input
+                <Input
                   id="username"
                   ref={usernameRef}
                   autoComplete="username"
@@ -241,13 +238,13 @@ function Login() {
                   onBlur={() => blur("username")}
                 />
                 {(setup || (touched.username && usernameError)) && (
-                  <span id="username-error" className="auth-field-error">{touched.username && usernameError}</span>
+                  <span id="username-error" className="min-h-4 text-xs text-destructive">{touched.username && usernameError}</span>
                 )}
               </div>
-              <div className="auth-field">
+              <div className="flex min-w-0 flex-col gap-2 text-sm">
                 <label htmlFor="password">密码</label>
-                <div className="password-field">
-                  <input
+                <div className="relative flex min-w-0 items-center [&_input]:pr-10">
+                  <Input
                     id="password"
                     ref={passwordRef}
                     type={visible ? "text" : "password"}
@@ -269,26 +266,26 @@ function Login() {
                     onKeyDown={checkCapsLock}
                     onKeyUp={checkCapsLock}
                   />
-                  <button
-                    className="button"
+                  <Button variant="ghost" size="icon"
+                    className="absolute right-0 text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
                     type="button"
                     aria-label={visible ? "隐藏密码" : "显示密码"}
                     onClick={() => setVisible(!visible)}
                   >
-                    <Icon name={visible ? "eyeOff" : "eye"} />
-                  </button>
+                    {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  </Button>
                 </div>
                 {(setup || (touched.password && passwordError)) && (
-                  <span id="password-help" className={touched.password && passwordError ? "auth-field-error" : "auth-hint"}>
+                  <span id="password-help" className={touched.password && passwordError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
                     {(touched.password && passwordError) || "至少 8 个字符"}
                   </span>
                 )}
-                {passwordFocused && capsLock && <span className="auth-caps" role="status">⇪ 大写锁定已开启</span>}
+                {passwordFocused && capsLock && <span className="text-xs text-warning-foreground" role="status">⇪ 大写锁定已开启</span>}
               </div>
               {setup && (
-                <div className="auth-field">
+                <div className="flex min-w-0 flex-col gap-2 text-sm">
                   <label htmlFor="confirm">确认密码</label>
-                  <input
+                  <Input
                     id="confirm"
                     ref={confirmRef}
                     type="password"
@@ -303,56 +300,53 @@ function Login() {
                     }}
                     onBlur={() => blur("confirm")}
                   />
-                  <span id="confirm-error" className="auth-field-error">{touched.confirm && confirmError}</span>
+                  <span id="confirm-error" className="min-h-4 text-xs text-destructive">{touched.confirm && confirmError}</span>
                 </div>
               )}
-              {error && <ErrorNotice message={error} />}
-              <button
-                className="button primary auth-submit"
+              {error && <InlineError>{error}</InlineError>}
+              <Button variant="default"
+                type="submit" className="mt-1 w-full"
                 disabled={busy || retry > 0}
                 aria-busy={busy}
               >
-                {busy && <span className="spinner" aria-hidden="true" />}
+                {busy && <Spinner />}
                 {busy ? "正在登录…" : retry > 0 ? `请 ${retry} 秒后再试` : setup ? "创建并登录" : "登录"}
-              </button>
+              </Button>
             </form>
             {!setup && (
-              <div className="auth-recovery">
-                <button
-                  className="auth-forgot"
+              <div className="mt-4 flex flex-col gap-3 text-sm text-muted-foreground [&_p]:my-3">
+                <Button variant="link" size="inline"
+                  className="self-start"
                   type="button"
                   aria-expanded={forgot}
                   aria-controls="password-recovery"
                   onClick={() => setForgot(!forgot)}
                 >
                   忘记密码？
-                </button>
-                {forgot && (
+                </Button>
+                <Collapse open={forgot}>
                   <div id="password-recovery">
                     <p>忘记密码时，SSH 登录板子运行：</p>
                     <ResetCommand />
                     <p>所有已登录的设备会同时退出。</p>
                   </div>
-                )}
+                </Collapse>
               </div>
             )}
           </>
         )}
-      </section>
+      </SettingsCard>
       {state && !state.secure && !state.setupAllowed && (
-        <p className="auth-warning">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="5" y="10" width="14" height="11" rx="2" />
-            <path d="M9 10V6a4 4 0 0 1 8 0M12 14v3" />
-          </svg>
+        <p className="flex w-full max-w-[400px] items-start gap-2 text-xs text-warning-foreground">
+          <LockKeyhole className="size-4 shrink-0" aria-hidden="true" />
           此连接未加密，密码可能被窃听。外网访问请使用 HTTPS。
         </p>
       )}
-      <div className="auth-theme">
-        <ThemeSwitch compact />
+      <div className="w-full max-w-[400px]">
+        <ThemeSwitch />
       </div>
     </main>
   );
 }
 
-createRoot(document.getElementById("root")!).render(<Login />);
+createRoot(document.getElementById("root")!).render(<MotionConfig reducedMotion="user"><LazyMotion features={() => import("@/lib/motion-dom").then((module) => module.default)} strict><LucideProvider strokeWidth={1.75}><Login /></LucideProvider></LazyMotion></MotionConfig>);
