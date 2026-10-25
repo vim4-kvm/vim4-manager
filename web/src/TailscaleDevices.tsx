@@ -1,6 +1,10 @@
+import { StatusDot } from "@/components/StatusDot";
+import { InlineError } from "@/components/InlineError";
+import { AnimatedList } from "@/components/AnimatedList";
+import { Button } from "@/components/ui/button";
 import { useState } from "react";
 import { request } from "./api";
-import { CopyButton } from "./Icons";
+import { CopyButton } from "@/components/CopyButton";
 
 export interface TailscaleDevice {
   id: string;
@@ -63,50 +67,50 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
   }
   const summary = ping && !ping.pending && ping.result ? pingSummary(ping.result) : undefined;
   return (
-    <li className="ts-device">
-      <span className={`lamp ${device.online ? "status-good" : ""}`} aria-hidden="true" />
-      <div className="ts-device-main">
-        <div className="ts-device-name">
+    <div className="flex min-w-0 flex-wrap items-center gap-3 py-3">
+      <StatusDot tone={device.online ? "good" : "idle"} />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 [&_strong]:break-all">
           <strong>{device.hostName}</strong>
-          {device.os && <span className="tag tag-quiet">{device.os}</span>}
-          {device.exitNode && <span className="tag">出口节点</span>}
+          {device.os && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{device.os}</span>}
+          {device.exitNode && <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium">出口节点</span>}
         </div>
-        <div className="ts-device-meta">
-          {ip && <span className="mono">{ip}</span>}
-          <span className="muted">{device.online ? "在线" : lastSeen(device.lastSeen) || "离线"}</span>
+        <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+          {ip && <span className="font-mono break-all">{ip}</span>}
+          <span className="text-muted-foreground">{device.online ? "在线" : lastSeen(device.lastSeen) || "离线"}</span>
         </div>
         {ping?.pending && (
-          <p className="ts-ping muted" role="status">
-            <span className="spinner" aria-hidden="true" />
+          <p className="text-xs text-muted-foreground" role="status">
+            <span className="inline-block size-4 shrink-0 motion-safe:animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
             正在测试 4 次…
           </p>
         )}
         {summary && (
-          <p className={`ts-ping ts-ping-${summary.tone}`} role="status">
+          <p className={`text-xs ${summary.tone === "critical" ? "text-destructive" : summary.tone === "warning" ? "text-warning-foreground" : "text-success-foreground"}`} role="status">
             {summary.text}
           </p>
         )}
         {ping && !ping.pending && ping.error && (
-          <p className="ts-ping ts-ping-critical" role="alert">
+          <InlineError>
             {ping.error}
-          </p>
+          </InlineError>
         )}
       </div>
-      <div className="ts-device-actions">
+      <div className="ml-auto flex flex-wrap items-center gap-2">
         {ip && <CopyButton text={ip} label={`${device.hostName} 的地址`} />}
         {ip && (
-          <button
+          <Button variant="outline"
             type="button"
-            className="button small"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
             aria-label={`测试到 ${device.hostName} 的连接`}
             disabled={ping?.pending || !writable}
             onClick={() => void test()}
           >
             测试连接
-          </button>
+          </Button>
         )}
       </div>
-    </li>
+    </div>
   );
 }
 
@@ -115,42 +119,34 @@ export function TailscaleDevices({ devices, writable }: { devices: TailscaleDevi
   const online = devices.filter((d) => d.online);
   const offline = devices.filter((d) => !d.online);
   return (
-    <div className="ts-devices">
-      <div className="ts-devices-head">
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 [&_h4]:font-medium">
         <h4>tailnet 中的其他设备</h4>
-        <span className="muted num">
+        <span className="text-muted-foreground tabular-nums">
           {online.length} 台在线 / 共 {devices.length} 台
         </span>
       </div>
       {devices.length === 0 ? (
-        <p className="muted ts-empty">tailnet 中还没有其他设备。</p>
+        <p className="text-muted-foreground py-4 text-center text-sm">tailnet 中还没有其他设备。</p>
       ) : (
         <>
           {online.length > 0 ? (
-            <ul className="ts-device-list" aria-label="在线设备">
-              {online.map((d) => (
-                <DeviceRow key={d.id} device={d} writable={writable} />
-              ))}
-            </ul>
+            <AnimatedList className="flex min-w-0 flex-col divide-y" label="在线设备" items={online} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
           ) : (
-            <p className="muted ts-empty">没有其他在线设备。</p>
+            <p className="text-muted-foreground py-4 text-center text-sm">没有其他在线设备。</p>
           )}
           {offline.length > 0 && (
-            <button
+            <Button variant="outline"
               type="button"
-              className="link ts-offline-toggle"
+              className="text-primary self-start border-0 bg-transparent text-xs text-muted-foreground"
               aria-expanded={showOffline}
               onClick={() => setShowOffline(!showOffline)}
             >
               {showOffline ? "收起离线设备" : `显示 ${offline.length} 台离线设备`}
-            </button>
+            </Button>
           )}
           {showOffline && (
-            <ul className="ts-device-list" aria-label="离线设备">
-              {offline.map((d) => (
-                <DeviceRow key={d.id} device={d} writable={writable} />
-              ))}
-            </ul>
+            <AnimatedList className="flex min-w-0 flex-col divide-y" label="离线设备" items={offline} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
           )}
         </>
       )}

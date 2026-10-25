@@ -36,7 +36,7 @@ const networks = [
   { ssid: "Neighbor", signal: 20, security: "WPA2", frequency: 2462, saved: false, active: false },
 ];
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({ reducedMotion: "reduce" });
   let state = { supported: true, enabled: false, hardwareEnabled: true, mode: "off", saved: [], current: null, hotspot: hotspotDefaults };
   let failWrite = false;
   const writes = [];
@@ -95,7 +95,7 @@ try {
   await page.getByText("8–63 位字符，或 64 位十六进制密钥").waitFor();
   await password.fill("correct horse");
   assert.equal(await password.getAttribute("type"), "password", "join password starts hidden");
-  const join = page.locator(".wifi-join");
+  const join = page.getByRole("form", { name: "连接网络" });
   await join.getByRole("button", { name: "显示密码" }).click();
   assert.equal(await password.getAttribute("type"), "text");
   assert.equal(await password.inputValue(), "correct horse", "toggling keeps the typed password");
@@ -187,7 +187,7 @@ try {
   assert.deepEqual(writes.at(-1), { path: "/api/wifi/hotspot", ssid: "Desk KVM", password: "", channel: 6, autostart: false });
   const autostart = page.getByLabel("开机直接进入热点模式");
   await autostart.click();
-  await page.waitForFunction(() => document.querySelector(".wifi-hotspot input[type=checkbox]")?.checked);
+  await page.waitForFunction(() => document.querySelector('input[aria-label="开机直接进入热点模式"]')?.checked);
   assert.deepEqual(writes.at(-1), { path: "/api/wifi/hotspot", ssid: "Desk KVM", password: "", channel: 6, autostart: true });
 
   for (const colorScheme of ["light", "dark"]) {
