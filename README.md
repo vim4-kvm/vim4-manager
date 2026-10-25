@@ -413,7 +413,22 @@ Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev
 实际输出模式、格式、帧率读回和显示计数推进后才报告 `running`；不依赖静止像素判断失锁。
 关闭透传只隐藏 VD1、恢复 OSD，保留 TEE 消费及 KVM；HDMI 服务重启后自动重新探测。
 支持普通/1000:1001 刷新率的 720p/1080p/2160p 已枚举模式，HDR、隔行和其他刷新率明确拒绝。
-音频直通尚未验证，开启声音返回明确错误、不保存偏好，不抢占 One-KVM 的 RX PCM。
+声音由独立的 `vim4-passthrough-audio.service` 跟随视频与接收器状态，不参与 HDMI modeset。
+厂商接口未暴露可用的 RX→TX 直接硬件回环，因此使用单进程 libasound PCM 桥：
+`FRHDMIRX → EXTN hw:CARD=AMLAUGESOUND,DEV=6 → SPDIF DEV=1 → HDMITX`。
+它不打开 One-KVM 的 TDM-B `DEV=0`、不使用 arecord/aplay 管道，不改 KVM 采集参数。
+依赖 `python3`、`libasound2`、`alsa-utils`；安装时须同时复制音频 Python 模块和两个服务单元。
+仅支持立体声 PCM 44.1/48kHz，输出为 16-bit；多声道、AC3 等压缩流、其他采样率或
+显示器未声明相应 PCM 能力时停止本地声音，视频继续，声音偏好仍保留。
+`audio` 表示保存的开关，`audioState` 表示实际的 `off/starting/waiting/running/unavailable/error`。
+进程/PCM 异常有界退避重试；状态查询只读，音频失败不会重启视频服务。
+周期 256 帧、缓冲 2048 帧；48kHz 实测 ALSA 队列约 26.7ms，44.1kHz 约 29ms，
+不包含接收器/显示器延迟，不能当作扬声器端 A/V 同步实测。
+EXTN 的初始无效输入选择 0 只初始化一次为 FRHDMIRX 8，之后保留；其他已配置输入不抢占。
+拿到两个独占 PCM 后才修改输出路由；仅当 ASRC 属于 FRHDMIRX 时旁路它，不改 KVM 的
+TDMIN_B 重采样。原路由保存在 `/run/vim4-passthrough/audio-before.json`，停止或异常退出后
+在仍持有两个端点时比较并恢复；其他程序占用时不强行复原或覆盖其更改。
+底层命令错误只记 journal，API 返回已有中文提示，不把 sudo/ALSA 路径直接显示给用户。
 异常请求回退旧设置；控制进程无响应或状态过期不伪造成功。
 模式跟随对 RX 刷新率取七次采样中值、使用 0.005Hz 的半频点滞回，并要求新模式稳定两秒；
 59.97–59.99Hz 的测量抖动不再被当成 59.94/60Hz 模式切换。

@@ -5,9 +5,31 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestKernelPassthroughHidesPrivilegedCommandErrors(t *testing.T) {
+	provider := kernelPassthroughProvider{run: func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("sudo: ALSA /private/path: permission denied")
+	}}
+	_, err := provider.Status(context.Background())
+	if err == nil || strings.Contains(err.Error(), "sudo") || strings.Contains(err.Error(), "/private") {
+		t.Fatalf("raw command failure exposed: %v", err)
+	}
+}
+
+func TestKernelPassthroughReportsAudioFailureWithoutLosingVideo(t *testing.T) {
+	provider := kernelPassthroughProvider{run: func(context.Context, string, ...string) (string, error) {
+		return `{"supported":true,"enabled":true,"audio":true,"audioState":"error","state":"running"}`, nil
+	}}
+	state, err := provider.Status(context.Background())
+	if err != nil || !state.Audio || state.AudioState != "error" || state.State != "running" {
+		t.Fatalf("audio failure affected video or saved preference: %+v %v", state, err)
+	}
+}
 
 type fakePassthroughProvider struct {
 	state   PassthroughState
@@ -40,6 +62,38 @@ func (f *fakePassthroughProvider) Apply(_ context.Context, prefs PassthroughPref
 }
 
 func boolPointer(value bool) *bool { return &value }
+
+func TestPassthroughChangeWaitsForStatusInsteadOfReportingBusy(t *testing.T) {
+	fake := &fakePassthroughProvider{state: PassthroughState{Supported: true, State: "off"}}
+	controller := &Passthrough{provider: fake, path: filepath.Join(t.TempDir(), "passthrough.json"),
+		events: &Events{Capacity: 10}}
+	controller.mu.Lock()
+	result := make(chan error, 1)
+	go func() {
+		_, err := controller.Set(context.Background(), PassthroughChange{Audio: boolPointer(true)})
+		result <- err
+	}()
+	deadline := time.Now().Add(time.Second)
+	for controller.changeMu.TryLock() {
+		controller.changeMu.Unlock()
+		if time.Now().After(deadline) {
+			controller.mu.Unlock()
+			t.Fatal("change did not acquire its independent writer lock")
+		}
+		runtime.Gosched()
+	}
+	_, busy := controller.Set(context.Background(), PassthroughChange{Audio: boolPointer(false)})
+	controller.mu.Unlock()
+	if !errors.Is(busy, ErrBusy) {
+		t.Fatalf("overlapping writes were not rejected: %v", busy)
+	}
+	if err := <-result; err != nil {
+		t.Fatalf("read-only status blocked a setting change: %v", err)
+	}
+	if !fake.state.Audio {
+		t.Fatal("audio preference was not applied")
+	}
+}
 
 func TestPassthroughPreferencesSurviveRestartAndUnsupportedKernel(t *testing.T) {
 	ctx := context.Background()

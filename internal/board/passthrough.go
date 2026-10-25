@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -55,13 +56,14 @@ type PassthroughOutput struct {
 }
 
 type PassthroughState struct {
-	Supported bool                `json:"supported"`
-	Enabled   bool                `json:"enabled"`
-	Audio     bool                `json:"audio"`
-	State     string              `json:"state"`
-	Input     *PassthroughInput   `json:"input,omitempty"`
-	Monitor   *PassthroughMonitor `json:"monitor,omitempty"`
-	Output    *PassthroughOutput  `json:"output,omitempty"`
+	Supported  bool                `json:"supported"`
+	Enabled    bool                `json:"enabled"`
+	Audio      bool                `json:"audio"`
+	AudioState string              `json:"audioState,omitempty"`
+	State      string              `json:"state"`
+	Input      *PassthroughInput   `json:"input,omitempty"`
+	Monitor    *PassthroughMonitor `json:"monitor,omitempty"`
+	Output     *PassthroughOutput  `json:"output,omitempty"`
 }
 
 // PassthroughProvider reports actual kernel state. Apply must return actual
@@ -84,7 +86,8 @@ func (p kernelPassthroughProvider) command(ctx context.Context, args ...string) 
 	defer cancel()
 	output, err := run(ctx, "sudo", append([]string{"-n", Helper}, args...)...)
 	if err != nil {
-		return PassthroughState{}, err
+		log.Printf("passthrough helper %s: %v", args[0], err)
+		return PassthroughState{}, errors.New("透传控制服务未响应")
 	}
 	var state PassthroughState
 	if err := json.Unmarshal([]byte(output), &state); err != nil || state.State == "" {
@@ -119,6 +122,7 @@ func (p kernelPassthroughProvider) Apply(ctx context.Context, prefs PassthroughP
 // from status collection and the manager's privileged helper.
 type Passthrough struct {
 	mu       sync.Mutex
+	changeMu sync.Mutex
 	provider PassthroughProvider
 	path     string
 	events   *Events
@@ -170,9 +174,11 @@ func (p *Passthrough) Status(ctx context.Context) (PassthroughState, error) {
 }
 
 func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (PassthroughState, error) {
-	if !p.mu.TryLock() {
+	if !p.changeMu.TryLock() {
 		return PassthroughState{}, ErrBusy
 	}
+	defer p.changeMu.Unlock()
+	p.mu.Lock()
 	defer p.mu.Unlock()
 	before, err := p.provider.Status(ctx)
 	if err != nil {
