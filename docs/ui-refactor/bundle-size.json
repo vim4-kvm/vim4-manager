@@ -89,12 +89,12 @@
       "gzip": 16690
     },
     "html": {
-      "bytes": 3184,
-      "gzip": 1295
+      "bytes": 3249,
+      "gzip": 1325
     },
     "total": {
-      "bytes": 910008,
-      "gzip": 297707
+      "bytes": 910073,
+      "gzip": 297737
     },
     "initialJs": {
       "index.html": {

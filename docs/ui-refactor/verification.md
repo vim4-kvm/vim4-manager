@@ -105,4 +105,6 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-pages.mjs http
 
 独立布局运行 helper Python 回归：212 项，200 通过、12 跳过。主仓离线回归：257 项，247 通过、10 跳过。日志位于本机 `/tmp/vim4-ui-final/`；上板后的版本、真实服务截图与服务连续性另记主仓 bringup。
 
-最终本机构建：总产物 **910.0 kB / gzip 297.7 kB**（原始基线 510.9/148.9，polish 908.1/297.0）；管理页首屏 JS 468.7/gzip154.7 kB，登录页 362.7/gzip120.8 kB。登录入口增加来自共享错误呈现逻辑的依赖；精确数据见 `bundle-size.json` 的 `final`。
+最终本机构建：总产物 **910.1 kB / gzip 297.7 kB**（原始基线 510.9/148.9，polish 908.1/297.0）；管理页首屏 JS 468.7/gzip154.7 kB，登录页 362.7/gzip120.8 kB。登录入口增加来自共享错误呈现逻辑的依赖；精确数据见 `bundle-size.json` 的 `final`。
+
+真实服务收尾：为 `login.html` 补上与管理页相同的 `/favicon.svg` 声明，消除浏览器默认请求 `/favicon.ico` 的 404。该问题由板上无控制台错误断言发现，不影响业务接口或设置。补修后重跑 typecheck、build、22 个认证场景及 Go 构建/测试；最终部署版本与真实截图见主仓 `docs/bringup/2026-10-25-manager-ui.md`。
