@@ -1,0 +1,41 @@
+{
+  "unit": "bytes",
+  "gzip": "sum of individually gzip-compressed JS, CSS and HTML files; Node zlib default level",
+  "baseline": "origin/main@fa088412c73c767a919441d96d4f9f6f9a31b12d",
+  "before": {
+    "js": {
+      "bytes": 435416,
+      "gzip": 134269
+    },
+    "css": {
+      "bytes": 73945,
+      "gzip": 13820
+    },
+    "html": {
+      "bytes": 1495,
+      "gzip": 831
+    },
+    "total": {
+      "bytes": 510856,
+      "gzip": 148920
+    }
+  },
+  "after": {
+    "js": {
+      "bytes": 807059,
+      "gzip": 254596
+    },
+    "css": {
+      "bytes": 96908,
+      "gzip": 16433
+    },
+    "html": {
+      "bytes": 2030,
+      "gzip": 1056
+    },
+    "total": {
+      "bytes": 905997,
+      "gzip": 272085
+    }
+  }
+}
