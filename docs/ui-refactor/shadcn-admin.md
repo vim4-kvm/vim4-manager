@@ -21,7 +21,7 @@
 
 API、Go 后端、KVM 网关和哈希路由保持现有实现。没有引入 TanStack Router、
 React Query、Clerk 或上游演示业务；没有新增 npm 依赖和测试文件。
-此分支只做本机验证，未部署到板子。
+本机与上板验证结果见下文。
 
 本地预览：`pnpm --dir web dev`。真实 API 仍通过 `VIM4_MANAGER` 显式指定，
 默认代理到本机 5189。下列截图使用现有离线 fixture，展示模拟状态。
@@ -37,3 +37,20 @@ React Query、Clerk 或上游演示业务；没有新增 npm 依赖和测试文�
 认证回归包含 22 个场景。`env -u GOROOT go test ./...` 与 `env -u GOROOT go build ./...` 通过；
 命令级移除本机遗留的 GOROOT，避免 Go 1.27 与 1.26 工具目录混用，未改本机配置。
 截图包含桌面展开/收起、手机导航与浅色/深色；没有横向溢出。
+
+## 板子预览部署（2026-10-25）
+
+预览地址：<http://192.168.50.210>。分支 `ui/shadcn-admin`，部署源码为
+`0c3965ff28eaa14c871a9ee7d1d44d1cbde06e80`，管理器包版本为
+`2.5.1+vim4.20261025.16`。只更新 manager，未推送分支或发布版本。
+
+ARM64 包构建和 `ubuntu-build.py verify --component manager` 通过。
+安装后按板子实际内核 `5.15.137-vim4kvm-hdrdual6` 执行 `board.py check` 通过；
+首次收尾检查使用默认内核名而未通过，补充实际内核名后通过，未改动内核。
+One-KVM、HDMI、tvserver 和 gadget 的进程与启动时间在安装前后完全一致。
+
+复用现有上板页面检查：12 个桌面页面 API 均返回 200，手机检查概览、视频输入和 HDMI 输出，
+无浏览器错误、页面异常或横向溢出。除登录外均为读取请求，未修改设备设置。
+本机 Chrome 直连局域网失败，页面检查通过 SSH 将板子 80 端口转发到本机 5211 执行。
+原始操作日志、服务对比、16 张截图及 `verification.json` 保存在本机
+`/tmp/vim4-shadcn-admin-deployed/`；这些临时证据不会随仓库分发。
