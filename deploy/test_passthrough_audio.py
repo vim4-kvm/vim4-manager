@@ -1,4 +1,6 @@
 import importlib.util
+import ctypes
+import errno
 import json
 from pathlib import Path
 import tempfile
@@ -86,6 +88,8 @@ class AudioWorkerTest(unittest.TestCase):
         previous = self.worker.child
         self.values['HDMIIN audio samplerate'] = 2
         self.assertEqual(self.cycle(), 'starting')
+        previous.terminate.assert_not_called()
+        self.assertEqual(self.cycle(), 'starting')
         previous.terminate.assert_called_once()
         self.assertEqual(self.cycle(), 'starting')
         self.assertEqual(self.spawn.call_args.args[0][-1], '44100')
@@ -102,13 +106,37 @@ class AudioWorkerTest(unittest.TestCase):
         self.assertEqual(self.video, original)
         self.assertEqual({name for name, value in self.writes}, set(audio.ROUTES) | set(audio.ISOLATED_RESAMPLE))
 
-    def test_source_loss_and_video_off_never_keep_a_playback_pcm(self):
+    def test_source_loss_keeps_silent_playback_until_explicit_video_off(self):
         self.start()
+        child = self.worker.child
         self.video['state']['state'] = 'no-signal'
         self.assertEqual(self.cycle(), 'waiting')
-        self.assertIsNone(self.worker.child)
+        self.assertIs(self.worker.child, child)
+        child.terminate.assert_not_called()
+        self.assertFalse(audio.load(self.worker.path(audio.RUNTIME / 'audio-source.json'))['ready'])
         self.request['enabled'] = False
         self.assertEqual(self.cycle(), 'off')
+        self.assertIsNone(self.worker.child)
+
+    def test_transient_source_changes_do_not_reopen_tx(self):
+        self.start()
+        child = self.worker.child
+        for name, value, expected in [('HDMIIN audio stable', 0, 'waiting'),
+                                       ('HDMIIN audio samplerate', 0, 'waiting'),
+                                       ('HDMIIN NONAUDIO', 1, 'unavailable'),
+                                       ('HDMIIN audio channels', 7, 'unavailable'),
+                                       ('HDMIIN audio samplerate', 2, 'starting')]:
+            with self.subTest(name=name, value=value):
+                previous = self.values[name]
+                self.values[name] = value
+                self.assertEqual(self.cycle(), expected)
+                self.assertIs(self.worker.child, child)
+                self.assertFalse(audio.load(self.worker.path(audio.RUNTIME / 'audio-source.json'))['ready'])
+                self.values[name] = previous
+                self.assertEqual(self.cycle(), 'running')
+                self.assertTrue(audio.load(self.worker.path(audio.RUNTIME / 'audio-source.json'))['ready'])
+        child.terminate.assert_not_called()
+        self.assertEqual(self.spawn.call_count, 1)
 
     def test_hdr_rejection_or_video_error_does_not_stop_independent_audio(self):
         self.start()
@@ -131,7 +159,7 @@ class AudioWorkerTest(unittest.TestCase):
 
     def test_compressed_multichannel_or_unknown_input_does_not_forward_noise(self):
         for name, value in (('HDMIIN NONAUDIO', 1), ('HDMIIN audio channels', 7),
-                            ('HDMIIN audio samplerate', 0)):
+                            ('HDMIIN audio samplerate', 1)):
             with self.subTest(name=name):
                 previous = self.values[name]
                 self.values[name] = value
@@ -220,6 +248,73 @@ class AudioWorkerTest(unittest.TestCase):
         self.assertEqual(self.cycle(), 'starting')
         self.assertEqual(self.cycle(), 'error')
         self.assertEqual(self.writes, [])
+
+
+class PCMRecoveryTest(unittest.TestCase):
+    def setUp(self):
+        self.pcm = audio.PCM.__new__(audio.PCM)
+        self.pcm.alsa = Mock()
+        self.pcm.capture_xruns = 0
+        self.pcm.playback_gap_frames = 0
+        self.samples = (ctypes.c_short * 512)()
+
+    def test_playback_keeps_dma_running_with_kernel_silence_on_application_starvation(self):
+        for name in ('hw_params_malloc', 'hw_params_any', 'hw_params_set_access',
+                     'hw_params_set_format', 'hw_params_set_channels', 'hw_params_set_rate_near',
+                     'hw_params_set_period_size_near', 'hw_params_set_buffer_size_near',
+                     'hw_params', 'hw_params_get_period_size', 'hw_params_get_buffer_size',
+                     'sw_params_malloc', 'sw_params_current', 'sw_params_set_start_threshold',
+                     'sw_params_set_stop_threshold', 'sw_params_set_silence_threshold',
+                     'sw_params_set_silence_size', 'sw_params'):
+            getattr(self.pcm.alsa, 'snd_pcm_' + name).return_value = 0
+
+        def boundary(unused, pointer):
+            pointer._obj.value = 1 << 60
+            return 0
+
+        self.pcm.alsa.snd_pcm_sw_params_get_boundary.side_effect = boundary
+        self.pcm.configure(1, 0, 48000)
+        for name in ('stop_threshold', 'silence_size'):
+            self.assertEqual(getattr(self.pcm.alsa, 'snd_pcm_sw_params_set_' + name).call_args.args[-1], 1 << 60)
+        self.assertEqual(self.pcm.alsa.snd_pcm_sw_params_set_silence_threshold.call_args.args[-1], 0)
+        self.assertEqual(self.pcm.alsa.snd_pcm_sw_params_set_start_threshold.call_args.args[-1], 1536)
+        self.pcm.alsa.snd_pcm_recover.assert_not_called()
+
+    def test_capture_xrun_recovers_original_handle_without_closing_or_configuring_tx(self):
+        self.pcm.alsa.snd_pcm_readi.side_effect = [-errno.EPIPE, -errno.EAGAIN, 256]
+        self.pcm.alsa.snd_pcm_recover.return_value = 0
+        self.assertEqual(self.pcm.read(6, self.samples), 0)
+        self.assertEqual(self.pcm.read(6, self.samples), 0)
+        self.assertEqual(self.pcm.read(6, self.samples), 256)
+        self.pcm.alsa.snd_pcm_recover.assert_called_once_with(6, -errno.EPIPE, 1)
+        self.pcm.alsa.snd_pcm_close.assert_not_called()
+        self.pcm.alsa.snd_pcm_hw_params.assert_not_called()
+        self.assertEqual(self.pcm.capture_xruns, 1)
+
+    def test_capture_suspend_and_delay_xrun_are_recoverable_but_device_loss_is_not_hidden(self):
+        self.pcm.alsa.snd_pcm_readi.return_value = -audio.PCM_SUSPENDED
+        self.pcm.alsa.snd_pcm_recover.return_value = 0
+        self.assertEqual(self.pcm.read(6, self.samples), 0)
+        self.pcm.alsa.snd_pcm_delay.return_value = -errno.EPIPE
+        self.assertEqual(self.pcm.delay(6), 0)
+        self.assertEqual(self.pcm.capture_xruns, 2)
+        self.pcm.alsa.snd_pcm_readi.return_value = -errno.ENODEV
+        with self.assertRaises(OSError):
+            self.pcm.read(6, self.samples)
+
+    def test_playback_silence_gap_skips_stale_frames_without_prepare_or_recover(self):
+        self.pcm.alsa.snd_pcm_avail_update.side_effect = [1024, 12048, 1024]
+        self.pcm.alsa.snd_pcm_forward.return_value = 10000
+        self.pcm.alsa.snd_pcm_writei.return_value = 1280
+        for unused in range(3):
+            self.pcm.maintain_playback(1)
+        self.pcm.alsa.snd_pcm_forward.assert_called_once_with(1, 10000)
+        self.pcm.alsa.snd_pcm_recover.assert_not_called()
+        self.pcm.alsa.snd_pcm_prepare.assert_not_called()
+        self.pcm.alsa.snd_pcm_close.assert_not_called()
+        self.assertEqual(self.pcm.playback_gap_frames, 10000)
+        pointer = self.pcm.alsa.snd_pcm_writei.call_args.args[1]
+        self.assertEqual(ctypes.string_at(pointer, 1280 * 4), bytes(1280 * 4))
 
 
 if __name__ == '__main__':
