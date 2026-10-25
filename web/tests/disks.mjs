@@ -238,5 +238,10 @@ try {
   await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page.getByRole("alertdialog", { name: "删除 readme.txt" }).waitFor();
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "打开 readme.txt 操作菜单" }).evaluate(el => new Promise((resolve, reject) => {
+    const start = performance.now();
+    const check = () => document.activeElement === el ? resolve() : performance.now() - start > 2000 ? reject(new Error("file menu trigger did not regain focus")) : requestAnimationFrame(check);
+    check();
+  }));
   console.log("PASS: create, upload with leave guard, drop guard, folders, armed delete, snapshot delete, resize presets, format, attached lockout, read failure recovery and mobile layout");
 } finally { await browser.close(); }
