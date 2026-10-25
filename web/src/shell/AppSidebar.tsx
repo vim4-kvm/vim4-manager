@@ -44,7 +44,7 @@ function Navigation({ page }: { page: PageId }) {
               <SidebarMenuButton asChild isActive={page === p.id} className="h-8 gap-2.5 text-sidebar-foreground max-md:h-10 data-[active=true]:text-sidebar-accent-foreground">
                 <a href={`#/${p.id}`} aria-current={page === p.id ? "page" : undefined} onClick={() => setOpenMobile(false)}
                   onPointerEnter={() => preloadPage(p.id)} onFocus={() => preloadPage(p.id)}>
-                  <Icon aria-hidden="true" className="size-5!" />
+                  <Icon aria-hidden="true" className="size-4!" />
                   <span className="min-w-0 flex-1 truncate">{p.title}</span>
                   {hint && (
                     <span data-nav-hint={p.id} data-tone={tone} className={cn("ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground tabular-nums", tone && hintTones[tone])}>
@@ -70,7 +70,7 @@ function Connection() {
         <StatusDot tone={stale ? "critical" : status ? "good" : "warning"} />
         <span className="truncate">{stale ? "连接中断" : status ? status.hardware.hostname : "连接中"}</span>
       </span>
-      {status && <span data-kernel className="truncate pl-4 font-mono text-[11px] text-muted-foreground">{status.hardware.kernel}</span>}
+      {status && <span data-kernel className="truncate pl-4 font-mono text-xs text-muted-foreground">{status.hardware.kernel}</span>}
     </div>
   );
 }

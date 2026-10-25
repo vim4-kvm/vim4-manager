@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
-import { Menu } from "lucide-react";
+import { LucideProvider, Menu } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
@@ -28,8 +28,8 @@ function MobileTopBar({ title }: { title: string }) {
 function PageHeader({ page }: { page: PageId }) {
   const meta = pageMeta(page);
   return (
-    <header className="mb-6 flex flex-col gap-1">
-      <h1 id="page-title" className="text-xl font-semibold tracking-tight">{meta.title}</h1>
+    <header className="mb-6 flex flex-col gap-1 empty:hidden max-md:mb-4">
+      <h1 id="page-title" className="text-xl font-semibold tracking-tight max-md:sr-only">{meta.title}</h1>
       {meta.description && <p className="max-w-prose text-sm text-pretty text-muted-foreground">{meta.description}</p>}
     </header>
   );
@@ -54,6 +54,7 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
   return (
     <MotionConfig reducedMotion="user">
       <LazyMotion features={animationFeatures} strict>
+      <LucideProvider strokeWidth={1.75}>
         {/* Desktop stays expanded: the spec has no collapsed icon rail. */}
         <SidebarProvider open onOpenChange={() => {}}>
           <AppSidebar page={page} />
@@ -78,6 +79,7 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
               warning: "[&_[data-icon]]:text-warning",
             },
           }} />
+      </LucideProvider>
       </LazyMotion>
     </MotionConfig>
   );
