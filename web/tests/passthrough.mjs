@@ -32,8 +32,8 @@ const cases = [
   ["no-signal", "等待输入信号", true, false, "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。"],
   ["no-monitor", "未连接显示器", true, false, "接上显示器后自动开始透传。"],
   ["protected", "输入受版权保护", true, false, "被控电脑正在播放受 HDCP 保护的内容，显示器保持黑屏。"],
-  ["unsupported-format", "暂不支持此输入格式", true, false, "当前输入格式暂不支持画面输出，声音仍可播放。"],
-  ["video-error", "画面暂不可用", true, false, "已检测到输入信号，但画面暂不可用，声音仍可播放。"],
+  ["unsupported-format", "暂不支持此输入格式", true, false, "此输入格式无法透传，请在信号源中选择 HDR10、HLG 或 SDR。"],
+  ["video-error", "输入信号异常", true, false, "请检查 HDMI 输入线或信号源设置。"],
 ];
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -236,7 +236,7 @@ try {
           assert.equal(await fact("输出").locator(".muted").textContent(), "已缩放，显示器不支持 3840×2160 23.98Hz");
           assert.equal(await fact("输出").locator(".status-warning").count(), 1);
         } else {
-          assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR（使用视频输入页的曲线）");
+          assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR");
         }
         await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${kind}.png`, fullPage: true });
@@ -251,9 +251,10 @@ try {
   assert.equal(await value("显示器"), "未知型号");
   assert.equal(await fact("输入").locator(".muted").textContent(), "HLG · YCbCr 4:4:4");
   state.output.scaled = true;
+  state.output.hdrToSdr = true;
   state.monitor.hdr = false;
   await reload();
-  assert.match(await fact("输出").locator(".muted").textContent(), /已缩放，显示器不支持 .* · HDR 已转为 SDR（使用视频输入页的曲线）/);
+  assert.match(await fact("输出").locator(".muted").textContent(), /已缩放，显示器不支持 .* · HDR 已转为 SDR/);
   state = fixture();
   delete state.output;
   await reload();
@@ -278,7 +279,7 @@ try {
     assert.equal(await audio.isDisabled(), disabled);
   }
   state = fixture("unsupported-format");
-  state.reason = "当前 HDR 显示路径尚未就绪，声音仍可播放。";
+  state.reason = "Dolby Vision 信号无法透传，请在信号源中选择 HDR10、HLG 或 SDR。";
   await reload();
   assert.equal(await card.locator(".passthrough-description").textContent(), state.reason);
   assert.equal(await value("输出"), "—");

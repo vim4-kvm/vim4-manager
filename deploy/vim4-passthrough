@@ -399,22 +399,22 @@ class VendorPassthrough:
         if input_state['hdr'] in ('Dolby Vision', 'Unknown HDR'):
             self.update(VIDEO + 'disable_video', 1)
             state['state'] = 'unsupported-format'
-            state['reason'] = ('暂不支持 Dolby Vision 画面，声音仍可播放。'
+            state['reason'] = ('Dolby Vision 信号无法透传，请在信号源中选择 HDR10、HLG 或 SDR。'
                                if input_state['hdr'] == 'Dolby Vision'
-                               else '暂不支持此 HDR 输入格式，声音仍可播放。')
+                               else '此 HDR 输入格式无法识别，请在信号源中选择 HDR10、HLG 或 SDR。')
             return state
         if not self.capture_ready:
             self.update(VIDEO + 'disable_video', 1)
             state['state'] = 'video-error'
-            state['reason'] = '已检测到输入信号，但采集画面暂不可用，声音仍可播放。'
+            state['reason'] = '请检查 HDMI 输入线或信号源设置。'
             return state
         mapped = input_state['hdr'] != 'SDR'
         if mapped:
             mapping = self.path('/sys/class/vdin/vdin0/hdr_sdr')
             if not mapping.exists() or mapping.read_text().strip() != '1':
                 self.update(VIDEO + 'disable_video', 1)
-                state['state'] = 'unsupported-format'
-                state['reason'] = '当前 HDR 显示路径尚未就绪，声音仍可播放。'
+                state['state'] = 'video-error'
+                state['reason'] = 'HDR 映射尚未就绪，请在更新中切换到支持 HDR 映射的内核，或将信号源设为 SDR。'
                 return state
         actual = self.read_tx()
         preferred = self.rate_choice
@@ -518,7 +518,7 @@ class VendorPassthrough:
                 state = {'supported': True, 'enabled': request['enabled'], 'audio': False,
                          'state': 'starting' if request['enabled'] else 'off'}
             if request['enabled'] and state.get('input'):
-                state.update(state='video-error', reason='已检测到输入信号，但画面暂不可用，声音仍可播放。')
+                state.update(state='video-error', reason='请检查 HDMI 输入线或信号源设置。')
             observed['state'] = state
             if str(error) != self.last_error:
                 print(str(error), file=sys.stderr, flush=True)

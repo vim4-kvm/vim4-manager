@@ -144,7 +144,7 @@ class VendorPassthroughTest(unittest.TestCase):
         with patch.object(self.controller, 'write') as write:
             self.put('/sys/class/hdmirx/hdmirx0/info', self.controller.read('/sys/class/hdmirx/hdmirx0/info').replace('SDR', 'HDR10'))
             result = self.controller.tick(True)
-            self.assertEqual(result['state'], 'unsupported-format')
+            self.assertEqual(result['state'], 'video-error')
             self.assertEqual(result['input']['hdr'], 'HDR10')
             self.assertFalse(any(call.args[0].startswith(passthrough.TX) for call in write.call_args_list))
         self.put(passthrough.TX + 'rawedid', '00')
@@ -160,7 +160,7 @@ class VendorPassthroughTest(unittest.TestCase):
         self.assertEqual(state['state'], 'video-error')
         self.assertEqual(state['input']['hdr'], 'HDR10')
         self.assertIn('monitor', state)
-        self.assertIn('声音', state['reason'])
+        self.assertIn('检查 HDMI 输入线', state['reason'])
 
     def test_mapped_hdr_uses_sdr_output_without_fake_hdr_signaling(self):
         for eotf, expected in (('SMPTE_ST_2048', 'HDR10'), ('HLG', 'HLG')):

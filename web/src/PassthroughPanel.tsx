@@ -11,7 +11,7 @@ const labels: Record<PassthroughState["state"], string> = {
   "no-monitor": "未连接显示器",
   protected: "输入受版权保护",
   "unsupported-format": "暂不支持此输入格式",
-  "video-error": "画面暂不可用",
+  "video-error": "输入信号异常",
 };
 
 const descriptions = {
@@ -21,8 +21,8 @@ const descriptions = {
   "no-signal": "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。",
   "no-monitor": "接上显示器后自动开始透传。",
   protected: "被控电脑正在播放受 HDCP 保护的内容，显示器保持黑屏。",
-  "unsupported-format": "当前输入格式暂不支持画面输出，声音仍可播放。",
-  "video-error": "已检测到输入信号，但画面暂不可用，声音仍可播放。",
+  "unsupported-format": "此输入格式无法透传，请在信号源中选择 HDR10、HLG 或 SDR。",
+  "video-error": "请检查 HDMI 输入线或信号源设置。",
 };
 
 function refreshLabel(hz: number) {
@@ -149,9 +149,8 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     outputTone = output.scaled ? "warning" : "good";
     outputDetail = output.scaled && input
       ? `已缩放，显示器不支持 ${mode(input.width, input.height, input.refreshHz)}` : output.colorFormat;
-    if (output.hdrToSdr || (input && input.hdr !== "SDR" && monitor && !monitor.hdr)) {
-      outputDetail = output.scaled ? `${outputDetail} · HDR 已转为 SDR（使用视频输入页的曲线）`
-        : "HDR 已转为 SDR（使用视频输入页的曲线）";
+    if (output.hdrToSdr) {
+      outputDetail = output.scaled ? `${outputDetail} · HDR 已转为 SDR` : "HDR 已转为 SDR";
     }
   }
   if (transitioning) {
