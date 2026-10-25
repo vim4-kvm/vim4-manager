@@ -5,6 +5,8 @@ import { StatusDot, type Tone } from "@/components/StatusDot";
 import { cn } from "@/lib/utils";
 
 const columns = {
+  1: "",
+  2: "@md:grid-cols-2",
   3: "@md:grid-cols-3",
   4: "@md:grid-cols-2 @2xl:grid-cols-4",
 };

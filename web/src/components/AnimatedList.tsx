@@ -6,20 +6,21 @@ import { enter, exit, layoutSpring } from "@/lib/motion";
 const layoutFeatures = () => import("@/lib/motion-features").then((module) => module.default);
 
 /** List whose items enter, leave and reorder smoothly (keyed by `getKey`). */
-export function AnimatedList<T>({ items, getKey, children, className, itemClassName }: {
+export function AnimatedList<T>({ items, getKey, children, className, itemClassName, label }: {
   items: T[];
   getKey: (item: T) => string;
   children: (item: T) => ReactNode;
   className?: string;
   itemClassName?: string;
+  label?: string;
 }) {
   const reduced = useReducedMotion();
   if (reduced) {
-    return <ul className={className}>{items.map((item) => <li key={getKey(item)} className={itemClassName}>{children(item)}</li>)}</ul>;
+    return <ul aria-label={label} className={className}>{items.map((item) => <li key={getKey(item)} className={itemClassName}>{children(item)}</li>)}</ul>;
   }
   return (
     <LazyMotion features={layoutFeatures}>
-      <ul className={className}>
+      <ul aria-label={label} className={className}>
         <AnimatePresence initial={false}>
           {items.map((item) => (
             <m.li

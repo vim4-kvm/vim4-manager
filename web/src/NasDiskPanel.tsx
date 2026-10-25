@@ -1,5 +1,14 @@
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Folder } from "lucide-react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InlineError } from "@/components/InlineError";
+import { PanelSkeleton } from "@/components/PanelSkeleton";
+import { SettingsCard } from "@/components/SettingsCard";
+import { StatusDot, type Tone } from "@/components/StatusDot";
+import { useStatusStore } from "@/stores/status";
 import { useEffect, useState } from "react";
-import { nasDiskWrite, request, storageWrite, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage, type Status } from "./api";
+import { nasDiskWrite, request, storageWrite, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage } from "./api";
 import { bytes } from "./DiskPanel";
 import { hostEject, mediaName } from "./MediaPanel";
 
@@ -125,14 +134,14 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
   if (!disk.hasActivity) return null;
 
   return (
-    <section className="nasdisk reveal" aria-label="U 盘活动">
+    <SettingsCard label="U 盘活动"><div role="group" aria-label="U 盘" className="flex min-w-0 flex-col gap-4">
       {pending && (
-        <span className="muted" role="status">
-          <span className="spinner" aria-hidden="true" />
+        <span className="text-muted-foreground" role="status">
+          <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
           {pending}
         </span>
       )}
-      {state && !state.known && <p className="storage-warn">暂时无法读取 U 盘状态。</p>}
+      {state && !state.known && <p className="text-sm text-warning-foreground">暂时无法读取 U 盘状态。</p>}
 
       {session ? (
         <SessionCard
@@ -167,9 +176,9 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
       )}
 
       {!!state?.pending.length && (
-        <div className="nasdisk-pending">
+        <div className="flex flex-col gap-3 rounded-md border border-warning/30 p-4 [&_h4]:font-medium [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-4 [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:gap-2 [&_li>div]:flex [&_li>div]:min-w-0 [&_li>div]:flex-1 [&_li>div]:flex-col [&_li>div]:gap-1">
           <h4>未写回的修改</h4>
-          <p className="muted">板子重启或服务中断时，这些 U 盘修改还没有写回 NAS。</p>
+          <p className="text-muted-foreground">板子重启或服务中断时，这些 U 盘修改还没有写回 NAS。</p>
           <ul>
             {state.pending.map((p) => (
               <li key={p.id}>
@@ -177,21 +186,21 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
                   <strong>
                     {p.storageName} › {displayPath(p.path)}
                   </strong>
-                  <span className="muted">
+                  <span className="text-muted-foreground">
                     {when(p.startedAt)} 挂载 · 已写入 {bytes(p.writtenBytes)}
                     {p.journal && " · 回写进行到一半"}
                   </span>
                 </div>
-                <button className="button small" disabled={locked || active} onClick={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: p.id }))}>
+                <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked || active} onClick={() => void act("正在回写…", () => nasDiskWrite("/commit", { id: p.id }))}>
                   写回 NAS
-                </button>
-                <button
-                  className="button small"
+                </Button>
+                <Button variant="outline"
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs"
                   disabled={locked || active}
                   onClick={() => setConfirming({ kind: "discard", id: p.id, name: `${p.storageName} › ${displayPath(p.path)}` })}
                 >
                   放弃…
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -199,50 +208,36 @@ export function NasDiskPanel({ disk, locked: parentLocked }: { disk: ReturnType<
       )}
 
       {confirming && (
-        <div className="confirm" role="alertdialog" aria-label={CONFIRM_TITLE[confirming.kind]}>
-          <span>
-            {confirming.kind === "discard"
-              ? `放弃「${confirming.name}」中被控电脑做的全部修改。NAS 上的文件保持挂载前的样子，此操作无法撤销。`
-              : confirming.kind === "trash"
-                ? `永久删除回收目录中的 ${confirming.files.toLocaleString()} 个文件（${bytes(confirming.bytes)}）。它们是回写时被删除或覆盖的旧版本，删除后无法找回。`
-                : "停止准备 U 盘。被控电脑还没有看到这个 U 盘。"}
-          </span>
-          <button className="button" onClick={() => setConfirming(undefined)}>
-            返回
-          </button>
-          <button
-            className="button danger"
-            disabled={locked}
-            onClick={() =>
-              void (confirming.kind === "discard"
-                ? act("正在放弃修改…", () => nasDiskWrite("/discard", { id: confirming.id, confirm: confirming.id }))
-                : confirming.kind === "trash"
-                  ? act("正在清空回收目录…", () => nasDiskWrite("/trash-empty", { id: confirming.id, confirm: confirming.id }))
-                  : act("正在取消…", () => nasDiskWrite("/cancel", {})))
-            }
-          >
-            {CONFIRM_TITLE[confirming.kind]}
-          </button>
-        </div>
+        <ConfirmDialog open onOpenChange={(open) => { if (!open) setConfirming(undefined); }}
+          title={CONFIRM_TITLE[confirming.kind]} confirm={CONFIRM_TITLE[confirming.kind]} cancel="返回" destructive disabled={locked}
+          description={confirming.kind === "discard"
+            ? `放弃「${confirming.name}」中被控电脑做的全部修改。NAS 上的文件保持挂载前的样子，此操作无法撤销。`
+            : confirming.kind === "trash"
+              ? `永久删除回收目录中的 ${confirming.files.toLocaleString()} 个文件（${bytes(confirming.bytes)}）。它们是回写时被删除或覆盖的旧版本，删除后无法找回。`
+              : "停止准备 U 盘。被控电脑还没有看到这个 U 盘。"}
+          onConfirm={() => void (confirming.kind === "discard"
+            ? act("正在放弃修改…", () => nasDiskWrite("/discard", { id: confirming.id, confirm: confirming.id }))
+            : confirming.kind === "trash"
+              ? act("正在清空回收目录…", () => nasDiskWrite("/trash-empty", { id: confirming.id, confirm: confirming.id }))
+              : act("正在取消…", () => nasDiskWrite("/cancel", {})))} />
       )}
-      {error && <p className="storage-error" role="alert">{error}</p>}
-    </section>
+      {error && <InlineError>{error}</InlineError>}
+    </div></SettingsCard>
   );
 }
 
 export function NasDiskSetup({
   storage,
-  status,
   locked,
   onCancel,
   onStart,
 }: {
   storage: Storage;
-  status?: Status;
   locked: boolean;
   onCancel: () => void;
   onStart: (setup: Setup) => void;
 }) {
+  const status = useStatusStore((s) => s.status);
   const [setup, setSetup] = useState<Setup>({ storage: storage.id, path: "/", mode: storage.writable === false ? "ro" : "rw", label: "NAS", labelEdited: false });
   const [editingLabel, setEditingLabel] = useState(false);
   const [retry, setRetry] = useState(0);
@@ -304,8 +299,8 @@ export function NasDiskSetup({
   }
 
   return (
-    <form
-      className="storage-editor nasdisk-setup"
+    <form aria-label="选择要作为 U 盘的文件夹"
+      className="flex min-w-0 flex-col gap-4 rounded-md border bg-muted/40 p-4 "
       onSubmit={(e) => {
         e.preventDefault();
         if (canStart) onStart({ ...setup, mode: readOnlyOnly ? "ro" : setup.mode });
@@ -313,61 +308,59 @@ export function NasDiskSetup({
     >
       <h4>选择要作为 U 盘的文件夹</h4>
 
-      <div className="nasdisk-browser">
-        <nav className="nasdisk-crumbs" aria-label="文件夹路径">
-          <button type="button" className="link-button" aria-current={parts.length === 0 ? "location" : undefined} onClick={() => go("/")}>
+      <div className="flex min-w-0 flex-col gap-3 rounded-md border bg-card p-3">
+        <nav className="flex flex-wrap items-center gap-1" aria-label="文件夹路径">
+          <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" aria-current={parts.length === 0 ? "location" : undefined} onClick={() => go("/")}>
             {storage?.name ?? "NAS"}
-          </button>
+          </Button>
           {parts.map((part, i) => (
             <span key={i}>
-              <span className="muted" aria-hidden="true">
+              <span className="text-muted-foreground" aria-hidden="true">
                 ›
               </span>
-              <button
+              <Button variant="outline"
                 type="button"
-                className="link-button"
+                className="text-sm text-primary underline-offset-4 hover:underline"
                 aria-current={i === parts.length - 1 ? "location" : undefined}
                 onClick={() => go("/" + parts.slice(0, i + 1).join("/"))}
               >
                 {part}
-              </button>
+              </Button>
             </span>
           ))}
         </nav>
         {dirError ? (
-          <div className="storage-error nasdisk-dirs-note" role="alert">
-            {dirError} <button type="button" className="link-button" onClick={() => setRetry((n) => n + 1)}>重试</button>
+          <div className="text-sm text-destructive p-3 text-center text-sm" role="alert">
+            {dirError} <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setRetry((n) => n + 1)}>重试</Button>
           </div>
         ) : !dirs ? (
-          <p className="muted nasdisk-dirs-note">正在读取…</p>
+          <PanelSkeleton label="正在读取…" rows={2} />
         ) : dirs.names.length === 0 ? (
-          <p className="muted nasdisk-dirs-note">没有子文件夹。</p>
+          <p className="text-muted-foreground p-3 text-center text-sm">没有子文件夹。</p>
         ) : (
-          <ul className="nasdisk-dirs" aria-label="子文件夹">
+          <ul className="flex max-h-64 flex-col overflow-auto [&_button]:h-auto [&_button]:w-full [&_button]:justify-start [&_button]:whitespace-normal [&_button_span]:break-all" aria-label="子文件夹">
             {dirs.names.map((name) => (
               <li key={name}>
-                <button type="button" onClick={() => go(`${setup.path === "/" ? "" : setup.path}/${name}`)}>
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                  </svg>
+                <Button variant="outline" type="button" onClick={() => go(`${setup.path === "/" ? "" : setup.path}/${name}`)}>
+                  <Folder aria-hidden="true" className="size-4 shrink-0" />
                   <span>{name}</span>
-                  <span className="nasdisk-enter" aria-hidden="true">›</span>
-                </button>
+                  <span className="ml-auto" aria-hidden="true">›</span>
+                </Button>
               </li>
             ))}
-            {dirs.truncated && <li className="muted nasdisk-dirs-note">只显示前 500 个文件夹</li>}
+            {dirs.truncated && <li className="text-muted-foreground p-3 text-center text-sm">只显示前 500 个文件夹</li>}
           </ul>
         )}
         {dirs && !readOnlyOnly && (
-          <div className="nasdisk-mkdir">
+          <div className="border-t pt-3">
             {newName === undefined ? (
-              <button type="button" className="link-button" disabled={locked} onClick={() => setNewName("")}>
+              <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" disabled={locked} onClick={() => setNewName("")}>
                 <span aria-hidden="true">+ </span>新建文件夹
-              </button>
+              </Button>
             ) : (
               <>
-                <div className="nasdisk-mkdir-row">
-                  <input
+                <div className="flex flex-wrap gap-2 [&_input]:min-w-32 [&_input]:flex-1">
+                  <Input
                     aria-label="新文件夹名称"
                     placeholder="文件夹名称"
                     value={newName}
@@ -389,38 +382,38 @@ export function NasDiskSetup({
                       }
                     }}
                   />
-                  <button type="button" className="button small primary" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
+                  <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked || creating || !nameTrimmed || !!nameProblem} onClick={() => void mkdir()}>
                     {creating ? "正在创建…" : "创建"}
-                  </button>
-                  <button type="button" className="button small" disabled={creating} onClick={() => setNewName(undefined)}>
+                  </Button>
+                  <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={creating} onClick={() => setNewName(undefined)}>
                     取消
-                  </button>
+                  </Button>
                 </div>
-                {(nameProblem || mkdirError) && <span className="field-hint nasdisk-mkdir-error">{nameProblem || mkdirError}</span>}
+                {(nameProblem || mkdirError) && <span className="text-xs text-muted-foreground text-destructive">{nameProblem || mkdirError}</span>}
               </>
             )}
           </div>
         )}
-        <p className="nasdisk-chosen">
+        <p className="border-t pt-3 text-sm [overflow-wrap:anywhere]">
           已选择 <strong>{storage.name} › {displayPath(setup.path)}</strong>
         </p>
       </div>
 
-      <div className="segmented storage-types" role="group" aria-label="模式">
-        <button type="button" aria-pressed={setup.mode === "rw" && !readOnlyOnly} disabled={readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "rw" })}>
+      <div className="flex flex-wrap gap-1 rounded-md border bg-muted p-1 max-sm:flex-col [&_button[aria-pressed=true]]:bg-card [&_button[aria-pressed=true]]:text-foreground [&_button]:h-auto [&_button]:min-w-0 [&_button]:flex-1 [&_button]:flex-col [&_button]:items-start [&_button]:whitespace-normal [&_button_span]:text-xs [&_button_span]:text-muted-foreground" role="group" aria-label="模式">
+        <Button variant="outline" type="button" aria-pressed={setup.mode === "rw" && !readOnlyOnly} disabled={readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "rw" })}>
           <strong>可写</strong>
           <span>{readOnlyOnly ? "NAS 不允许写入" : "安全弹出后写回 NAS"}</span>
-        </button>
-        <button type="button" aria-pressed={setup.mode === "ro" || readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "ro" })}>
+        </Button>
+        <Button variant="outline" type="button" aria-pressed={setup.mode === "ro" || readOnlyOnly} onClick={() => setSetup({ ...setup, mode: "ro" })}>
           <strong>只读</strong>
           <span>电脑只能读取</span>
-        </button>
+        </Button>
       </div>
 
       {editingLabel ? (
-        <label className="field nasdisk-label">
+        <label className="flex min-w-0 flex-col gap-2 text-sm max-w-64">
           卷标
-          <input
+          <Input
             value={setup.label}
             autoFocus
             maxLength={11}
@@ -429,34 +422,34 @@ export function NasDiskSetup({
             aria-invalid={!labelValid}
             onChange={(e) => setSetup({ ...setup, label: e.target.value.toUpperCase(), labelEdited: true })}
           />
-          {!labelValid && <span className="field-hint">1–11 个大写字母、数字、空格、下划线或连字符</span>}
+          {!labelValid && <span className="text-xs text-muted-foreground">1–11 个大写字母、数字、空格、下划线或连字符</span>}
         </label>
       ) : (
-        <div className="nasdisk-label-summary">
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
           <span>卷标 <strong>{setup.label}</strong></span>
-          <button type="button" className="link-button" onClick={() => setEditingLabel(true)}>修改</button>
+          <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" onClick={() => setEditingLabel(true)}>修改</Button>
         </div>
       )}
 
-      <p className="muted nasdisk-note">
+      <p className="text-muted-foreground text-xs">
         单个文件不小于 4 GiB 或名称 U 盘不支持的文件不会出现在 U 盘里，也不会被删除。
       </p>
       {occupiedMedia && (
-        <p className="storage-warn" role="status">
-          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a className="link-button" href="#/media">虚拟介质页</a>弹出。
+        <p className="text-sm text-warning-foreground" role="status">
+          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a className="text-sm text-primary underline-offset-4 hover:underline" href="#/media">虚拟介质页</a>弹出。
         </p>
       )}
       {status && status.hardware.usb !== "configured" && (
-        <p className="storage-warn" role="status">被控电脑尚未通过 USB 连接，连接后即可看到 U 盘。</p>
+        <p className="text-sm text-warning-foreground" role="status">被控电脑尚未通过 USB 连接，连接后即可看到 U 盘。</p>
       )}
 
-      <div className="storage-editor-actions">
-        <button type="button" className="button" onClick={onCancel}>
+      <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" onClick={onCancel}>
           取消
-        </button>
-        <button type="submit" className="button primary" disabled={!canStart}>
+        </Button>
+        <Button variant="outline" type="submit" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={!canStart}>
           挂载到被控电脑
-        </button>
+        </Button>
       </div>
     </form>
   );
@@ -484,8 +477,8 @@ function SessionCard({
   onDiscard: () => void;
 }) {
   const rw = s.mode === "rw";
-  const tone =
-    s.state === "attached" ? (s.hostConnected ? "status-good" : "status-warning") : s.state === "needs-decision" || s.state === "failed" ? "status-critical" : "status-warning";
+  const tone: Tone =
+    s.state === "attached" ? (s.hostConnected ? "good" : "warning") : s.state === "needs-decision" || s.state === "failed" ? "critical" : "warning";
   const title = {
     scanning: `正在扫描文件夹… 已扫描 ${s.scanned.toLocaleString()} 项`,
     attaching: "正在连接被控电脑…",
@@ -499,138 +492,138 @@ function SessionCard({
   const ratio = progress ? (progress.bytesTotal ? progress.bytesDone / progress.bytesTotal : progress.total ? progress.done / progress.total : 0) : 0;
 
   return (
-    <div className="nasdisk-session">
-      <div className="storage-row">
-        <span className={`lamp ${tone}`} aria-hidden="true" />
-        <div className="storage-main">
-          <div className="storage-name">
+    <div className="flex min-w-0 flex-col gap-4">
+      <div className="flex min-w-0 flex-wrap items-start gap-3">
+        <StatusDot tone={tone} />
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2 [&_strong]:font-medium">
             <strong>
               U 盘 · {s.storageName} › {displayPath(s.path)}
             </strong>
-            <span className="tag tag-quiet">{rw ? "可写" : "只读"}</span>
-            <span className="tag tag-quiet">{s.label}</span>
+            <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{rw ? "可写" : "只读"}</span>
+            <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground">{s.label}</span>
           </div>
-          <span key={s.state} className={`storage-state reveal ${tone}`} role="status">
+          <span key={s.state} className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
             {(s.state === "scanning" || s.state === "attaching" || s.state === "parsing" || s.state === "committing") && (
-              <span className="spinner" aria-hidden="true" />
+              <span className="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-current border-t-transparent" aria-hidden="true" />
             )}
             {title}
           </span>
           {s.state !== "scanning" && s.volumeBytes > 0 && (
-            <span className="muted nasdisk-facts">
+            <span className="text-muted-foreground text-xs">
               {s.files.toLocaleString()} 个文件 · {s.dirs.toLocaleString()} 个文件夹 · 已用 {bytes(s.usedBytes)} / 容量 {bytes(s.volumeBytes)}
               {rw && s.writtenBytes > 0 && ` · 电脑已写入 ${bytes(s.writtenBytes)}`}
             </span>
           )}
         </div>
-        <div className="storage-actions">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
           {(s.state === "scanning" || s.state === "attaching") && (
-            <button className="button small" disabled={locked} onClick={onCancel}>
+            <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={onCancel}>
               取消
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       {s.nasStalled && (s.state === "attached" || s.state === "committing") && (
-        <p className="storage-warn" role="status">
+        <p className="text-sm text-warning-foreground" role="status">
           {s.state === "attached" ? "NAS 暂时无响应，电脑上读写这个 U 盘会出错；NAS 恢复后自动恢复。" : "NAS 暂时无响应，回写在等待。"}
         </p>
       )}
       {s.state === "attached" && (
-        <div className="nasdisk-hint muted">
+        <div className="flex flex-col gap-2 text-sm text-muted-foreground">
           <p>{rw ? "在电脑上安全弹出后，修改会写回 NAS。" : "在电脑上安全弹出后，即可结束这次 U 盘。"}</p>
-          <details className="nasdisk-detail"><summary>如何安全弹出</summary><p>{hostEject}</p></details>
+          <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-primary [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2"><summary>如何安全弹出</summary><p>{hostEject}</p></details>
         </div>
       )}
 
       {s.state === "committing" && progress && (
-        <div className="nasdisk-progress">
-          <span className="meter">
+        <div className="flex flex-col gap-2 text-xs">
+          <span className="block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:rounded-full [&>span]:bg-primary">
             <span style={{ width: `${Math.max(2, ratio * 100)}%` }} />
           </span>
-          <span className="muted">
+          <span className="text-muted-foreground">
             {progress.done} / {progress.total} 步{progress.bytesTotal > 0 && ` · ${bytes(progress.bytesDone)} / ${bytes(progress.bytesTotal)}`}
             {progress.current && ` · ${progress.current}`}
           </span>
         </div>
       )}
-      {s.state === "committing" && s.plan && <p className="muted nasdisk-plan">{counts(s.plan) || "没有需要写回的修改"}</p>}
+      {s.state === "committing" && s.plan && <p className="text-muted-foreground text-sm">{counts(s.plan) || "没有需要写回的修改"}</p>}
 
       {s.state === "needs-decision" && s.decision && (
-        <div className="nasdisk-decision">
+        <div className="flex flex-col gap-4 rounded-md border border-warning/30 bg-warning/5 p-4">
           <p>
             {s.decision.reason ||
               "被控电脑可能在写入完成前拔出了 U 盘，文件系统不完整。"}
             修改仍保存在 NAS 的暂存区，尚未写回。
           </p>
           <Detail text={s.detail} />
-          <ul className="nasdisk-choices">
+          <ul className="flex flex-col gap-4 [&>li]:flex [&>li]:flex-wrap [&>li]:items-center [&>li]:gap-3">
             <li>
-              <button className="button primary" disabled={locked} onClick={onReattach}>
+              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked} onClick={onReattach}>
                 重新挂载
-              </button>
-              <span className="muted">让电脑检查修复 U 盘，再安全弹出（推荐）</span>
+              </Button>
+              <span className="text-muted-foreground">让电脑检查修复 U 盘，再安全弹出（推荐）</span>
             </li>
             {s.decision.canForce && (
               <li>
-                <button className="button" disabled={locked} onClick={onForce}>
+                <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50" disabled={locked} onClick={onForce}>
                   写回能识别的内容
-                </button>
-                <span className="muted">只写入完整读出的文件，不执行删除</span>
+                </Button>
+                <span className="text-muted-foreground">只写入完整读出的文件，不执行删除</span>
               </li>
             )}
             <li>
-              <button className="button danger" disabled={locked} onClick={onDiscard}>
+              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10" disabled={locked} onClick={onDiscard}>
                 放弃修改…
-              </button>
-              <span className="muted">NAS 保持挂载前的样子</span>
+              </Button>
+              <span className="text-muted-foreground">NAS 保持挂载前的样子</span>
             </li>
           </ul>
         </div>
       )}
 
       {s.state === "failed" && (
-        <div className="nasdisk-decision">
+        <div className="flex flex-col gap-4 rounded-md border border-warning/30 bg-warning/5 p-4">
           <p>
             {s.error || "U 盘出错。"}
             {rw && " 未写回的修改仍保存在 NAS 的暂存区。"}
           </p>
           <Detail text={s.detail} />
-          <ul className="nasdisk-choices">
+          <ul className="flex flex-col gap-4 [&>li]:flex [&>li]:flex-wrap [&>li]:items-center [&>li]:gap-3">
             {rw && (
               <li>
-                <button className="button primary" disabled={locked} onClick={onRetry}>
+                <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-primary bg-primary text-primary-foreground hover:bg-primary/90" disabled={locked} onClick={onRetry}>
                   重试写回
-                </button>
-                <span className="muted">NAS 恢复访问后再试</span>
+                </Button>
+                <span className="text-muted-foreground">NAS 恢复访问后再试</span>
               </li>
             )}
             <li>
-              <button className="button danger" disabled={locked} onClick={onDiscard}>
+              <Button variant="outline" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 border-destructive/30 text-destructive hover:bg-destructive/10" disabled={locked} onClick={onDiscard}>
                 {rw ? "放弃修改…" : "结束"}
-              </button>
-              <span className="muted">{rw ? "NAS 保持挂载前的样子" : "结束这次 U 盘"}</span>
+              </Button>
+              <span className="text-muted-foreground">{rw ? "NAS 保持挂载前的样子" : "结束这次 U 盘"}</span>
             </li>
           </ul>
         </div>
       )}
 
       {s.skippedCount > 0 && (
-        <div className="nasdisk-skipped">
-          <button type="button" className="link-button" aria-expanded={showSkipped} onClick={() => setShowSkipped(!showSkipped)}>
+        <div className="text-xs [&_ul]:mt-2 [&_ul]:flex [&_ul]:flex-col [&_ul]:gap-2 [&_li]:flex [&_li]:flex-wrap [&_li]:gap-2">
+          <Button variant="outline" type="button" className="text-sm text-primary underline-offset-4 hover:underline" aria-expanded={showSkipped} onClick={() => setShowSkipped(!showSkipped)}>
             {s.skippedCount} 项未放入 U 盘
-          </button>
-          <span className="muted"> · 它们留在 NAS 上，不会被删除</span>
+          </Button>
+          <span className="text-muted-foreground"> · 它们留在 NAS 上，不会被删除</span>
           {showSkipped && (
             <ul>
               {s.skipped.map((item) => (
                 <li key={item.path}>
-                  <code className="mono">{item.path}</code>
-                  <span className="muted">{SKIP_REASONS[item.reason] ?? item.reason}</span>
+                  <code className="font-mono break-all">{item.path}</code>
+                  <span className="text-muted-foreground">{SKIP_REASONS[item.reason] ?? item.reason}</span>
                 </li>
               ))}
-              {s.skippedCount > s.skipped.length && <li className="muted">另有 {s.skippedCount - s.skipped.length} 项未列出</li>}
+              {s.skippedCount > s.skipped.length && <li className="text-muted-foreground">另有 {s.skippedCount - s.skipped.length} 项未列出</li>}
             </ul>
           )}
         </div>
@@ -642,9 +635,9 @@ function SessionCard({
 function Detail({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <details className="nasdisk-detail">
+    <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-primary [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2">
       <summary>技术细节</summary>
-      <code className="mono">{text}</code>
+      <code className="font-mono break-all">{text}</code>
     </details>
   );
 }
@@ -659,27 +652,27 @@ function LastResult({ last, locked, onEmptyTrash, onHide }: { last: NasDiskLast;
     failed: `回写失败：${last.error || "未知错误"}`,
   }[last.result];
   return (
-    <div className={`nasdisk-last${last.result === "failed" ? " is-failed" : ""}`}>
-      <div className="nasdisk-last-line">
-        <span className="nasdisk-last-summary"><span className="muted">上次 · {when(last.finishedAt)} · {where}</span> — {text}</span>
-        {!!last.trash?.files && <span className="nasdisk-trash" title={`回收目录：${last.trash.files.toLocaleString()} 个文件，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 .vim4-nasdisk/trash`}>
-          <span className="muted">回收目录 {bytes(last.trash.bytes)}</span>
-          <button type="button" className="button small" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</button>
+    <div role="group" aria-label="上次" className={`flex flex-col gap-3${last.result === "failed" ? " text-destructive" : ""}`}>
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <span className="min-w-0 flex-1 text-sm [overflow-wrap:anywhere]"><span className="text-muted-foreground">上次 · {when(last.finishedAt)} · {where}</span> — {text}</span>
+        {!!last.trash?.files && <span className="flex flex-wrap items-center gap-2 text-xs" title={`回收目录：${last.trash.files.toLocaleString()} 个文件，回写时被删除或覆盖的旧版本，在 NAS 该文件夹的 .vim4-nasdisk/trash`}>
+          <span className="text-muted-foreground">回收目录 {bytes(last.trash.bytes)}</span>
+          <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" disabled={locked} onClick={() => onEmptyTrash(last.trash!)}>清空…</Button>
         </span>}
-        <button type="button" className="button small" aria-label="隐藏上次结果" onClick={onHide}>×</button>
+        <Button variant="outline" type="button" className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border px-3 py-2 text-sm font-medium outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 text-xs" aria-label="隐藏上次结果" onClick={onHide}>×</Button>
       </div>
       {last.result === "failed" && <Detail text={last.detail} />}
       {last.conflicts.length > 0 && (
-        <details className="nasdisk-detail" open>
+        <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-primary [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2" open>
           <summary>冲突项（{last.conflicts.length}）</summary>
           <ul>
             {last.conflicts.map((c) => (
               <li key={c.path}>
-                <code className="mono">{c.path}</code>
-                <span className="muted">
+                <code className="font-mono break-all">{c.path}</code>
+                <span className="text-muted-foreground">
                   {c.copy ? (
                     <>
-                      NAS 上的文件在挂载期间被改过，电脑的版本保存为 <code className="mono">{c.copy}</code>
+                      NAS 上的文件在挂载期间被改过，电脑的版本保存为 <code className="font-mono break-all">{c.copy}</code>
                     </>
                   ) : (
                     "电脑删除了它，但 NAS 上的文件在挂载期间被改过，已保留"

@@ -100,7 +100,7 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           当前曲线
         </span>
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="hdr-key hdr-key-muted" aria-hidden="true" />
+          <span className="h-0.5 w-3.5 rounded-sm bg-primary bg-idle" aria-hidden="true" />
           厂商默认
         </span>
       </figcaption>
@@ -145,7 +145,7 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
             <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
               高光上限
             </text>
-            <path className="hdr-line hdr-line-muted" d={path(VENDOR)} />
+            <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground" d={path(VENDOR)} />
             <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round]" d={path(curve)} />
             <circle className="fill-primary stroke-card stroke-3" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
             {active !== undefined && (
@@ -168,7 +168,7 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           </div>
         )}
       </div>
-      <div className="hdr-axis-note muted">
+      <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
         <span>输入亮度（尼特，对数刻度）</span>
         <span>
           桌面白 {curve.white} · 高光上限 {nitsLabel(curve.peak)}
@@ -241,7 +241,7 @@ function Slider({
         onKeyUp={onCommit}
         onBlur={onCommit}
       />
-      <span className="hdr-slider-ends muted" aria-hidden="true">
+      <span className="flex justify-between text-xs text-muted-foreground" aria-hidden="true">
         <span>{ends[0]}</span>
         <span>{ends[1]}</span>
       </span>

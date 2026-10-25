@@ -5,7 +5,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 /** Confirmation for destructive or disruptive actions; labels come from each caller. */
-export function ConfirmDialog({ open, onOpenChange, title, description, confirm, cancel = "取消", destructive = false, onConfirm }: {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirm, cancel = "取消", destructive = false, onConfirm, children, disabled = false, busy = false, closeOnConfirm = true }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -14,6 +14,10 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirm,
   cancel?: string;
   destructive?: boolean;
   onConfirm: () => void;
+  children?: ReactNode;
+  disabled?: boolean;
+  busy?: boolean;
+  closeOnConfirm?: boolean;
 }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -22,9 +26,11 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirm,
           <AlertDialogTitle>{title}</AlertDialogTitle>
           {description && <AlertDialogDescription>{description}</AlertDialogDescription>}
         </AlertDialogHeader>
+        {children}
         <AlertDialogFooter>
-          <AlertDialogCancel>{cancel}</AlertDialogCancel>
-          <AlertDialogAction variant={destructive ? "destructive" : "default"} onClick={onConfirm}>{confirm}</AlertDialogAction>
+          <AlertDialogCancel disabled={busy}>{cancel}</AlertDialogCancel>
+          <AlertDialogAction disabled={busy || disabled} variant={destructive ? "destructive" : "default"}
+            onClick={(event) => { if (!closeOnConfirm) event.preventDefault(); onConfirm(); }}>{confirm}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

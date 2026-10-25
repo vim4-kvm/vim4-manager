@@ -264,7 +264,7 @@ export function App() {
   }, [waiting, status, stale, page]);
 
   const hw = status?.hardware;
-  const legacy = !["overview", "output", "video"].includes(page);
+  const legacy = !["overview", "output", "video", "media", "disks", "storage"].includes(page);
 
   return (
     <AppShell page={page} legacy={legacy}>
@@ -277,7 +277,7 @@ export function App() {
           <TailscalePanel busy={!!busy} />
         </>
       )}
-      {page === "storage" && <StoragePanel busy={!!busy} status={status} />}
+      {page === "storage" && <StoragePanel />}
       {page === "updates" && <>
         <Section title="内核" description="切换 5.15 与 7.x，共用当前系统数据。">
           <KernelPanel busy={!!busy} run={run} />
@@ -325,24 +325,9 @@ export function App() {
             </>
           )}
 
-          {page === "media" && (
-            <MediaPanel
-              media={stale ? undefined : status.media}
-              active={status.active}
-              activeName={status.apps.find((a) => a.id === status.active)?.name}
-              busy={!!busy}
-              run={run}
-            />
-          )}
+          {page === "media" && <MediaPanel />}
 
-          {page === "disks" && (
-            <DiskPanel
-              busy={!!busy}
-              run={run}
-              report={report}
-              mediaToken={stale ? undefined : `${status.media?.token ?? ""}:${status.media?.readOnly}`}
-            />
-          )}
+          {page === "disks" && <DiskPanel />}
 
 
           {page === "cooling" && hw && <Thermal hw={hw} busy={!!busy} run={run} />}

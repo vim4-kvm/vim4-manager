@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   await page.clock.install();
   const apps = ["onekvm", "pikvm"].map((id) => ({ id, name: id === "pikvm" ? "PiKVM" : "One-KVM", port: 8080,
     description: "", unit: { name: id, loaded: true, active: id === "onekvm" ? "active" : "inactive", enabled: "enabled", sub: "running" } }));

@@ -7,7 +7,7 @@ async function shot(page, name) {
   await page.screenshot({ path: `${process.env.SCREENSHOTS}/${name}.png`, fullPage: true, animations: "disabled" });
 }
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: "Asia/Shanghai" });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: "Asia/Shanghai", reducedMotion: "reduce" });
   const status = { active: "onekvm", apps: [{ id: "onekvm", name: "One-KVM", port: 8080, description: "",
     unit: { name: "one-kvm.service", loaded: true, active: "active", enabled: "enabled", sub: "running" } }], platform: [],
     media: { known: true, inserted: false, token: "", name: "", cdrom: false, readOnly: false, connected: false, pikvm: false },
@@ -57,7 +57,7 @@ try {
 
   await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/storage`);
-  await page.locator(".nasdisk-last-summary").filter({ hasText: "已写回 NAS：写入 3 个文件" }).waitFor();
+  await page.getByRole("group", { name: "上次", exact: true }).getByText( "已写回 NAS：写入 3 个文件", { exact: false }).waitFor();
   await page.getByText("说明 (冲突 20261018-010203).txt").waitFor();
   await page.getByText("回收目录 5.0 MiB", { exact: true }).waitFor();
   await shot(page, "nasdisk-last-conflicts");
@@ -65,7 +65,7 @@ try {
   await page.getByRole("alertdialog", { name: "清空回收目录" }).getByRole("button", { name: "清空回收目录" }).click();
   await page.waitForTimeout(100);
   assert.deepEqual(requests.at(-1), { path: "/api/nasdisk/trash-empty", body: { id: "s0", confirm: "s0" } });
-  await page.locator(".nasdisk-trash").waitFor({ state: "detached" });
+  await page.getByRole("button", { name: "清空…" }).waitFor({ state: "detached" });
 
   // Hiding persists across polling and reloads, but is scoped to the result ID.
   await page.getByRole("button", { name: "隐藏上次结果" }).click();
@@ -73,17 +73,17 @@ try {
   await page.reload();
   await page.getByText("//192.168.50.2/video").waitFor();
   await page.waitForResponse((r) => new URL(r.url()).pathname === "/api/nasdisk");
-  assert.equal(await page.locator(".nasdisk-last").count(), 0);
+  assert.equal(await page.getByRole("group", { name: "上次", exact: true }).count(), 0);
   disk = { ...disk, last: { ...disk.last, id: "s2", summary: { mkdirs: 0, writes: 1, renames: 0, deletes: 0, ignored: 0, conflicts: 0 }, conflicts: [], trash: { files: 1, bytes: 190 * 2 ** 20 } } };
-  await page.locator(".nasdisk-last-summary").filter({ hasText: "已写回 NAS：写入 1 个文件。" }).waitFor();
-  const lastLine = await page.locator(".nasdisk-last-line").boundingBox();
+  await page.getByRole("group", { name: "上次", exact: true }).getByText( "已写回 NAS：写入 1 个文件。", { exact: false }).waitFor();
+  const lastLine = await page.getByRole("group", { name: "上次", exact: true }).boundingBox();
   assert.ok(lastLine.height < 45, "a simple last result occupies one desktop line");
   await shot(page, "nasdisk-last");
 
   // Picking from the NAS row: browse, label follows the folder, private directory hidden.
   await page.getByRole("button", { name: "作为 U 盘…" }).click();
-  assert.equal(await page.locator(".storage-list > li .nasdisk-setup").count(), 1);
-  await page.locator(".nasdisk-chosen").filter({ hasText: "已选择 家庭 NAS › 根目录" }).waitFor();
+  assert.equal(await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).count(), 1);
+  await page.getByText("已选择 家庭 NAS › 根目录").waitFor();
   await page.getByRole("button", { name: "工具" }).waitFor();
   assert.equal(await page.getByRole("button", { name: ".vim4-nasdisk" }).count(), 0);
   await page.getByRole("button", { name: "工具" }).click();
@@ -100,7 +100,7 @@ try {
   await newName.press("Enter");
   await page.getByText("没有子文件夹。").waitFor();
   assert.deepEqual(requests.at(-1), { path: "/api/storage/mkdir", body: { id: "home", path: "/工具", name: "安装包" } });
-  assert.equal(await page.locator(".nasdisk-crumbs [aria-current=location]").innerText(), "安装包");
+  assert.equal(await page.getByRole("navigation", { name: "文件夹路径" }).getByRole("button", { name: "安装包", exact: true }).innerText(), "安装包");
   await page.getByRole("button", { name: "工具" }).click();
   await page.getByRole("button", { name: "驱动 2026" }).waitFor();
   assert.equal(await page.getByLabel("卷标").count(), 0);
@@ -110,7 +110,7 @@ try {
   assert.equal(await page.getByRole("button", { name: "挂载到被控电脑" }).isDisabled(), true);
   await page.getByLabel("卷标").fill("tools");
   assert.equal(await page.getByLabel("卷标").inputValue(), "TOOLS");
-  await page.locator(".nasdisk-chosen").filter({ hasText: "已选择 家庭 NAS › 工具" }).waitFor();
+  await page.getByText("已选择 家庭 NAS › 工具").waitFor();
   await page.getByRole("button", { name: "驱动 2026" }).click();
   await page.getByText("没有子文件夹。").waitFor();
   assert.equal(await page.getByLabel("卷标").inputValue(), "TOOLS", "manual label survives navigation");
@@ -120,7 +120,7 @@ try {
   await page.getByRole("button", { name: "挂载到被控电脑" }).click();
   await page.getByText("正在扫描文件夹… 已扫描 1,234 项").waitFor();
   await page.getByText("U 盘使用中", { exact: true }).waitFor();
-  assert.equal(await page.locator(".nasdisk-setup").count(), 0);
+  assert.equal(await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).count(), 0);
   const mountButton = page.getByRole("button", { name: "作为 U 盘…" });
   assert.equal(await mountButton.isDisabled(), true);
   assert.equal(await mountButton.getAttribute("title"), "同一时间只能有一个 U 盘");
@@ -147,7 +147,7 @@ try {
     writtenBytes: 12 * 2 ** 20, skippedCount: 2, skipped: [{ path: "/工具/win.iso", reason: "file size outside FAT32 range" },
       { path: "/工具/a:b.txt", reason: "invalid FAT name or more than 255 UTF-16 units" }] } };
   await page.getByText("已挂载到被控电脑").waitFor();
-  assert.equal(await page.locator(".nasdisk-session .storage-actions").getByRole("button").count(), 0);
+  assert.equal(await page.getByRole("region", { name: "U 盘活动" }).getByRole("button", { name: "取消", exact: true }).count(), 0);
   await page.getByText("在电脑上安全弹出后，修改会写回 NAS。", { exact: true }).waitFor();
   await page.getByText("如何安全弹出", { exact: true }).click();
   await page.getByText("Mac：访达侧栏", { exact: false }).waitFor();
@@ -217,12 +217,12 @@ try {
   status.media = { ...status.media, inserted: true, name: "ubuntu.iso" };
   status.hardware.usb = "not attached";
   await page.getByText("虚拟介质已挂载「ubuntu.iso」", { exact: false }).waitFor();
-  assert.equal(await page.locator(".nasdisk-setup").getByRole("link", { name: "虚拟介质页" }).getAttribute("href"), "#/media");
+  assert.equal(await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).getByRole("link", { name: "虚拟介质页" }).getAttribute("href"), "#/media");
   assert.equal(await page.getByRole("button", { name: "挂载到被控电脑" }).isDisabled(), true);
   await page.getByText("被控电脑尚未通过 USB 连接，连接后即可看到 U 盘。", { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   const primary = await page.getByRole("button", { name: "挂载到被控电脑" }).boundingBox();
-  const cancel = await page.locator(".nasdisk-setup").getByRole("button", { name: "取消", exact: true }).boundingBox();
+  const cancel = await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).getByRole("button", { name: "取消", exact: true }).boundingBox();
   assert.ok(primary.y < cancel.y && Math.abs(primary.width - cancel.width) < 1);
   const modes = page.getByRole("group", { name: "模式" }).getByRole("button");
   assert.ok((await modes.nth(0).boundingBox()).y < (await modes.nth(1).boundingBox()).y);
@@ -235,18 +235,18 @@ try {
 
   // A second NAS replaces the open picker, and editing/adding closes it.
   storages.storages.push({ ...storages.storages[0], id: "archive", name: "归档 NAS", writable: false });
-  const archive = page.locator(".storage-list > li").filter({ hasText: "归档 NAS" });
+  const archive = page.getByRole("list", { name: "NAS 连接" }).getByRole("listitem").filter({ hasText: "归档 NAS" });
   await archive.getByRole("button", { name: "作为 U 盘…" }).click();
-  assert.equal(await page.locator(".nasdisk-setup").count(), 1);
-  await archive.locator(".nasdisk-chosen").filter({ hasText: "归档 NAS › 根目录" }).waitFor();
+  assert.equal(await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).count(), 1);
+  await archive.getByText("已选择 归档 NAS › 根目录").waitFor();
   assert.equal(await page.getByRole("button", { name: "可写 NAS 不允许写入" }).isDisabled(), true);
   await page.getByRole("button", { name: "添加 NAS" }).click();
-  assert.equal(await page.locator(".nasdisk-setup").count(), 0);
+  assert.equal(await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).count(), 0);
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await archive.getByRole("button", { name: "作为 U 盘…" }).click();
   await page.getByRole("button", { name: "归档 NAS 的更多操作" }).click();
   await page.getByRole("menuitem", { name: "编辑" }).click();
-  assert.equal(await page.locator(".nasdisk-setup").count(), 0);
+  assert.equal(await page.getByRole("form", { name: "选择要作为 U 盘的文件夹" }).count(), 0);
   await page.getByRole("button", { name: "取消", exact: true }).click();
   await archive.getByRole("button", { name: "作为 U 盘…" }).click();
   await page.getByRole("button", { name: "工具", exact: true }).waitFor();

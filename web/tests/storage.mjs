@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const status = { active: "onekvm", apps: [{ id: "onekvm", name: "One-KVM", port: 8080, description: "",
     unit: { name: "one-kvm.service", loaded: true, active: "active", enabled: "enabled", sub: "running" } }], platform: [],
     media: { known: true, inserted: false, token: "", name: "", cdrom: false, readOnly: false, connected: false, pikvm: false },
@@ -54,8 +54,8 @@ try {
   await page.getByText("剩余 1.2 TiB / 4.0 TiB").waitFor();
   assert.equal(await page.getByRole("region", { name: "U 盘活动" }).count(), 0);
   assert.equal(await page.getByRole("button", { name: "选择文件夹…" }).count(), 0);
-  const home = page.locator(".storage-list > li").filter({ hasText: "家庭 NAS" });
-  const lab = page.locator(".storage-list > li").filter({ hasText: "[fd00::5]" });
+  const home = page.getByRole("list", { name: "NAS 连接" }).getByRole("listitem").filter({ hasText: "家庭 NAS" });
+  const lab = page.getByRole("list", { name: "NAS 连接" }).getByRole("listitem").filter({ hasText: "[fd00::5]" });
   assert.equal(await home.getByRole("button", { name: "作为 U 盘…" }).count(), 1);
   assert.equal(await lab.getByRole("button", { name: "连接", exact: true }).count(), 1);
   if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/storage-list.png`, fullPage: true });
@@ -101,11 +101,11 @@ try {
   await page.keyboard.press("ArrowDown");
   assert.equal(await page.getByRole("menuitem", { name: "断开" }).evaluate((el) => el === document.activeElement), true);
   await page.keyboard.press("Escape");
-  assert.equal(await page.getByRole("menu").count(), 0);
+  await page.getByRole("menu").waitFor({ state: "hidden" });
   assert.equal(await more.evaluate((el) => el === document.activeElement), true);
   await more.press("Space");
   await page.getByRole("heading", { name: "网络存储", level: 1 }).click();
-  assert.equal(await page.getByRole("menu").count(), 0);
+  await page.getByRole("menu").waitFor({ state: "hidden" });
   await more.click();
   await page.getByRole("menuitem", { name: "编辑" }).click();
   await page.getByText("/var/lib/vim4-kvm/nas/home").waitFor();
@@ -138,7 +138,7 @@ try {
   await page.reload();
   await page.getByText("还没有 NAS", { exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: "添加 NAS" }).count(), 1);
-  assert.equal(await page.locator(".storage-list").count(), 0);
+  assert.equal(await page.getByRole("list", { name: "NAS 连接" }).count(), 0);
   await page.getByText("SMB（cifs-utils）", { exact: false }).waitFor();
   if (process.env.SCREENSHOTS) await page.screenshot({ path: `${process.env.SCREENSHOTS}/storage-empty.png`, fullPage: true });
   await page.getByRole("button", { name: "添加 NAS" }).click();

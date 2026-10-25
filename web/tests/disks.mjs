@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce" });
   const status = { active: "nanokvm", apps: [{ id: "nanokvm", name: "NanoKVM", port: 8080, description: "",
     unit: { name: "nanokvm.service", loaded: true, active: "active", enabled: "enabled", sub: "running" } }], platform: [],
     media: { known: true, inserted: false, token: "", name: "", cdrom: false, readOnly: false, connected: false, pikvm: false },
@@ -60,7 +60,7 @@ try {
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).getAttribute("href"), "/api/disks/file?disk=disk.img&path=%2Freadme.txt");
   await page.getByText("/readme.txt", { exact: true }).waitFor();
-  assert.equal(await page.locator(".disk-card.is-checked").getByText("空闲").count(), 1);
+  assert.equal(await page.getByRole("radio", { checked: true }).locator("..").getByText("空闲").count(), 1);
 
   // A stray drop outside the file list must not navigate away.
   const dropOutside = () => page.evaluate(() => {
@@ -153,15 +153,15 @@ try {
 
   await page.getByRole("radio", { name: /tools\.img/ }).check({ force: true });
   await page.getByText(/数据盘正挂载在被控电脑上/).waitFor();
-  assert.equal(await page.locator(".disk-card.is-checked").getByText("已挂载到被控电脑").count(), 1);
+  assert.equal(await page.getByRole("radio", { checked: true }).locator("..").getByText("已挂载到被控电脑").count(), 1);
   await page.evaluate(() => {
     const data = new DataTransfer();
     data.items.add(new File(["x"], "x.txt"));
-    document.querySelector(".disk-files").dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
+    document.querySelector('[aria-label="文件"]').dispatchEvent(new DragEvent("dragover", { dataTransfer: data, bubbles: true, cancelable: true }));
   });
-  await page.locator(".disk-files.is-dragging.is-blocked").waitFor();
-  assert.equal(await page.locator(".disk-files").getAttribute("data-drop"), "数据盘挂载在被控电脑上，不能上传");
-  await page.evaluate(() => document.querySelector(".disk-files").dispatchEvent(new DragEvent("drop", { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true })));
+  await page.getByRole("region", { name: "文件", exact: true }).filter({ has: page.getByText(/数据盘正挂载/) }).waitFor();
+  assert.equal(await page.getByRole("region", { name: "文件", exact: true }).getAttribute("data-drop"), "数据盘挂载在被控电脑上，不能上传");
+  await page.evaluate(() => document.querySelector('[aria-label="文件"]').dispatchEvent(new DragEvent("drop", { dataTransfer: new DataTransfer(), bubbles: true, cancelable: true })));
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
   assert.equal(await page.getByRole("button", { name: "上传文件" }).isDisabled(), true);
   assert.equal(await page.getByRole("button", { name: "格式化…" }).isDisabled(), true);
