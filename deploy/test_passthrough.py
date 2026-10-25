@@ -129,12 +129,27 @@ class VendorPassthroughTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'EDID'):
             self.controller.monitor()
 
-    def test_audio_rejection_does_not_change_request_or_hardware(self):
+    def test_missing_audio_service_does_not_change_request_or_hardware(self):
         with patch.object(self.controller, 'write') as write:
             with self.assertRaisesRegex(ValueError, '音频'):
                 self.controller.set(True, True)
             write.assert_not_called()
         self.assertFalse(self.controller.path(passthrough.RUNTIME + 'request.json').exists())
+
+    def test_audio_failure_status_preserves_video_and_saved_audio_preference(self):
+        self.put(passthrough.RUNTIME + 'request.json', json.dumps({'enabled': True, 'audio': True, 'revision': 7}))
+        observed = {'revision': 7, 'heartbeat': 100,
+                    'state': {'supported': True, 'enabled': True, 'state': 'running', 'audio': False}}
+        self.put(passthrough.RUNTIME + 'state.json', json.dumps(observed))
+        self.put(passthrough.RUNTIME + 'audio-state.json', json.dumps({'revision': 7, 'heartbeat': 100, 'state': 'error'}))
+        with patch.object(passthrough.time, 'monotonic', return_value=100):
+            with patch.object(self.controller, 'write') as write:
+                state = self.controller.status()
+                write.assert_not_called()
+        self.assertTrue(state['audio'])
+        self.assertEqual(state['audioState'], 'error')
+        self.assertEqual(state['state'], 'running')
+        self.assertEqual(self.controller.load(passthrough.RUNTIME + 'state.json'), observed)
 
     def test_set_waits_for_worker_actual_state(self):
         def start(*args, **kwargs):

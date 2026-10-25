@@ -156,10 +156,13 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     outputTone = "idle";
   }
   const audioUnsupported = !!monitor && !monitor.audio;
-  const audioEffective = current === "running" && state.audio && !!input?.audio && !!monitor?.audio;
+  const audioEffective = current === "running" && state.audio && !!input?.audio && !!monitor?.audio
+    && (!state.audioState || state.audioState === "running");
   const audioLabel = current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
     : !state.enabled ? "透传开启后生效" : audioUnsupported ? "显示器不支持音频"
-    : !state.audio ? "已关闭" : !input?.audio ? "输入无声音" : "输出中";
+    : !state.audio ? "已关闭" : !input?.audio ? "输入无声音"
+    : ["error", "unavailable"].includes(state.audioState || "") ? "声音暂不可用"
+    : state.audioState && state.audioState !== "running" ? "正在连接声音…" : "输出中";
 
   return <section aria-label="透传"><div className="wifi-card passthrough-card">
     <SwitchRow title="透传" description="把 HDMI IN 的画面原样送到本地显示器，远程 KVM 照常使用。"

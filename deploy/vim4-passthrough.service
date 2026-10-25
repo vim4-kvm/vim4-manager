@@ -1,7 +1,7 @@
 [Unit]
 Description=VIM4 vendor HDMI display mode follower
 After=vim4-kvm-hdmi.service
-Wants=vim4-kvm-hdmi.service
+Wants=vim4-kvm-hdmi.service vim4-passthrough-audio.service
 
 [Service]
 ExecStart=/usr/libexec/vim4-passthrough watch

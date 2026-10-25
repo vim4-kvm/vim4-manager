@@ -263,6 +263,9 @@ try {
     ["running", s => { s.input.audio = false; }, "输入无声音", false],
     ["running", s => { s.monitor.audio = false; }, "显示器不支持音频", true],
     ["running", s => { s.audio = false; }, "已关闭", false],
+    ["running", s => { s.audioState = "starting"; }, "正在连接声音…", false],
+    ["running", s => { s.audioState = "error"; }, "声音暂不可用", false],
+    ["running", s => { s.audioState = "running"; }, "输出中", false],
   ]) {
     state = fixture(name);
     edit(state);
