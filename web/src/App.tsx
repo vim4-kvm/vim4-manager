@@ -3,19 +3,16 @@ import { toast } from "sonner";
 import { useShallow } from "zustand/react/shallow";
 import { TailscalePanel } from "./TailscalePanel";
 import { WifiControl } from "./WifiControl";
-import { EDIDPanel } from "./EDIDPanel";
+import { Video } from "./pages/Video";
 import { KernelPanel } from "./KernelPanel";
 import {
-  previewHDRCurve,
   restartUnit,
   selectApp,
   setFanCurve,
-  setHDRCurve,
   type App as KvmApp,
   type Hardware,
   type Platform,
 } from "./api";
-import { HDRPanel } from "./HDRPanel";
 import { FanPanel } from "./FanPanel";
 import { UpdatesPanel } from "./UpdatesPanel";
 import { MediaPanel, MediaSummary, MediaWait, needsMediaEject } from "./MediaPanel";
@@ -267,7 +264,7 @@ export function App() {
   }, [waiting, status, stale, page]);
 
   const hw = status?.hardware;
-  const legacy = page !== "overview" && page !== "output";
+  const legacy = !["overview", "output", "video"].includes(page);
 
   return (
     <AppShell page={page} legacy={legacy}>
@@ -287,11 +284,7 @@ export function App() {
         </Section>
         <UpdatesPanel busy={!!busy} run={run} active={status?.active} />
       </>}
-      {page === "video" && (
-        <Section title="EDID" description="被控电脑看到的显示器型号与能力。">
-          <EDIDPanel busy={!!busy} run={run} />
-        </Section>
-      )}
+      {page === "video" && <Video />}
 
       {!status ? (
         legacy && page !== "network" && page !== "video" && page !== "updates" && page !== "storage" && page !== "account" && <div className="skeleton" />
@@ -351,22 +344,6 @@ export function App() {
             />
           )}
 
-          {page === "video" && hw && (
-            <Section
-              title="HDR 转 SDR"
-              description="被控机输出 HDR 时按此曲线映射为 SDR。画面偏暗就提高桌面亮度，高光发白就扩大高光范围。"
-            >
-              <HDRPanel
-                curve={hw.hdrCurve}
-                hdr={hw.hdmi.hdr}
-                busy={!!busy}
-                onPreview={previewHDRCurve}
-                onSave={(curve) =>
-                  run("正在保存 HDR 映射…", () => setHDRCurve(curve), `HDR 映射已保存：SDR 白 ${curve.white} 尼特，高光保留到 ${curve.peak} 尼特`)
-                }
-              />
-            </Section>
-          )}
 
           {page === "cooling" && hw && <Thermal hw={hw} busy={!!busy} run={run} />}
 

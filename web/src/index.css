@@ -10,6 +10,7 @@
 @source "./shell";
 @source "./pages";
 @source "./lib";
+@source "./*Panel.tsx";
 
 @custom-variant dark (&:is(.dark *));
 
