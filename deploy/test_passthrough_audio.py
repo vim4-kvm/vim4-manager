@@ -110,6 +110,17 @@ class AudioWorkerTest(unittest.TestCase):
         self.request['enabled'] = False
         self.assertEqual(self.cycle(), 'off')
 
+    def test_hdr_rejection_or_video_error_does_not_stop_independent_audio(self):
+        self.start()
+        child = self.worker.child
+        for state in ('unsupported-format', 'video-error', 'starting'):
+            self.video['state']['state'] = state
+            self.video['state']['input']['hdr'] = 'HDR10'
+            self.assertEqual(self.cycle(), 'running')
+            self.assertIs(self.worker.child, child)
+        self.video['state']['state'] = 'protected'
+        self.assertEqual(self.cycle(), 'waiting')
+
     def test_sink_without_pcm_or_native_rate_never_opens_audio(self):
         for capabilities in ('', 'AC-3, 6 ch, 48 kHz', 'PCM, 2 ch, 32 kHz'):
             with self.subTest(capabilities=capabilities):

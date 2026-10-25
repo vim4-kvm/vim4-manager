@@ -10,6 +10,8 @@ const labels: Record<PassthroughState["state"], string> = {
   "no-signal": "等待输入信号",
   "no-monitor": "未连接显示器",
   protected: "输入受版权保护",
+  "unsupported-format": "暂不支持此输入格式",
+  "video-error": "画面暂不可用",
 };
 
 const descriptions = {
@@ -19,6 +21,8 @@ const descriptions = {
   "no-signal": "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。",
   "no-monitor": "接上显示器后自动开始透传。",
   protected: "被控电脑正在播放受 HDCP 保护的内容，显示器保持黑屏。",
+  "unsupported-format": "当前输入格式暂不支持画面输出，声音仍可播放。",
+  "video-error": "已检测到输入信号，但画面暂不可用，声音仍可播放。",
 };
 
 function refreshLabel(hz: number) {
@@ -77,7 +81,7 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     setError(undefined);
     setReadStale(false);
     onState(next);
-    if (next.state !== "starting" && next.state !== "stopping") setDescription(descriptions[next.state]);
+    if (next.state !== "starting" && next.state !== "stopping") setDescription(next.reason || descriptions[next.state]);
   }, [onState]);
 
   useEffect(() => {
@@ -156,8 +160,8 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     outputTone = "idle";
   }
   const audioUnsupported = !!monitor && !monitor.audio;
-  const audioEffective = current === "running" && state.audio && !!input?.audio && !!monitor?.audio
-    && (!state.audioState || state.audioState === "running");
+  const audioEffective = state.enabled && state.audio && !!input?.audio && !!monitor?.audio
+    && (state.audioState ? state.audioState === "running" : current === "running");
   const audioLabel = current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
     : !state.enabled ? "透传开启后生效" : audioUnsupported ? "显示器不支持音频"
     : !state.audio ? "已关闭" : !input?.audio ? "输入无声音"

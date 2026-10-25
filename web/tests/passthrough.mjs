@@ -32,6 +32,8 @@ const cases = [
   ["no-signal", "等待输入信号", true, false, "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。"],
   ["no-monitor", "未连接显示器", true, false, "接上显示器后自动开始透传。"],
   ["protected", "输入受版权保护", true, false, "被控电脑正在播放受 HDCP 保护的内容，显示器保持黑屏。"],
+  ["unsupported-format", "暂不支持此输入格式", true, false, "当前输入格式暂不支持画面输出，声音仍可播放。"],
+  ["video-error", "画面暂不可用", true, false, "已检测到输入信号，但画面暂不可用，声音仍可播放。"],
 ];
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -266,6 +268,8 @@ try {
     ["running", s => { s.audioState = "starting"; }, "正在连接声音…", false],
     ["running", s => { s.audioState = "error"; }, "声音暂不可用", false],
     ["running", s => { s.audioState = "running"; }, "输出中", false],
+    ["unsupported-format", s => { s.audioState = "running"; s.input.hdr = "Dolby Vision"; }, "输出中", false],
+    ["video-error", s => { s.audioState = "running"; }, "输出中", false],
   ]) {
     state = fixture(name);
     edit(state);
@@ -273,6 +277,11 @@ try {
     assert.equal(await rowStatus("声音").textContent(), label);
     assert.equal(await audio.isDisabled(), disabled);
   }
+  state = fixture("unsupported-format");
+  state.reason = "当前 HDR 显示路径尚未就绪，声音仍可播放。";
+  await reload();
+  assert.equal(await card.locator(".passthrough-description").textContent(), state.reason);
+  assert.equal(await value("输出"), "—");
   // Changing audio while off saves the preference immediately, without a dialog.
   state = fixture("off");
   state.audio = false;
@@ -351,6 +360,7 @@ try {
   const beforeLeave = reads;
   await page.clock.runFor(6000);
   assert.equal(reads, beforeLeave, "leaving output stops GET polling");
+  await page.waitForFunction(() => document.querySelector('.nav-item[href="#/output"] .nav-hint')?.textContent === "受保护");
   assert.equal(await page.locator('.nav-item[href="#/output"] .nav-hint').textContent(), "受保护");
   delete status.passthrough;
 
@@ -359,7 +369,7 @@ try {
   await card.getByRole("alert").getByText("读取失败：读取连接中断", { exact: true }).waitFor();
   assert.equal(await card.locator("dl").count(), 0);
   assert.deepEqual(errors, []);
-  console.log("PASS: passthrough states, facts, HDR/scaling, audio, failures, stale, busy/poll lifecycle; 40 screenshots");
+  console.log("PASS: passthrough states, facts, HDR/scaling, audio, failures, stale, busy/poll lifecycle; 48 screenshots");
 } finally {
   await browser.close();
 }
