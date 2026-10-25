@@ -415,7 +415,13 @@ Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev
 首选 1:1、否则明确 `scaled`，只用 sink 声明的 YCbCr444 8-bit，不走有已知误差的 RGB。
 实际输出模式、格式、帧率读回和显示计数推进后才报告 `running`；不依赖静止像素判断失锁。
 关闭透传只隐藏 VD1、恢复 OSD，保留 TEE 消费及 KVM；HDMI 服务重启后自动重新探测。
-支持普通/1000:1001 刷新率的 720p/1080p/2160p 已枚举模式，HDR、隔行和其他刷新率明确拒绝。
+支持普通/1000:1001 刷新率的 720p/1080p/2160p 已枚举模式，隔行和其他刷新率明确拒绝。
+HDR10/HLG 只有在运行驱动的 `/sys/class/vdin/vdin0/hdr_sdr` 确认已做硬件映射时才显示，
+此时仍输出 SDR、`output.hdrToSdr=true`；即便显示器支持 HDR，也不能把已经映射过的
+8-bit SDR 帧重新标为原生 HDR。原生 10-bit HDR 显示须另有独立的采集/显示路径。
+厂商 `SMPTE_ST_2048` 拼写归一为 HDR10（PQ）；Dolby Vision 明确不支持。
+`unsupported-format` 和 `video-error` 保留真实 `input/monitor`，用 `reason` 说明原因，
+不把有锁定但暂不可显示的输入误报为 `no-signal`；声音在这两种状态下可独立继续。
 声音由独立的 `vim4-passthrough-audio.service` 跟随视频与接收器状态，不参与 HDMI modeset。
 厂商接口未暴露可用的 RX→TX 直接硬件回环，因此使用单进程 libasound PCM 桥：
 `FRHDMIRX → EXTN hw:CARD=AMLAUGESOUND,DEV=6 → SPDIF DEV=1 → HDMITX`。

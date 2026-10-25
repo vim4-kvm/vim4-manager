@@ -143,12 +143,55 @@ class VendorPassthroughTest(unittest.TestCase):
     def test_invalid_edid_or_hdr_input_fails_before_modeset(self):
         with patch.object(self.controller, 'write') as write:
             self.put('/sys/class/hdmirx/hdmirx0/info', self.controller.read('/sys/class/hdmirx/hdmirx0/info').replace('SDR', 'HDR10'))
-            with self.assertRaisesRegex(ValueError, 'HDR'):
-                self.controller.tick(True)
+            result = self.controller.tick(True)
+            self.assertEqual(result['state'], 'unsupported-format')
+            self.assertEqual(result['input']['hdr'], 'HDR10')
             self.assertFalse(any(call.args[0].startswith(passthrough.TX) for call in write.call_args_list))
         self.put(passthrough.TX + 'rawedid', '00')
         with self.assertRaisesRegex(ValueError, 'EDID'):
             self.controller.monitor()
+
+    def test_hdr_input_and_capture_error_are_not_signal_loss(self):
+        self.put('/sys/class/hdmirx/hdmirx0/info',
+                 self.controller.read('/sys/class/hdmirx/hdmirx0/info').replace('SDR', 'SMPTE_ST_2048'))
+        self.put('/sys/class/video4linux/video0/status',
+                 'vfm_started: 1\nfmt_valid: 0\nsm_state: 5\ndraining: 0')
+        state = self.controller.cycle({'enabled': True, 'revision': 3})['state']
+        self.assertEqual(state['state'], 'video-error')
+        self.assertEqual(state['input']['hdr'], 'HDR10')
+        self.assertIn('monitor', state)
+        self.assertIn('声音', state['reason'])
+
+    def test_mapped_hdr_uses_sdr_output_without_fake_hdr_signaling(self):
+        for eotf, expected in (('SMPTE_ST_2048', 'HDR10'), ('HLG', 'HLG')):
+            with self.subTest(eotf=eotf):
+                self.put('/sys/class/hdmirx/hdmirx0/info',
+                         f'Hactive: 3840\nVactive: 2160\nFrame Rate: 5998\nInterlace: 0\nHDR EOTF: {eotf}')
+                self.put('/sys/class/vdin/vdin0/hdr_sdr', '1')
+                self.controller.tick(True)
+                self.put('/sys/module/aml_media/parameters/display_frame_count',
+                         str(int(self.controller.read('/sys/module/aml_media/parameters/display_frame_count')) + 30))
+                state = self.controller.tick(True)
+                self.assertEqual(state['state'], 'running')
+                self.assertEqual(state['input']['hdr'], expected)
+                self.assertTrue(state['output']['hdrToSdr'])
+                self.assertFalse(state['output']['scaled'])
+                self.assertEqual(self.controller.read(passthrough.TX + 'attr'), '444,8bit')
+
+    def test_dolby_vision_does_not_use_sdr_mapping_even_with_stale_mapping_state(self):
+        self.put('/sys/class/hdmirx/hdmirx0/info',
+                 self.controller.read('/sys/class/hdmirx/hdmirx0/info') + '\nDolby Vision: 1')
+        self.put('/sys/class/vdin/vdin0/hdr_sdr', '1')
+        state = self.controller.tick(True)
+        self.assertEqual(state['state'], 'unsupported-format')
+        self.assertEqual(state['input']['hdr'], 'Dolby Vision')
+        self.assertNotIn('output', state)
+
+    def test_mode_error_preserves_input_instead_of_becoming_no_signal(self):
+        with patch.object(self.controller, 'read_tx', side_effect=OSError('transient read')):
+            state = self.controller.cycle({'enabled': True, 'revision': 3})['state']
+        self.assertEqual(state['state'], 'video-error')
+        self.assertEqual(state['input']['width'], 3840)
 
     def test_missing_audio_service_does_not_change_request_or_hardware(self):
         with patch.object(self.controller, 'write') as write:
@@ -442,7 +485,7 @@ class VendorPassthroughTest(unittest.TestCase):
                 patch.object(self.controller, 'blank', side_effect=OSError('OSD temporarily unavailable')), \
                 patch.object(self.controller, 'update', side_effect=OSError('VD1 temporarily unavailable')):
             result = self.controller.cycle({'enabled': True, 'revision': 1})
-        self.assertEqual(result['state']['state'], 'starting')
+        self.assertEqual(result['state']['state'], 'video-error')
         self.assertEqual(result['error'], 'EDID transient')
         self.assertIn('heartbeat', result)
         self.assertEqual(self.controller.cycle({'enabled': True, 'revision': 2})['revision'], 2)

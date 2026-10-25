@@ -5,8 +5,9 @@ export interface PassthroughState {
   enabled: boolean;
   audio: boolean;
   audioState?: "off" | "starting" | "waiting" | "running" | "unavailable" | "error";
-  state: "unsupported" | "off" | "starting" | "stopping" | "running" | "no-signal" | "no-monitor" | "protected";
-  input?: { width: number; height: number; refreshHz: number; hdr: "SDR" | "HDR10" | "HLG"; colorFormat: string; audio: boolean };
+  state: "unsupported" | "off" | "starting" | "stopping" | "running" | "no-signal" | "no-monitor" | "protected" | "unsupported-format" | "video-error";
+  reason?: string;
+  input?: { width: number; height: number; refreshHz: number; hdr: "SDR" | "HDR10" | "HLG" | "Dolby Vision" | "Unknown HDR"; colorFormat: string; audio: boolean };
   monitor?: { name: string; maxWidth: number; maxHeight: number; maxRefreshHz: number; hdr: boolean; audio: boolean };
   output?: { width: number; height: number; refreshHz: number; colorFormat: string; scaled: boolean; hdrToSdr: boolean };
 }

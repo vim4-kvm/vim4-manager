@@ -312,7 +312,7 @@ class AudioWorker:
         if not state.get('monitor', {}).get('audio'):
             self.stop()
             return 'unavailable'
-        if state.get('state') != 'running' or not state.get('input', {}).get('audio'):
+        if state.get('state') not in ('running', 'starting', 'unsupported-format', 'video-error') or not state.get('input', {}).get('audio'):
             self.stop()
             return 'waiting'
         endpoints = self.path('/proc/asound/pcm').read_text()

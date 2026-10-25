@@ -43,6 +43,19 @@ def parse_fields(text):
             (line.split(':', 1) for line in text.splitlines() if ':' in line)}
 
 
+def input_hdr(fields):
+    if scalar(fields.get('Dolby Vision', '0')):
+        return 'Dolby Vision'
+    value = fields.get('HDR EOTF', 'SDR').upper().replace(' ', '_')
+    if value in ('SDR', 'TRADITIONAL_SDR'):
+        return 'SDR'
+    if value in ('HDR10', 'SMPTE_ST_2048', 'SMPTE_ST_2084', 'PQ'):
+        return 'HDR10'
+    if value in ('HLG', 'BT_2100_HLG', 'HYBRID_LOG_GAMMA', 'BT_HLG'):
+        return 'HLG'
+    return 'Unknown HDR'
+
+
 def display_modes(text):
     modes = {}
     for line in text.splitlines():
@@ -107,6 +120,8 @@ class VendorPassthrough:
         self.connected_identity = None
         self.reconnecting = False
         self.sink_changed_at = None
+        self.capture_ready = False
+        self.last_error = None
 
     def path(self, name):
         return self.root / name.lstrip('/')
@@ -175,8 +190,9 @@ class VendorPassthrough:
         if len(captures) != 1:
             raise ValueError('无法唯一识别 VFM 采集端点')
         capture = parse_fields((captures[0] / 'status').read_text())
+        self.capture_ready = capture.get('fmt_valid') == '1'
         if any(capture.get(key) != value for key, value in
-               (('vfm_started', '1'), ('fmt_valid', '1'), ('sm_state', '5'), ('draining', '0'))):
+               (('vfm_started', '1'), ('sm_state', '5'), ('draining', '0'))):
             return None
         fields = parse_fields(self.read('/sys/class/hdmirx/hdmirx0/info'))
         width, height = int(fields.get('Hactive', 0)), int(fields.get('Vactive', 0))
@@ -187,7 +203,7 @@ class VendorPassthrough:
             raise ValueError('隔行输入尚未验证')
         return {'width': width, 'height': height, 'refreshHz': rate,
                 'colorFormat': fields.get('Color Space', '').partition('-')[2],
-                'hdr': fields.get('HDR EOTF', 'SDR'),
+                'hdr': input_hdr(fields),
                 'audio': int(fields.get('audio receive data', 0)) != 0}
 
     def monitor(self):
@@ -380,8 +396,26 @@ class VendorPassthrough:
         if self.sink_changed_at is not None and time.monotonic() - self.sink_changed_at < 2:
             self.update(VIDEO + 'disable_video', 1)
             return state
-        if input_state['hdr'] != 'SDR':
-            raise ValueError('HDR 透传尚未验证，请使用 SDR 输入')
+        if input_state['hdr'] in ('Dolby Vision', 'Unknown HDR'):
+            self.update(VIDEO + 'disable_video', 1)
+            state['state'] = 'unsupported-format'
+            state['reason'] = ('暂不支持 Dolby Vision 画面，声音仍可播放。'
+                               if input_state['hdr'] == 'Dolby Vision'
+                               else '暂不支持此 HDR 输入格式，声音仍可播放。')
+            return state
+        if not self.capture_ready:
+            self.update(VIDEO + 'disable_video', 1)
+            state['state'] = 'video-error'
+            state['reason'] = '已检测到输入信号，但采集画面暂不可用，声音仍可播放。'
+            return state
+        mapped = input_state['hdr'] != 'SDR'
+        if mapped:
+            mapping = self.path('/sys/class/vdin/vdin0/hdr_sdr')
+            if not mapping.exists() or mapping.read_text().strip() != '1':
+                self.update(VIDEO + 'disable_video', 1)
+                state['state'] = 'unsupported-format'
+                state['reason'] = '当前 HDR 显示路径尚未就绪，声音仍可播放。'
+                return state
         actual = self.read_tx()
         preferred = self.rate_choice
         if preferred is None and actual['mode'] and actual['fractional'] in (0, 1):
@@ -412,7 +446,7 @@ class VendorPassthrough:
         state['output'] = {'width': width, 'height': height, 'refreshHz': actual['rate'] / 1000,
                            'colorFormat': 'YCbCr444 8-bit limited',
                            'scaled': width != input_state['width'] or height != input_state['height'],
-                           'hdrToSdr': False}
+                           'hdrToSdr': mapped}
         state['state'] = 'running'
         return state
 
@@ -469,6 +503,7 @@ class VendorPassthrough:
         observed = {'revision': request['revision']}
         try:
             observed['state'] = self.tick(request['enabled'])
+            self.last_error = None
         except (OSError, ValueError) as error:
             for recover in (lambda: self.blank(request['enabled']),
                             lambda: self.update(VIDEO + 'disable_video', 1)):
@@ -477,9 +512,17 @@ class VendorPassthrough:
                 except (OSError, ValueError) as recovery_error:
                     print(str(recovery_error), file=sys.stderr, flush=True)
             observed['error'] = str(error)
-            observed['state'] = {'supported': True, 'enabled': request['enabled'], 'audio': False,
-                                 'state': 'starting' if request['enabled'] else 'off'}
-            print(str(error), file=sys.stderr, flush=True)
+            try:
+                state = self.snapshot(request['enabled'])
+            except (OSError, ValueError):
+                state = {'supported': True, 'enabled': request['enabled'], 'audio': False,
+                         'state': 'starting' if request['enabled'] else 'off'}
+            if request['enabled'] and state.get('input'):
+                state.update(state='video-error', reason='已检测到输入信号，但画面暂不可用，声音仍可播放。')
+            observed['state'] = state
+            if str(error) != self.last_error:
+                print(str(error), file=sys.stderr, flush=True)
+                self.last_error = str(error)
         observed['heartbeat'] = time.monotonic()
         return observed
 

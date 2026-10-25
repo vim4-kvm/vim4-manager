@@ -61,6 +61,7 @@ type PassthroughState struct {
 	Audio      bool                `json:"audio"`
 	AudioState string              `json:"audioState,omitempty"`
 	State      string              `json:"state"`
+	Reason     string              `json:"reason,omitempty"`
 	Input      *PassthroughInput   `json:"input,omitempty"`
 	Monitor    *PassthroughMonitor `json:"monitor,omitempty"`
 	Output     *PassthroughOutput  `json:"output,omitempty"`
