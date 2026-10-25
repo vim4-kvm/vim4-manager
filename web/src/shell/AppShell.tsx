@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
 import { ChevronRight, LucideProvider, Menu, PanelLeft } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
+import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
@@ -32,7 +33,10 @@ function TopBar({ page }: { page: PageId }) {
           <li aria-current="page" className="truncate font-medium">{meta.title}</li>
         </ol>
       </nav>
-      <AccountMenu compact />
+      <div className="flex shrink-0 items-center gap-1">
+        <ThemeSwitch />
+        <AccountMenu compact />
+      </div>
     </header>
   );
 }

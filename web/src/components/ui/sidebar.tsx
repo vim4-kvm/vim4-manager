@@ -151,7 +151,7 @@ function Sidebar({
         >
           <SheetHeader className="sr-only">
             <SheetTitle>菜单</SheetTitle>
-            <SheetDescription>页面导航与外观</SheetDescription>
+            <SheetDescription>页面导航</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>

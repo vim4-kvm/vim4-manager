@@ -7,7 +7,8 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 
 前端采用 [shadcn-admin](https://github.com/satnaing/shadcn-admin) 的分组导航、顶部工具栏、
 仪表盘布局和 Slate 配色，适配现有设备状态与操作流程。
-桌面侧栏可折叠，手机使用抽屉导航；账户菜单位于右上角，外观选择位于侧栏底部。
+桌面侧栏可折叠，手机使用抽屉导航；右上角提供外观菜单与账户菜单。
+外观菜单支持浅色、深色与跟随系统，登录页沿用主题偏好，不再单独显示切换控件。
 适配范围与截图见 [界面说明](docs/ui-refactor/shadcn-admin.md)，上游授权见
 [MIT 许可证](LICENSES/shadcn-admin.txt)。
 

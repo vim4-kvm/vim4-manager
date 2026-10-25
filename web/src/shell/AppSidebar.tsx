@@ -1,7 +1,6 @@
 import { useShallow } from "zustand/react/shallow";
 import { Monitor } from "lucide-react";
 import { StatusDot } from "@/components/StatusDot";
-import { ThemeSwitch } from "@/components/ThemeSwitch";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
@@ -84,7 +83,6 @@ function Connection() {
 }
 
 export function AppSidebar({ page }: { page: PageId }) {
-  const { isMobile, state } = useSidebar();
   return (
     <Sidebar collapsible="icon" className="border-sidebar-border">
       <SidebarHeader className="h-16 justify-center border-b border-sidebar-border p-2">
@@ -95,7 +93,6 @@ export function AppSidebar({ page }: { page: PageId }) {
       </SidebarContent>
       <SidebarFooter className="gap-4 border-t border-sidebar-border p-3 group-data-[collapsible=icon]:px-2">
         <Connection />
-        <ThemeSwitch compact={!isMobile && state === "collapsed"} />
       </SidebarFooter>
     </Sidebar>
   );

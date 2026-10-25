@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
+import { useThemePreference } from "./theme";
 import { copyText } from "./lib/clipboard";
 import { Eye, EyeOff, LockKeyhole, LucideProvider, Monitor } from "lucide-react";
 import { LazyMotion, MotionConfig } from "motion/react";
@@ -11,7 +12,6 @@ import { InlineError } from "@/components/InlineError";
 import { SettingsCard } from "@/components/SettingsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapse } from "@/components/Motion";
-import { ThemeSwitch } from "./components/ThemeSwitch";
 import "./index.css";
 
 const connectionError = "无法连接板子，请检查网络后重试";
@@ -50,6 +50,7 @@ function ResetCommand() {
 }
 
 function Login() {
+  useThemePreference();
   const [state, setState] = useState<AuthState>();
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [username, setUsername] = useState("admin");
@@ -342,9 +343,6 @@ function Login() {
           此连接未加密，密码可能被窃听。外网访问请使用 HTTPS。
         </p>
       )}
-      <div className="w-full max-w-[400px]">
-        <ThemeSwitch />
-      </div>
     </main>
   );
 }
