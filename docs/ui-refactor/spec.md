@@ -11,10 +11,16 @@
 | 图标 | lucide-react | 删除 `Icons.tsx`；统一 `size-4`（行内）/`size-5`（导航），`strokeWidth` 默认 |
 | 状态 | zustand | 取代 App 向下传递的 busy/stale/run/status/passthrough |
 | 提示 | sonner（shadcn Toaster） | 取代现有全局 busy 横幅的完成/失败提示 |
-| 动画 | 暂不引入 Motion | 只用 Tailwind/Radix 自带过渡（data-state 动画） |
+| 动画 | Motion（`motion/react`） | `<MotionConfig reducedMotion="user">` + `LazyMotion features={domAnimation}` + `m.*`；令牌与使用范围见下文「动效」 |
 | 不引入 | react-resizable-panels、dnd-kit、recharts | 当前没有分栏/拖拽需求；图表沿用 Charts.tsx 自绘 SVG，仅改为 token 着色 |
 
 **手写 CSS 上限**：全部自定义 CSS 只允许出现在 `web/src/index.css`：`@import "tailwindcss"`、shadcn 主题变量与 `@theme inline` 映射、`@custom-variant dark`、极少量 base（字体、`theme-switching` 时禁用过渡）。总计 ≤ 150 行。`styles.css` 最终删除。不允许内联 `style={{}}` 做布局/颜色（图表坐标、进度百分比等数据驱动值除外）。
+
+## 动效
+- 令牌只在 `web/src/lib/motion.ts`：时长 fast 0.15s / base 0.2s / slow 0.28s；缓动 enter `[0.2, 0, 0, 1]`、exit `[0.4, 0, 1, 1]`；布局弹簧 `{ type: "spring", stiffness: 500, damping: 40, mass: 1 }`（无可见回弹）。不另写临时数值。
+- 只用于：页面切换（内容淡入并上移 6px→0，base，`AnimatePresence mode="wait"`；不做水平滑动）；SettingRow 状态文字与 Fact 主值变化时淡入淡出（fast）；条件区块（如支持透传后出现的 Fact、行内错误、展开详情）高度 auto + 透明度（base）；增删/重排列表用共享 `AnimatedList`（`layout` + AnimatePresence，进入 opacity + scale 0.98→1）；Skeleton → 内容淡入（fast）。
+- 手机 Sheet、对话框、下拉菜单、toast 沿用 Radix/sonner 自带动画，不叠加。
+- 2 秒轮询值不变时不动画；首屏除页面淡入外不动画；除加载指示外无循环装饰动画。
 
 ## 设计令牌（沿用现有品牌色，映射到 shadcn 变量）
 浅色 / 深色：

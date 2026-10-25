@@ -28,16 +28,16 @@ try {
   await page.getByText(/供电额度 15 W/).waitFor();
   const chart = page.locator("figure").filter({ hasText: "CPU 动态功耗（估算）" });
   await chart.getByText("0.00 W", { exact: true }).waitFor();
-  const line = chart.locator(".chart-line");
+  const line = chart.locator("[data-chart=line]");
   await line.waitFor();
   assert.equal(((await line.getAttribute("d")) || "").split("M").length - 1, 2, "missing interval splits the curve");
   await chart.getByRole("img").focus();
   await page.keyboard.press("ArrowLeft");
-  await chart.locator(".chart-tooltip").getByText("0.00 W", { exact: true }).waitFor();
+  await chart.locator("[data-chart=tooltip]").getByText("0.00 W", { exact: true }).waitFor();
   status.history.push({ ...status.history.at(-1), t: now + 5000, cpuPowerW: null });
   await page.reload();
   await chart.getByText("—", { exact: true }).waitFor();
-  assert.equal(await chart.locator(".chart-dot").count(), 0, "unavailable current sample does not show a stale last dot");
+  assert.equal(await chart.locator("[data-chart=dot]").count(), 0, "unavailable current sample does not show a stale last dot");
   assert.match(await chart.getByRole("img").getAttribute("aria-label"), /当前\s*暂无数据/);
   status.hardware.kernel = "7.3.0-rc7-vim4kvm-uhd1+";
   status.power.bootContract = null;
@@ -91,7 +91,7 @@ try {
   await page.getByText("发生硬复位 · 初始化超时", { exact: true }).waitFor();
   assert.equal(await page.getByText(/PD 合同 · 5V/).count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  const tile = page.locator('.readout').filter({ has: page.getByText('PD 协商', { exact: true }) });
+  const tile = page.locator('div:has(> dt)').filter({ has: page.locator('dt', { hasText: /^PD 协商$/ }) });
   const boardYear = new Date().getUTCFullYear();
   status.power.firmwarePD.sourceCapabilities = [];
   Object.assign(status.power.firmwarePD, { rp: "3A", hardReset: false });
@@ -101,15 +101,16 @@ try {
     for (const width of [390, 1280]) {
       await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
       await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-      const metrics = await tile.locator('.readout-value > span').evaluate(el => ({
-        scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, whiteSpace: getComputedStyle(el).whiteSpace,
+      // The main value may wrap but is never clipped or ellipsized.
+      const metrics = await tile.locator('dd').first().evaluate(el => ({
+        scrollWidth: el.scrollWidth, clientWidth: el.clientWidth, textOverflow: getComputedStyle(el).textOverflow,
       }));
       assert(metrics.clientWidth > 0 && metrics.scrollWidth <= metrics.clientWidth,
         `${name} at ${width}px must show its full main value: ${JSON.stringify(metrics)}`);
-      assert.equal(metrics.whiteSpace, 'nowrap');
+      assert.notEqual(metrics.textOverflow, 'ellipsis');
       await chart.getByText('暂无法估算', { exact: true }).waitFor();
       assert.equal(await chart.getByText('尚未采样', { exact: true }).count(), 0);
-      assert.equal(await chart.locator('.chart-empty').count(), 1);
+      assert.equal(await chart.locator('[data-chart=empty]').count(), 1);
       await page.screenshot({ path: `${screenshots}/r2-${name}-${width}.png`, fullPage: true });
       if (name === 's4') await chart.screenshot({ path: `${screenshots}/r2-power-empty-${width}.png` });
     }
@@ -117,15 +118,15 @@ try {
   async function checkWarm(name, value, detail, secondLine) {
     await page.reload();
     await tile.getByText(value, { exact: true }).waitFor();
-    assert.equal(await tile.locator('.readout-detail').getAttribute('title'), detail);
-    assert.equal(await tile.locator('.readout-value').innerText(), value);
+    assert.equal(await tile.locator('dd[title]').getAttribute('title'), detail);
+    assert.equal(await tile.locator('dd').first().innerText(), value);
     await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
-    assert.deepEqual(await tile.locator('details p').allTextContents(), [
+    assert.deepEqual(await tile.locator('[data-pd-capabilities] p').allTextContents(), [
       '等待来源能力超时（热重启时供电端不重发）', secondLine,
       '启动协商记录；不代表实时电流或功耗',
     ]);
     assert.equal(await tile.locator('ul').count(), 0);
-    assert.equal(await tile.locator('.lamp').count(), 0);
+    assert.equal(await tile.locator('[data-tone]').count(), 0);
     await captureWidths(name);
   }
   await checkWarm('s3', '5V 3A · 沿用', '本次未重新协商 · 上次 01-02 03:04',
@@ -153,10 +154,10 @@ try {
   status.history = [];
   await page.reload();
   await chart.getByText('正在采样…', { exact: true }).waitFor();
-  const emptyCharts = await page.locator('.trends figure').all();
+  const emptyCharts = await page.locator('[data-trends] figure').all();
   assert.equal(emptyCharts.length, 6);
   for (const figure of emptyCharts) {
-    assert.equal(await figure.locator('.chart-empty').count(), 1);
+    assert.equal(await figure.locator('[data-chart=empty]').count(), 1);
     assert.equal(await figure.getByText('尚未采样', { exact: true }).count(), 0);
     await figure.getByText('正在采样…', { exact: true }).waitFor();
   }

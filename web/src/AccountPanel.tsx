@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { request } from "./api";
 import { logout, useAccount } from "./auth";
 import { AccountIcon, Avatar } from "./AccountMenu";
-export { AccountLink, AccountRow } from "./AccountMenu";
 
 interface Device {
   id: string;

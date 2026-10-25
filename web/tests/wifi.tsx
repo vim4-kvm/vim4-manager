@@ -3,7 +3,7 @@ import { WifiControl } from "../src/WifiControl";
 import "../src/styles.css";
 
 createRoot(document.getElementById("root")!).render(
-  <main>
+  <main className="legacy">
     <WifiControl busy={false} />
   </main>,
 );

@@ -1,4 +1,9 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { cn } from "@/lib/utils";
+
+const TICK = "fill-muted-foreground text-[11px] tabular-nums";
+const LINE = "fill-none [stroke-linecap:round] [stroke-linejoin:round]";
+const DOT = "fill-chart-1 stroke-card stroke-3";
 
 const AXIS = 20;
 // Room on the left for y tick labels and on the right for the end dot ring.
@@ -138,10 +143,11 @@ export function TrendChart({
     : `${label}：${emptyMessage}`;
 
   const minutes = Math.round(windowMs / 60000);
-  const xTicks = [minutes, (minutes * 2) / 3, minutes / 3, 0];
+  // Narrow plots keep only the ends so the time labels never overlap.
+  const xTicks = plotW < 260 ? [minutes, 0] : [minutes, (minutes * 2) / 3, minutes / 3, 0];
 
   return (
-    <div className="chart" ref={ref} onPointerLeave={() => onHover(undefined)}>
+    <div className="relative min-w-0" ref={ref} onPointerLeave={() => onHover(undefined)}>
       {width > 0 && (
         <svg
           width={width}
@@ -149,24 +155,25 @@ export function TrendChart({
           role="img"
           aria-label={summary}
           tabIndex={0}
+          className="block touch-pan-y overflow-visible rounded-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           onPointerMove={move}
           onBlur={() => onHover(undefined)}
           onKeyDown={key}
         >
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+              <stop offset="0%" stopColor="var(--chart-1)" stopOpacity=".18" />
+              <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0" />
             </linearGradient>
           </defs>
           {unsampledWidth > 0 && <>
-            <rect className="chart-unsampled" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} fill="var(--hover)" />
-            {visible.length > 0 && unsampledWidth >= 96 && <text className="chart-tick" x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">尚未采样</text>}
+            <rect data-chart="unsampled" className="fill-muted" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} />
+            {visible.length > 0 && unsampledWidth >= 96 && <text data-chart="tick" className={TICK} x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">尚未采样</text>}
           </>}
           {ticks.map((v) => (
             <g key={v}>
-              <line className="chart-grid" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-              <text className="chart-tick" x={PAD_LEFT - 6} y={y(v)} textAnchor="end" dominantBaseline="middle">
+              <line data-chart="grid" className="stroke-border [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
+              <text data-chart="tick" className={TICK} x={PAD_LEFT - 6} y={y(v)} textAnchor="end" dominantBaseline="middle">
                 {tickFormat ? tickFormat(v) : v}
               </text>
             </g>
@@ -174,7 +181,8 @@ export function TrendChart({
           {xTicks.map((m) => (
             <text
               key={m}
-              className="chart-tick"
+              data-chart="tick"
+              className={TICK}
               x={x(end - m * 60000)}
               y={PAD_TOP + height + 14}
               textAnchor={m === 0 ? "end" : m === minutes ? "start" : "middle"}
@@ -183,24 +191,25 @@ export function TrendChart({
             </text>
           ))}
           <path fill={`url(#${gradientId})`} d={area} />
-          {otherLine && <path className="chart-line chart-line-muted chart-line-thin" d={otherLine} />}
-          <path className="chart-line" d={line} />
+          {otherLine && <path data-chart="line-compare" className={cn(LINE, "stroke-chart-2 stroke-[1.25]")} d={otherLine} />}
+          <path data-chart="line" className={cn(LINE, "stroke-chart-1 stroke-[1.75]")} d={line} />
           {active && (
             <>
-              <line className="chart-crosshair" x1={x(active.t)} x2={x(active.t)} y1={PAD_TOP} y2={PAD_TOP + height} />
-              <circle className="chart-dot" cx={x(active.t)} cy={y(active.v)} r={4} />
+              <line data-chart="crosshair" className="stroke-muted-foreground [stroke-dasharray:2_3] [shape-rendering:crispEdges]" x1={x(active.t)} x2={x(active.t)} y1={PAD_TOP} y2={PAD_TOP + height} />
+              <circle data-chart="dot" className={DOT} cx={x(active.t)} cy={y(active.v)} r={4} />
             </>
           )}
-          {!active && last && currentAvailable && <circle className="chart-dot" cx={x(last.t)} cy={y(last.v)} r={4} />}
+          {!active && last && currentAvailable && <circle data-chart="dot" className={DOT} cx={x(last.t)} cy={y(last.v)} r={4} />}
         </svg>
       )}
       {active && width > 0 && (
         <div
-          className="chart-tooltip"
+          data-chart="tooltip"
+          className="absolute z-10 flex w-max max-w-full flex-wrap items-baseline gap-x-2 rounded-md border bg-popover px-2 py-0.5 text-xs text-popover-foreground tabular-nums shadow-md animate-in fade-in-0 duration-100 [&>span]:text-muted-foreground"
           ref={tooltipRef}
           style={{ left: tooltipLeft, top: PAD_TOP }}
         >
-          <strong>{format(active.v)}</strong>
+          <strong className="font-medium">{format(active.v)}</strong>
           {compare && (
             <span>
               {compare.label} {format(other.find((p) => p.t === active.t)?.v ?? 0)}
@@ -209,7 +218,7 @@ export function TrendChart({
           <span>{clock(active.t)}</span>
         </div>
       )}
-      {!visible.length && <div className="chart-empty">{emptyMessage}</div>}
+      {!visible.length && <div data-chart="empty" className="absolute inset-[0_0_20px_30px] grid place-items-center text-xs text-muted-foreground">{emptyMessage}</div>}
     </div>
   );
 }

@@ -54,7 +54,7 @@ try {
 
   await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/disks`);
-  await page.getByRole("heading", { name: "数据盘", level: 2 }).waitFor();
+  await page.getByRole("heading", { name: "数据盘", level: 1 }).waitFor();
   await page.getByRole("button", { name: /^readme\.txt/ }).waitFor();
   assert.equal(await page.getByRole("link", { name: "下载 readme.txt" }).count(), 0, "row actions are not clickable while hidden");
   await page.getByRole("button", { name: /^readme\.txt/ }).click();
@@ -67,7 +67,7 @@ try {
     const data = new DataTransfer();
     data.items.add(new File(["x"], "stray.txt"));
     const event = new DragEvent("drop", { dataTransfer: data, bubbles: true, cancelable: true });
-    document.querySelector(".page-head").dispatchEvent(event);
+    document.getElementById("page-title").dispatchEvent(event);
     return event.defaultPrevented;
   });
   assert.equal(await dropOutside(), true, "window drop guard prevents file navigation");

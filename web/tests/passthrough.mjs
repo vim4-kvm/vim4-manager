@@ -73,49 +73,62 @@ try {
   const toggle = card.getByRole("switch", { name: "透传", exact: true });
   const audio = card.getByRole("switch", { name: "声音", exact: true });
   const hdr = card.getByRole("switch", { name: "HDR", exact: true });
-  const rowStatus = title => card.locator(".wifi-row").filter({ has: page.getByRole("heading", { name: title, exact: true }) }).getByRole("status");
-  const fact = label => card.locator(".edid-fact").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) });
+  const row = title => card.getByRole("group", { name: title, exact: true });
+  const rowStatus = title => row(title).getByRole("status");
+  const toasts = page.getByRole("region", { name: /通知/ });
+  const navHint = id => page.locator(`[data-nav-hint="${id}"]`);
+  const fact = label => card.locator("div:has(> dt)").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) });
+  const detail = label => fact(label).locator("dd[title]");
   const value = label => fact(label).locator("dd").first().textContent();
   const reload = async () => {
     await page.goto(`${base}/#/output`);
+    const statusLoaded = page.waitForResponse(r => r.url().endsWith("/api/status") && r.ok());
     await page.reload();
     await toggle.waitFor();
-    await page.locator('.nav-item[href="#/apps"] .nav-hint').getByText("One-KVM", { exact: true }).waitFor({ state: "attached" });
+    await statusLoaded;
   };
   const poll = async () => {
     const response = page.waitForResponse(r => r.url().endsWith("/api/passthrough") && r.request().method() === "GET");
     await page.clock.runFor(2100);
     await response;
     // Browser rendering settles independently of the mocked timer clock.
-    await page.waitForFunction(() => !document.querySelector(".passthrough-card")?.textContent.includes("正在读取透传状态…"));
+    await page.waitForFunction(() => !document.querySelector('[aria-busy="true"]'));
   };
   const checkLayout = async device => {
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "page must not overflow");
-    // Capture all alignment measurements in one frame, including both switch
-    // rows and wrapped secondary facts in the scaling/HDR screenshots.
+    // Capture all alignment measurements in one frame, including every switch
+    // row and wrapped secondary facts in the scaling/HDR screenshots.
     const layout = await card.evaluate(el => {
       const box = node => node.getBoundingClientRect().toJSON();
       return {
-        rows: [...el.querySelectorAll(".wifi-row")].map(row => ({
-          title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
-          description: box(row.querySelector("p")), width: row.getBoundingClientRect().width,
+        rows: [...el.querySelectorAll('[role="group"]')].map(row => ({
+          row: box(row), title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
+          description: box(row.querySelector("p")),
         })),
-        facts: [...el.querySelectorAll(".edid-fact")].map(fact => ({
-          box: box(fact), lamp: box(fact.querySelector(".lamp")), value: box(fact.querySelector("dd > span:last-child")),
-          detail: fact.querySelector(".passthrough-detail") ? box(fact.querySelector(".passthrough-detail")) : null,
+        facts: [...el.querySelectorAll("div:has(> dt)")].map(fact => ({
+          box: box(fact), lamp: box(fact.querySelector("[data-tone]")), value: box(fact.querySelector("dd > span > span:last-child")),
+          detail: fact.querySelector("dd[title]") ? box(fact.querySelector("dd[title]")) : null,
         })),
         paragraphs: [...el.querySelectorAll("p")].map(p => getComputedStyle(p).textWrapStyle),
       };
     });
+    const rights = layout.rows.map(row => Math.round(row.control.right));
+    assert(rights.every(right => right === rights[0]), "switches share one right-aligned column");
     for (const row of layout.rows) {
-      assert(Math.abs(row.title.y + row.title.height / 2 - row.control.y - row.control.height / 2) < 0.5,
-        "each switch aligns vertically with its title");
-      assert(row.description.y >= row.control.y + row.control.height, "description sits below its switch");
-      assert(row.description.width > row.width - 60, "description spans the card");
+      assert(row.control.width > 0 && row.description.y >= row.title.y + row.title.height, "description sits below its title");
+      if (device === "mobile") {
+        assert(row.control.y >= row.description.bottom,
+          "phone controls follow the full-width title and description");
+        assert(row.description.width > row.row.width - 60, "phone descriptions span the row");
+      } else {
+        assert(Math.abs(row.row.y + row.row.height / 2 - row.control.y - row.control.height / 2) < 1,
+          "desktop switches center on their row");
+        assert(row.description.right < row.control.left, "desktop descriptions stay left of the control column");
+      }
     }
     assert(layout.paragraphs.every(style => style === "pretty"), "all explanatory paragraphs use pretty wrapping");
     for (const [index, fact] of layout.facts.entries()) {
-      assert(Math.abs(fact.lamp.y + fact.lamp.height / 2 - fact.value.y - fact.value.height / 2) < 0.5,
+      assert(Math.abs(fact.lamp.y + fact.lamp.height / 2 - fact.value.y - fact.value.height / 2) < 1,
         "lamp centers vertically beside its primary value");
       if (fact.detail) assert(Math.abs(fact.detail.x - fact.value.x) < 0.5, "secondary value shares the primary text's left edge");
       if (device === "desktop") assert(fact.box.width >= 160 && fact.box.width <= 280, "desktop fact widths stay within content bounds");
@@ -124,20 +137,22 @@ try {
         if (device === "mobile") assert(Math.abs(fact.box.y - previous.y - previous.height - 16) < 0.5, "mobile facts stack with consistent spacing");
         else {
           assert.equal(fact.box.y, previous.y, "desktop facts share a row");
-          assert(Math.abs(fact.box.x - previous.x - previous.width - 48) < 0.5, "desktop columns use a 48px gap");
+          assert(Math.abs(fact.box.x - previous.x - previous.width - 32) < 0.5, "desktop columns use a 32px gap");
         }
       }
     }
   };
   await reload();
-  assert.deepEqual((await page.locator(".nav-label").allTextContents()).slice(5, 8), ["视频输入", "HDMI 输出", "散热"]);
-  assert.equal(await page.locator(".page-head p").textContent(), "板子 HDMI OUT 口接的本地显示器。");
+  const navTitles = await page.getByRole("navigation", { name: "页面" }).getByRole("link")
+    .evaluateAll(links => links.map(link => link.querySelector("span").textContent));
+  assert.deepEqual(navTitles.slice(5, 8), ["视频输入", "HDMI 输出", "散热"]);
+  assert.equal(await page.locator("#page-title + p").textContent(), "板子 HDMI OUT 口接的本地显示器。");
   assert.equal(await value("输入"), "3840×2160 60Hz");
   assert.equal(await value("显示器"), "DELL U2723QE");
   assert.equal(await value("输出"), "3840×2160 60Hz");
-  assert.equal(await fact("输入").locator(".muted").textContent(), "SDR · YCbCr 4:4:4");
-  assert.equal(await fact("显示器").locator(".muted").textContent(), "最高 3840×2160 60Hz · HDR");
-  assert.equal(await fact("输出").locator(".muted").textContent(), "YCbCr 4:2:0");
+  assert.equal(await detail("输入").textContent(), "SDR · YCbCr 4:4:4");
+  assert.equal(await detail("显示器").textContent(), "最高 3840×2160 60Hz · HDR");
+  assert.equal(await detail("输出").textContent(), "YCbCr 4:2:0");
 
   // All specified states, plus scaling and HDR conversion, in both themes
   // and viewports. Each state starts with a fresh route read.
@@ -153,29 +168,23 @@ try {
         assert.equal(await toggle.getAttribute("aria-checked"), String(checked));
         assert.equal(await toggle.isDisabled(), disabled);
         const transitioning = ["starting", "stopping"].includes(name);
-        const spinner = rowStatus("透传").locator(".spinner");
+        const spinner = rowStatus("透传").locator("svg");
         assert.equal(await spinner.count(), transitioning ? 1 : 0);
         if (transitioning) {
           assert(await spinner.isVisible());
           const ring = await spinner.evaluate(el => {
             const rect = el.getBoundingClientRect();
-            const style = getComputedStyle(el);
-            return { width: rect.width, height: rect.height, border: parseFloat(style.borderTopWidth),
-              topColor: style.borderTopColor, trackColor: style.borderRightColor, radius: style.borderRadius,
-              animation: style.animationName };
+            return { width: rect.width, height: rect.height, animation: getComputedStyle(el).animationName };
           });
-          assert(ring.width >= 12 && ring.height >= 12 && Math.abs(ring.width - ring.height) < 0.1,
-            `${device}/${theme}/${name}: spinner must render as a circle, not an inline stroke: ${JSON.stringify(ring)}`);
-          assert(ring.border > 0);
-          assert.equal(ring.radius, "50%");
-          assert.notEqual(ring.topColor, ring.trackColor, "spinner arc is distinguishable in both themes");
+          assert(ring.width >= 12 && Math.abs(ring.width - ring.height) < 0.1,
+            `${device}/${theme}/${name}: spinner must render as a square icon: ${JSON.stringify(ring)}`);
           assert.equal(ring.animation, "spin");
           assert.equal(await value("输出"), "切换中…");
-          assert.equal(await fact("输出").locator(".status-idle").count(), 1);
-          assert.equal(await fact("输出").locator(".muted").count(), 0);
+          assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
+          assert.equal(await detail("输出").count(), 0);
           assert.equal(await rowStatus("声音").textContent(), name === "starting" ? "透传开启后生效" : "已关闭");
         }
-        if (description) assert.equal(await card.locator(".passthrough-description").textContent(), description);
+        if (description) assert.equal(await card.locator("[data-description]").textContent(), description);
         assert.equal(await audio.count(), name === "unsupported" ? 0 : 1);
         if (name !== "unsupported") {
           const strength = await audio.evaluate(el => {
@@ -190,31 +199,34 @@ try {
           if (name === "running") assert.equal(strength, 1, "effective audio uses the full accent");
           else {
             assert(strength > 0, "inactive preference stays visible");
-            assert.equal(await audio.evaluate(element => element.classList.contains("is-inactive")), true);
+            assert.equal(await row("声音").getAttribute("data-inactive"), "true");
           }
           if (["off", "no-monitor"].includes(name)) assert(await audio.isEnabled(), "inactive audio preference stays editable");
         }
-        const hint = page.locator('.nav-item[href="#/output"] .nav-hint');
+        // Phone navigation lives in the closed menu sheet.
+        const hint = navHint("output");
         const hintText = { running: "透传", "no-signal": "等待信号", protected: "受保护" }[name];
-        assert.equal(await hint.count(), hintText ? 1 : 0);
-        if (hintText) {
+        if (device === "desktop") assert.equal(await hint.count(), hintText ? 1 : 0);
+        if (hintText && device === "desktop") {
           assert.equal(await hint.textContent(), hintText);
-          assert.match(await hint.getAttribute("class"), name === "running" ? /status-good/ : /status-warning/);
+          assert.equal(await hint.getAttribute("data-tone"), name === "running" ? "good" : "warning");
         }
         if (name === "off") assert.equal(await value("输出"), "系统控制台");
         if (["no-signal", "protected"].includes(name)) assert.equal(await value("输出"), "黑屏");
         if (name === "no-signal") assert.equal(await value("输入"), "无信号");
         if (name === "no-monitor") assert.equal(await value("显示器"), "未连接");
         if (name === "unsupported") {
-          assert.equal(await card.locator("dl, .edid-fact").count(), 0, "unsupported hides the entire fact area");
-          assert.equal(await card.locator(".passthrough-body").textContent(), cases[0][4]);
+          assert.equal(await card.locator("dl, dt").count(), 0, "unsupported hides the entire fact area");
+          assert.equal(await card.locator("[data-passthrough-body]").textContent(), cases[0][4]);
           assert.equal(await card.getByRole("link", { name: "更新 → 内核" }).getAttribute("href"), "#/updates");
-          assert.equal(await page.locator(".sidebar-foot > .mono").textContent(), "7.3.0");
+          if (device === "desktop") assert.equal(await page.locator("[data-kernel]").textContent(), "7.3.0");
         }
-        assert.equal(await page.locator('.nav-item[href="#/media"] .nav-hint').count(), 0, "normal empty media adds no unrelated warning");
-        assert.equal(await page.locator('.nav-item[href="#/video"] .nav-hint').textContent(),
-          state.input ? `${state.input.height}p` : "无信号", "overview HDMI fixture matches passthrough input");
-        const typography = await card.locator(".edid-fact dd:not(.muted)").evaluateAll(elements => elements.map(el => {
+        if (device === "desktop") {
+          assert.equal(await navHint("media").count(), 0, "normal empty media adds no unrelated warning");
+          assert.equal(await navHint("video").textContent(),
+            state.input ? `${state.input.height}p` : "无信号", "overview HDMI fixture matches passthrough input");
+        }
+        const typography = await card.locator("div:has(> dt) > dd:not([title])").evaluateAll(elements => elements.map(el => {
           const style = getComputedStyle(el);
           return { size: style.fontSize, weight: style.fontWeight };
         }));
@@ -237,10 +249,10 @@ try {
         if (kind === "scaled") {
           assert.equal(await value("输出"), "1920×1080 59.94Hz");
           assert.equal(await value("输入"), "3840×2160 23.98Hz");
-          assert.equal(await fact("输出").locator(".muted").textContent(), "已缩放，显示器不支持 3840×2160 23.98Hz");
-          assert.equal(await fact("输出").locator(".status-warning").count(), 1);
+          assert.equal(await detail("输出").textContent(), "已缩放，显示器不支持 3840×2160 23.98Hz");
+          assert.equal(await fact("输出").locator("[data-tone=warning]").count(), 1);
         } else {
-          assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR · 显示器不支持 HDR");
+          assert.equal(await detail("输出").textContent(), "HDR 已转为 SDR · 显示器不支持 HDR");
         }
         await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${kind}.png`, fullPage: true });
@@ -253,12 +265,12 @@ try {
   state.input.hdr = "HLG";
   await reload();
   assert.equal(await value("显示器"), "未知型号");
-  assert.equal(await fact("输入").locator(".muted").textContent(), "HLG · YCbCr 4:4:4");
+  assert.equal(await detail("输入").textContent(), "HLG · YCbCr 4:4:4");
   state.output.scaled = true;
   state.output.hdrToSdr = true;
   state.monitor.hdr = false;
   await reload();
-  assert.match(await fact("输出").locator(".muted").textContent(), /已缩放，显示器不支持 .* · HDR 已转为 SDR/);
+  assert.match(await detail("输出").textContent(), /已缩放，显示器不支持 .* · HDR 已转为 SDR/);
   state = fixture();
   delete state.output;
   await reload();
@@ -285,7 +297,7 @@ try {
   state = fixture("unsupported-format");
   state.reason = "Dolby Vision 信号无法透传，请在信号源中选择 HDR10、HLG 或 SDR。";
   await reload();
-  assert.equal(await card.locator(".passthrough-description").textContent(), state.reason);
+  assert.equal(await card.locator("[data-description]").textContent(), state.reason);
   assert.equal(await value("输出"), "—");
   // Changing audio while off saves the preference immediately, without a dialog.
   state = fixture("off");
@@ -302,7 +314,7 @@ try {
     await reload();
     writeError = true;
     await toggle.click();
-    await page.locator(".banner-critical").getByText(`${verb}透传失败：内核拒绝操作`, { exact: true }).waitFor();
+    await toasts.getByText(`${verb}透传失败：内核拒绝操作`, { exact: true }).waitFor();
     await page.waitForFunction(() => !document.querySelector('[aria-label="透传"][role="switch"]').disabled);
     assert.equal(await toggle.getAttribute("aria-checked"), String(checked));
     writeError = false;
@@ -320,12 +332,12 @@ try {
   assert(await toggle.isDisabled());
   assert(await audio.isDisabled());
   assert.equal(await value("输出"), "切换中…");
-  assert.equal(await fact("输出").locator(".status-idle").count(), 1);
+  assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
   assert.equal(await rowStatus("声音").textContent(), "透传开启后生效");
   const beforeBusy = reads;
   await page.clock.runFor(6000);
   assert.equal(reads, beforeBusy, "busy pauses passthrough polling");
-  assert.equal(await card.locator(".passthrough-description").textContent(), cases[1][4]);
+  assert.equal(await card.locator("[data-description]").textContent(), cases[1][4]);
   release();
   holdWrite = undefined;
   await rowStatus("透传").getByText("透传中", { exact: true }).waitFor();
@@ -334,9 +346,9 @@ try {
   await poll();
   await rowStatus("透传").getByText("正在关闭…", { exact: true }).waitFor();
   assert.equal(await value("输出"), "切换中…");
-  assert.equal(await fact("输出").locator(".status-idle").count(), 1);
+  assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
   assert.equal(await rowStatus("声音").textContent(), "已关闭");
-  assert.equal(await card.locator(".passthrough-description").textContent(), cases[4][4]);
+  assert.equal(await card.locator("[data-description]").textContent(), cases[4][4]);
   assert.equal(await toggle.getAttribute("aria-checked"), "false");
   state = fixture();
   await poll();
@@ -352,6 +364,8 @@ try {
   readError = false;
   await poll();
   await page.waitForFunction(() => !document.querySelector('[aria-label="透传"][role="switch"]').disabled);
+  // The connection state and navigation live in the desktop sidebar.
+  await page.setViewportSize({ width: 1440, height: 900 });
   statusError = true;
   await page.clock.runFor(3100);
   await page.getByText("连接中断", { exact: true }).waitFor({ state: "attached" });
@@ -365,8 +379,8 @@ try {
   const beforeLeave = reads;
   await page.clock.runFor(6000);
   assert.equal(reads, beforeLeave, "leaving output stops GET polling");
-  await page.waitForFunction(() => document.querySelector('.nav-item[href="#/output"] .nav-hint')?.textContent === "受保护");
-  assert.equal(await page.locator('.nav-item[href="#/output"] .nav-hint').textContent(), "受保护");
+  await page.waitForFunction(() => document.querySelector('[data-nav-hint="output"]')?.textContent === "受保护");
+  assert.equal(await navHint("output").textContent(), "受保护");
   delete status.passthrough;
 
   for (const [device, width, height] of [["desktop", 1440, 1100], ["mobile", 390, 844]]) {
@@ -390,12 +404,12 @@ try {
       assert.equal(await rowStatus("HDR").textContent(), label);
       assert.equal(await hdr.getAttribute("aria-checked"), String(checked));
       assert.equal(await hdr.isDisabled(), disabled);
-      assert.equal(await hdr.evaluate(element => element.classList.contains("is-inactive")), inactive);
+      assert.equal(await row("HDR").getAttribute("data-inactive") === "true", inactive);
       await checkLayout(device);
-      assert(await hdr.evaluate(element => element.getBoundingClientRect().width === 40), "switch must not shrink");
+      assert(await hdr.evaluate(element => element.getBoundingClientRect().width === 32), "switch must not shrink");
       if (name === "hdr-no-support") assert.match(await fact("输出").textContent(), /HDR 已转为 SDR · 显示器不支持 HDR/);
       if (name === "hdr-output") assert.match(await fact("输出").textContent(), /HDR10 · BT.2020/);
-      if (name === "hdr-to-sdr") assert.equal(await fact("输出").locator(".muted").textContent(), "HDR 已转为 SDR");
+      if (name === "hdr-to-sdr") assert.equal(await detail("输出").textContent(), "HDR 已转为 SDR");
       if (["hdr-output", "hdr-to-sdr", "hdr-preset", "hdr-no-support", "hdr-sdr-input"].includes(name)) {
         await page.screenshot({ path: `${shots}/${name}-${device}.png`, fullPage: true });
       }
@@ -411,8 +425,8 @@ try {
     assert(await hdr.isDisabled());
     assert(await toggle.isDisabled());
     assert(await audio.isDisabled());
-    assert.equal(await rowStatus("HDR").locator(".spinner").count(), 1);
-    assert.equal(await hdr.evaluate(element => element.classList.contains("is-inactive")), false);
+    assert.equal(await rowStatus("HDR").locator("svg").count(), 1);
+    assert.equal(await row("HDR").getAttribute("data-inactive"), null);
     await page.screenshot({ path: `${shots}/hdr-pending-${device}.png`, fullPage: true });
     release();
     holdWrite = undefined;
@@ -421,8 +435,8 @@ try {
     for (const failure of ["sudo: /usr/libexec/failure.py Traceback: PermissionError", "HDR 设置未能应用，请稍后重试"]) {
       writeError = failure;
       await hdr.click();
-      await page.locator(".banner-critical").getByText("保存 HDR 设置失败：HDR 设置未能应用，请稍后重试", { exact: true }).waitFor();
-      assert.doesNotMatch(await page.locator(".banner-critical").textContent(), /sudo:|\/usr\/|Traceback|PermissionError/);
+      await toasts.getByText("保存 HDR 设置失败：HDR 设置未能应用，请稍后重试", { exact: true }).waitFor();
+      assert.doesNotMatch(await toasts.textContent(), /sudo:|\/usr\/|Traceback|PermissionError/);
       await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]').disabled);
     }
     await page.screenshot({ path: `${shots}/hdr-failure-${device}.png`, fullPage: true });

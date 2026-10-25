@@ -97,7 +97,7 @@ try {
   assert.deepEqual(switches, [{ id: "vendor", reboot: true }]);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
   await page.getByRole("button", { name: "查看各组件" }).click();
-  await page.locator(".packages").getByText("开发版", { exact: true }).waitFor();
+  await page.getByRole("region", { name: "存储与版本" }).getByRole("listitem").getByText("开发版", { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, "long development versions wrap in component list");
   console.log("PASS: updates, install confirmation, development badges and mobile layout");
 } finally {

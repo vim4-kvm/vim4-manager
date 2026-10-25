@@ -3,7 +3,7 @@ import { TailscalePanel } from "../src/TailscalePanel";
 import "../src/styles.css";
 
 createRoot(document.getElementById("root")!).render(
-  <main>
+  <main className="legacy">
     <TailscalePanel busy={false} />
   </main>,
 );

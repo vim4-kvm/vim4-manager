@@ -46,7 +46,7 @@ try {
 
   await (await import("./auth-fixture.mjs")).authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/storage`);
-  await page.getByRole("heading", { name: "网络存储", level: 2 }).waitFor();
+  await page.getByRole("heading", { name: "网络存储", level: 1 }).waitFor();
   await page.getByText("//192.168.50.2/video/kvm").waitFor();
   await page.getByText("[fd00::5]:/export/lab").waitFor();
   await page.getByText("主机不可达").waitFor();
@@ -104,7 +104,7 @@ try {
   assert.equal(await page.getByRole("menu").count(), 0);
   assert.equal(await more.evaluate((el) => el === document.activeElement), true);
   await more.press("Space");
-  await page.getByRole("heading", { name: "网络存储", level: 2 }).click();
+  await page.getByRole("heading", { name: "网络存储", level: 1 }).click();
   assert.equal(await page.getByRole("menu").count(), 0);
   await more.click();
   await page.getByRole("menuitem", { name: "编辑" }).click();

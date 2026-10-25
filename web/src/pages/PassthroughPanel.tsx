@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { request, type PassthroughState } from "./api";
+import { request, type PassthroughState } from "@/api";
+import { Fact, FactGrid } from "@/components/FactGrid";
+import { InlineError } from "@/components/InlineError";
+import { Collapse, FadeIn } from "@/components/Motion";
+import { SettingRow } from "@/components/SettingRow";
+import { SettingsCard } from "@/components/SettingsCard";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { useActionStore } from "@/stores/action";
+import { usePassthroughStore } from "@/stores/passthrough";
+import { useStatusStore } from "@/stores/status";
 
 const labels: Record<PassthroughState["state"], string> = {
   unsupported: "当前内核不支持",
@@ -15,7 +25,7 @@ const labels: Record<PassthroughState["state"], string> = {
 };
 
 const descriptions = {
-  unsupported: <>当前内核没有透传功能，可在「<a href="#/updates">更新 → 内核</a>」中切换到支持透传的版本。</>,
+  unsupported: <>当前内核没有透传功能，可在「<a href="#/updates" className="text-primary underline-offset-4 hover:underline">更新 → 内核</a>」中切换到支持透传的版本。</>,
   off: "开启后显示器显示被控电脑的画面；关闭时显示系统控制台。",
   running: "远程 KVM 不受影响。被控电脑切换分辨率时，显示器会短暂黑屏后跟随。",
   "no-signal": "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。",
@@ -33,36 +43,28 @@ function mode(width: number, height: number, hz: number) {
   return `${width}×${height} ${refreshLabel(hz)}`;
 }
 
-function Fact({ label, value, detail, tone = "idle" }: {
-  label: string; value: string; detail?: string; tone?: "good" | "warning" | "idle";
-}) {
-  return <div className="edid-fact">
-    <dt>{label}</dt>
-    <dd><span className={`lamp status-${tone}`} aria-hidden="true" /><span>{value}</span></dd>
-    {detail && <dd className="muted passthrough-detail">{detail}</dd>}
-  </div>;
-}
-
-function SwitchRow({ title, description, label, checked, disabled, pending, inactive, onToggle }: {
-  title: string; description: string; label: string; checked: boolean; disabled: boolean; pending?: boolean; inactive?: boolean; onToggle: () => void;
-}) {
-  return <div className="wifi-row passthrough-row">
-    <h3>{title}</h3>
-    <div className="wifi-action">
-      <span className="muted" role="status">{pending && <span className="spinner" aria-hidden="true" />}{label}</span>
-      <button type="button" className={`wifi-switch${inactive ? " is-inactive" : ""}`} role="switch" aria-label={title} aria-checked={checked}
-        disabled={disabled} onClick={onToggle}><span /></button>
+/** Same shape as the loaded card; the reading text stays for screen readers. */
+function PassthroughSkeleton() {
+  return (
+    <div className="flex flex-col gap-4" aria-busy="true">
+      <span className="sr-only">正在读取透传状态…</span>
+      <div className="flex items-center justify-between gap-6">
+        <Skeleton className="h-5 w-16" />
+        <Skeleton className="h-5 w-32" />
+      </div>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-4 @md:grid-cols-3">
+        {[0, 1, 2].map((i) => <div key={i} className="flex flex-col gap-1.5"><Skeleton className="h-3 w-10" /><Skeleton className="h-5 w-32" /></div>)}
+      </div>
+      <Skeleton className="h-4 w-3/4" />
     </div>
-    <p className="muted">{description}</p>
-  </div>;
+  );
 }
 
-export function PassthroughPanel({ busy, stale, run, onState }: {
-  busy: boolean;
-  stale: boolean;
-  run: (label: string, action: () => Promise<unknown>, done: string) => Promise<boolean>;
-  onState: (state: PassthroughState) => void;
-}) {
+export function PassthroughPanel() {
+  const busy = useActionStore((s) => !!s.busy);
+  const run = useActionStore((s) => s.run);
+  const stale = useStatusStore((s) => s.stale);
+  const onState = usePassthroughStore((s) => s.setState);
   const [state, setState] = useState<PassthroughState>();
   const [error, setError] = useState<string>();
   const [readStale, setReadStale] = useState(true);
@@ -136,9 +138,9 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     actionPending.current = false;
   }
 
-  if (!state) return <section aria-label="透传"><div className="wifi-card passthrough-card">
-    {error ? <p className="edid-error" role="alert">读取失败：{error}</p> : <p className="muted">正在读取透传状态…</p>}
-  </div></section>;
+  if (!state) return <SettingsCard label="透传">
+    {error ? <InlineError>读取失败：{error}</InlineError> : <PassthroughSkeleton />}
+  </SettingsCard>;
 
   const current = pending === "starting" || pending === "stopping" ? pending : state.state;
   const transitioning = current === "starting" || current === "stopping";
@@ -186,28 +188,34 @@ export function PassthroughPanel({ busy, stale, run, onState }: {
     : ["error", "unavailable"].includes(state.audioState || "") ? "声音暂不可用"
     : state.audioState && state.audioState !== "running" ? "正在连接声音…" : "输出中";
 
-  return <section aria-label="透传"><div className="wifi-card passthrough-card">
-    <SwitchRow title="透传" description="把 HDMI IN 的画面原样送到本地显示器，远程 KVM 照常使用。"
-      label={labels[current]} checked={enabled} disabled={locked} pending={transitioning}
-      onToggle={() => void change({ enabled: !state.enabled })} />
-    <div className="passthrough-body">
-      {state.supported && <dl className="edid-facts passthrough-facts">
-        <Fact label="输入" value={input ? mode(input.width, input.height, input.refreshHz) : "无信号"}
-          detail={input ? `${input.hdr} · ${input.colorFormat}` : undefined} tone={input ? "good" : "idle"} />
-        <Fact label="显示器" value={monitor ? monitor.name || "未知型号" : "未连接"}
-          detail={monitor ? `最高 ${mode(monitor.maxWidth, monitor.maxHeight, monitor.maxRefreshHz)}${monitor.hdr ? " · HDR" : ""}` : undefined}
-          tone={monitor ? "good" : "idle"} />
-        <Fact label="输出" value={outputValue} detail={outputDetail} tone={outputTone} />
-      </dl>}
-      <p className="muted passthrough-description">{description}</p>
-      {error && <p className="edid-error" role="alert">刷新失败：{error}，显示的是上次读取的状态。</p>}
-    </div>
-    {state.supported && <SwitchRow title="HDR" description="开启时把 HDR 画面原样送到显示器，关闭时转为 SDR 显示。远程 KVM 不受影响。"
-      label={hdrLabel} checked={pending === "hdr" ? hdrTarget : hdr} inactive={hdrInactive}
-      pending={pending === "hdr"} disabled={locked || (state.enabled && hdrUnsupported)}
-      onToggle={() => void change({ hdr: !hdr })} />}
-    {state.supported && <SwitchRow title="声音" description="把 HDMI IN 的声音送到显示器扬声器。"
-      label={audioLabel} checked={state.audio} inactive={!audioEffective} disabled={locked || (state.enabled && audioUnsupported)}
-      onToggle={() => void change({ audio: !state.audio })} />}
-  </div></section>;
+  return <SettingsCard label="透传">
+    <FadeIn><SettingRow title="透传" description="把 HDMI IN 的画面原样送到本地显示器，远程 KVM 照常使用。"
+      status={labels[current]} pending={transitioning}
+      control={<Switch aria-label="透传" checked={enabled} disabled={locked}
+        onCheckedChange={() => void change({ enabled: !state.enabled })} />} /></FadeIn>
+    <FadeIn className="flex flex-col gap-4" data-passthrough-body>
+      <Collapse open={state.supported}>
+        <FactGrid>
+          <Fact label="输入" value={input ? mode(input.width, input.height, input.refreshHz) : "无信号"}
+            detail={input ? `${input.hdr} · ${input.colorFormat}` : undefined} tone={input ? "good" : "idle"} />
+          <Fact label="显示器" value={monitor ? monitor.name || "未知型号" : "未连接"}
+            detail={monitor ? `最高 ${mode(monitor.maxWidth, monitor.maxHeight, monitor.maxRefreshHz)}${monitor.hdr ? " · HDR" : ""}` : undefined}
+            tone={monitor ? "good" : "idle"} />
+          <Fact label="输出" value={outputValue} detail={outputDetail} tone={outputTone} />
+        </FactGrid>
+      </Collapse>
+      <p data-description className="text-sm text-pretty text-muted-foreground">{description}</p>
+      <Collapse open={!!error}>
+        <InlineError>刷新失败：{error}，显示的是上次读取的状态。</InlineError>
+      </Collapse>
+    </FadeIn>
+    {state.supported && <FadeIn><SettingRow title="HDR" description="开启时把 HDR 画面原样送到显示器，关闭时转为 SDR 显示。远程 KVM 不受影响。"
+      status={hdrLabel} inactive={hdrInactive} pending={pending === "hdr"}
+      control={<Switch aria-label="HDR" checked={pending === "hdr" ? hdrTarget : hdr}
+        disabled={locked || (state.enabled && hdrUnsupported)} onCheckedChange={() => void change({ hdr: !hdr })} />} /></FadeIn>}
+    {state.supported && <FadeIn><SettingRow title="声音" description="把 HDMI IN 的声音送到显示器扬声器。"
+      status={audioLabel} inactive={!audioEffective}
+      control={<Switch aria-label="声音" checked={state.audio}
+        disabled={locked || (state.enabled && audioUnsupported)} onCheckedChange={() => void change({ audio: !state.audio })} />} /></FadeIn>}
+  </SettingsCard>;
 }

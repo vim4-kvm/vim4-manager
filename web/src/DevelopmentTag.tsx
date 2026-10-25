@@ -1,6 +1,6 @@
-export function isDevelopmentVersion(version: string): boolean {
-  return /\.dev\.\d+\.g[0-9a-f]{7,40}(?:\.dirty)?$/.test(version);
-}
+import { isDevelopmentVersion } from "./lib/version";
+
+export { isDevelopmentVersion };
 
 export function DevelopmentTag({ version }: { version: string }) {
   if (!isDevelopmentVersion(version)) return null;

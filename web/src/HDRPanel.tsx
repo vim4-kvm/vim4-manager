@@ -118,8 +118,8 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--brand)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--brand)" stopOpacity="0" />
               </linearGradient>
             </defs>
             <path fill={`url(#${gradientId})`} d={`${path(curve)}L${x(NITS_MAX)},${y(0)}L${x(NITS_MIN)},${y(0)}Z`} />

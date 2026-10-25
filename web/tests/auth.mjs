@@ -11,6 +11,11 @@ let count = 0;
 function pass(name) { console.log(`PASS ${++count}: ${name}`); }
 
 async function stableScreenshot(page, name, fullPage = true, directory = shots) {
+  // Motion drives page fades with script-created Web Animations whose timeline
+  // stalls under page.clock; finish them so only CSS animations are awaited.
+  await page.evaluate(() => document.getAnimations().forEach(animation => {
+    if (!(animation instanceof CSSAnimation || animation instanceof CSSTransition)) animation.finish();
+  }));
   await page.waitForFunction(() => {
     const themeSettled = !document.documentElement.classList.contains("theme-switching");
     const animationsSettled = document.getAnimations().every(animation =>
@@ -24,6 +29,15 @@ async function stableScreenshot(page, name, fullPage = true, directory = shots) 
   await page.screenshot({ path: `${directory}/${name}.png`, fullPage });
 }
 
+// Radix restores focus to the menu trigger after its close animation frame.
+async function focused(locator) {
+  await locator.evaluate(el => new Promise((resolve, reject) => {
+    const start = performance.now();
+    const check = () => el === document.activeElement ? resolve() : performance.now() - start > 2000 ? reject(new Error("focus not restored")) : requestAnimationFrame(check);
+    check();
+  }));
+}
+
 async function checkAccountContrast(page) {
   const contrasts = await page.evaluate(() => {
     function luminance(color) {
@@ -33,7 +47,7 @@ async function checkAccountContrast(page) {
       });
       return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
     }
-    return [[".account-card h3", ".account-card"], [".account-card p", ".account-card"], [".brand-mark", ".sidebar"]].map(([text, background]) => {
+    return [[".account-card h3", ".account-card"], [".account-card p", ".account-card"], ["[data-brand]", "[data-slot=sidebar-inner]"]].map(([text, background]) => {
       const foreground = luminance(getComputedStyle(document.querySelector(text)).color);
       const surface = luminance(getComputedStyle(document.querySelector(background)).backgroundColor);
       return (Math.max(foreground, surface) + 0.05) / (Math.min(foreground, surface) + 0.05);
@@ -44,12 +58,13 @@ async function checkAccountContrast(page) {
 
 async function checkCompactHeader(page, width) {
   await page.setViewportSize({ width, height: 844 });
-  const icon = await page.locator(".brand .account-link-compact").boundingBox();
-  const theme = await page.locator(".brand .theme-switch-compact").boundingBox();
-  assert(icon && theme);
-  assert(icon.x + icon.width <= theme.x, "account icon precedes theme control");
-  assert(Math.abs(icon.y + icon.height / 2 - theme.y - theme.height / 2) <= 1, "header controls vertically align");
-  assert(await page.locator(".sidebar-foot").isHidden());
+  // Phone top bar: menu button, page title, account button.
+  const menu = await page.getByRole("button", { name: "打开菜单", exact: true }).boundingBox();
+  const account = await page.getByRole("button", { name: "账户菜单", exact: true }).boundingBox();
+  assert(menu && account);
+  assert(menu.x + menu.width <= account.x, "menu button precedes the account button");
+  assert(Math.abs(menu.y + menu.height / 2 - account.y - account.height / 2) <= 1, "top bar controls vertically align");
+  assert.equal(await page.getByRole("radiogroup", { name: "外观" }).count(), 0, "sidebar controls stay in the closed sheet");
   assert(await page.getByRole("button", { name: "退出登录", exact: true }).isVisible());
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 }
@@ -74,14 +89,14 @@ async function checkLoginContrast(page) {
       });
       return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
     }
-    return [".account-menu-heading strong", ".account-menu-heading small", ".account-menu [role=menuitem]", ".account-success", ".account-device .tag", ".account-only", ".account-notes", ".auth-identity h1", ".auth-field label", ".auth-card input", ".auth-submit",
+    return ["[role=menu] [data-slot=dropdown-menu-label] strong", "[role=menu] [data-slot=dropdown-menu-label] small", "[role=menu] [role=menuitem]", ".account-success", ".account-device .tag", ".account-only", ".account-notes", ".auth-identity h1", ".auth-field label", ".auth-card input", ".auth-submit",
       ".auth-forgot", ".auth-message", ".auth-command", ".auth-field-error", ".auth-setup p",
       ".auth-warning", ".auth-identity p", ".auth-hint"].flatMap(selector =>
       [...document.querySelectorAll(selector)].map(element => {
         const foreground = luminance(rgba(getComputedStyle(element).color));
         const surface = luminance(background(element));
         return { selector, ratio: (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05),
-          minimum: [".auth-identity p", ".auth-hint", ".account-menu-heading small", ".account-only", ".account-notes"].includes(selector) ? 3 : 4.5 };
+          minimum: [".auth-identity p", ".auth-hint", "[role=menu] [data-slot=dropdown-menu-label] small", ".account-only", ".account-notes"].includes(selector) ? 3 : 4.5 };
       }));
   });
   for (const value of values) assert(value.ratio >= value.minimum, JSON.stringify(value));
@@ -353,35 +368,39 @@ try {
   await menu.getByText("本设备 192.168.1.2", { exact: true }).waitFor();
   await shot("phone-menu");
   await page.keyboard.press("Escape");
-  assert(await menuButton.evaluate(el => el === document.activeElement));
+  await focused(menuButton);
+  await page.getByRole("button", { name: "打开菜单", exact: true }).click();
   await page.getByRole("radio", { name: "深色", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
   await shot("phone-dark");
   await page.setViewportSize({ width: 1440, height: 900 });
   await shot("account-dark");
   await checkAccountContrast(page);
   await menuButton.focus();
   await page.keyboard.press("Enter");
-  assert(await menu.getByRole("menuitem").first().evaluate(el => el === document.activeElement));
+  await focused(menu.getByRole("menuitem").first());
   await page.keyboard.press("ArrowDown");
-  assert(await menu.getByRole("menuitem").last().evaluate(el => el === document.activeElement));
+  await focused(menu.getByRole("menuitem").last());
   await page.keyboard.press("ArrowDown");
-  assert(await menu.getByRole("menuitem").first().evaluate(el => el === document.activeElement));
+  await focused(menu.getByRole("menuitem").first());
   await page.keyboard.press("End");
   await page.keyboard.press("Home");
-  assert(await menu.getByRole("menuitem").first().evaluate(el => el === document.activeElement));
+  await focused(menu.getByRole("menuitem").first());
   await shot("sidebar-menu-dark");
   await checkLoginContrast(page);
   await page.keyboard.press("Escape");
-  assert(await menuButton.evaluate(el => el === document.activeElement));
+  await focused(menuButton);
   await page.getByRole("radio", { name: "浅色", exact: true }).click();
   await shot("account-light");
   await menuButton.click();
   await shot("sidebar-menu-light");
   await checkLoginContrast(page);
+  // The menu leaves with Radix's short close animation.
   await page.getByRole("heading", { name: "账户", exact: true }).click();
-  assert.equal(await menu.count(), 0);
+  await menu.waitFor({ state: "detached" });
   await menuButton.click(); await page.keyboard.press("Tab");
-  assert.equal(await menu.count(), 0);
+  await menu.waitFor({ state: "detached" });
   await menuButton.click();
   await page.evaluate(() => { location.hash = "/updates"; });
   await menu.waitFor({ state: "detached" });
@@ -391,7 +410,8 @@ try {
   await page.waitForURL(/#\/account$/);
   await page.getByText("本机转发", { exact: true }).waitFor();
   logoutFail = true;
-  await menuButton.click(); await menu.getByRole("menuitem", { name: "退出登录" }).click();
+  await menuButton.click();
+  await menu.getByRole("menuitem", { name: "退出登录" }).click();
   await menu.getByRole("alert").waitFor();
   logoutFail = false;
   await page.keyboard.press("Escape");

@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { useWidth } from "./Charts";
+import { useWidth } from "./components/TrendChart";
 import type { FanTriggers } from "./api";
 
 // Mirrors kvim4/kvim4n device tree thresholds.
@@ -158,8 +158,8 @@ function CurveEditor({
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity=".18" />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--brand)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--brand)" stopOpacity="0" />
               </linearGradient>
             </defs>
             <path fill={`url(#${gradientId})`} d={`${path(draft)}L${x(T_MAX)},${y(0)}Z`} />
