@@ -8,7 +8,7 @@
 |---|---|---|
 | 样式 | Tailwind CSS v4（`@tailwindcss/vite`） | 只用工具类；不写组件级 CSS 类 |
 | 组件 | shadcn/ui，style **Nova**（紧凑密度），Radix 原语 | 组件代码放 `web/src/components/ui/`，用 CLI 或按官方源码引入；不魔改除非规格要求 |
-| 图标 | lucide-react | 删除 `Icons.tsx`；统一 `size-4`（行内）/`size-5`（导航），`strokeWidth` 默认 |
+| 图标 | lucide-react | 删除 `Icons.tsx`；行内与导航统一 `size-4`，`LucideProvider strokeWidth={1.75}` |
 | 状态 | zustand | 取代 App 向下传递的 busy/stale/run/status/passthrough |
 | 提示 | sonner（shadcn Toaster） | 取代现有全局 busy 横幅的完成/失败提示 |
 | 动画 | Motion（`motion/react`） | `<MotionConfig reducedMotion="user">` + `LazyMotion features={domAnimation}` + `m.*`；令牌与使用范围见下文「动效」 |
@@ -27,7 +27,8 @@
 - background `#f4f5f7` / `#121315`；card、popover `#ffffff` / `#1c1d21`；sidebar `#ffffff` / `#18191c`
 - foreground `#1d2025` / `#e9eaec`；muted-foreground `#6f767f` / `#80858d`（次级文字 `#50565e` / `#a9adb4` 作为 `--secondary-foreground`）
 - border `#e6e8eb` / `#2a2c31`；input `#d3d7dc` / `#3a3d43`；muted、accent（悬停底）`#f7f8fa` / `#232429`
-- primary `#006fff` / `#3d8bff`，primary-foreground `#ffffff`；ring = primary
+- primary `#006cf8` / `#3d8bff`（链接、开关、焦点环、图表），primary-foreground `#ffffff`；ring = primary
+- primary-fill（白字填充按钮与品牌块）`#006cf8` / `#2b6fe0`，白字对比度 4.67:1 / 4.72:1
 - destructive `#ee3a3e` / `#ff5a5f`
 - 新增状态 token（Tailwind 可用 `text-success` `bg-success` 等）：success `#1fa855`/`#3ccf72`，success-foreground（文字）`#15803f`/`#4fd884`；warning `#f5a524`/`#f7b23b`，warning-foreground `#9a5b00`/`#f7b23b`；idle `#b2b7be`/`#5b6068`
 - radius：`--radius: 0.625rem`（卡片 10px），控件用 `rounded-md`（6px）

@@ -36,6 +36,46 @@
     "total": {
       "bytes": 905997,
       "gzip": 272085
+    },
+    "initialJs": {
+      "index.html": {
+        "bytes": 750103,
+        "gzip": 236340
+      },
+      "login.html": {
+        "bytes": 370815,
+        "gzip": 122956
+      }
     }
+  },
+  "polish": {
+    "note": "lazy page chunks, async LazyMotion features, unused tooltip/collapsible removed; initialJs = entry script plus its static imports (excludes lazily loaded page and animation chunks)",
+    "js": {
+      "bytes": 807035,
+      "gzip": 279033
+    },
+    "css": {
+      "bytes": 97924,
+      "gzip": 16688
+    },
+    "html": {
+      "bytes": 3186,
+      "gzip": 1300
+    },
+    "total": {
+      "bytes": 908145,
+      "gzip": 297021
+    },
+    "initialJs": {
+      "index.html": {
+        "bytes": 467795,
+        "gzip": 154302
+      },
+      "login.html": {
+        "bytes": 325959,
+        "gzip": 110317
+      }
+    },
+    "jsChunks": 40
   }
 }
