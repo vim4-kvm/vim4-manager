@@ -20,7 +20,7 @@ const hintTones = {
 function Brand() {
   return (
     <div className="flex h-10 items-center gap-2 px-2">
-      <span aria-hidden="true" className="grid size-6 place-items-center rounded-md bg-primary text-[10px] font-bold text-primary-foreground">V4</span>
+      <span aria-hidden="true" className="grid size-6 place-items-center rounded-md bg-primary-fill text-[10px] font-bold text-primary-foreground">V4</span>
       <span data-brand className="text-sm font-semibold text-foreground">VIM4</span>
       <span className="text-sm text-muted-foreground">KVM</span>
     </div>

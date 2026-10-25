@@ -176,7 +176,7 @@ function Login() {
   return (
     <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[12vh]">
       <header role="group" aria-label="设备" className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
-        <span className="mb-2 grid size-12 place-items-center rounded-lg bg-primary text-lg font-semibold text-primary-foreground">V4</span>
+        <span className="mb-2 grid size-12 place-items-center rounded-lg bg-primary-fill text-lg font-semibold text-primary-foreground">V4</span>
         {!state && !error ? (
           <Skeleton className="h-7 w-36" />
         ) : (

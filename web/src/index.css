@@ -21,6 +21,7 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-primary-fill: var(--primary-fill);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
@@ -60,8 +61,10 @@
   --card-foreground: #1d2025;
   --popover: #ffffff;
   --popover-foreground: #1d2025;
-  --primary: #006fff;
+  --primary: #006cf8;
   --primary-foreground: #ffffff;
+  /* Filled controls carry white text; keep them at 4.5:1 in both themes. */
+  --primary-fill: #006cf8;
   --secondary: #f7f8fa;
   --secondary-foreground: #50565e;
   --muted: #f7f8fa;
@@ -76,17 +79,17 @@
   --idle: #b2b7be;
   --border: #e6e8eb;
   --input: #d3d7dc;
-  --ring: #006fff;
-  --chart-1: #006fff;
+  --ring: #006cf8;
+  --chart-1: #006cf8;
   --chart-2: #6f767f;
   --sidebar: #ffffff;
   --sidebar-foreground: #50565e;
-  --sidebar-primary: #006fff;
+  --sidebar-primary: #006cf8;
   --sidebar-primary-foreground: #ffffff;
   --sidebar-accent: #f7f8fa;
   --sidebar-accent-foreground: #1d2025;
   --sidebar-border: #e6e8eb;
-  --sidebar-ring: #006fff;
+  --sidebar-ring: #006cf8;
 }
 
 .dark {
@@ -97,6 +100,7 @@
   --popover: #1c1d21;
   --popover-foreground: #e9eaec;
   --primary: #3d8bff;
+  --primary-fill: #2b6fe0;
   --secondary: #232429;
   --secondary-foreground: #a9adb4;
   --muted: #232429;

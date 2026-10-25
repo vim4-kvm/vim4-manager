@@ -94,9 +94,8 @@ async function checkLoginContrast(page) {
         const foreground = luminance(rgba(getComputedStyle(element).color));
         const surface = luminance(background(element));
         return { selector, ratio: (Math.max(foreground, surface) + .05) / (Math.min(foreground, surface) + .05),
-          // The approved primary/white palette has a 3.31:1 dark contrast; keep this
-          // explicit design exception while retaining the existing text checks.
-          minimum: selector === "main button[data-variant=default]" || selector === "[role=menu] [data-slot=dropdown-menu-label] small" || element.closest("[data-account-notes]") ? 3 : 4.5 };
+          // Filled primary buttons use --primary-fill and must meet 4.5:1 in both themes.
+          minimum: selector === "[role=menu] [data-slot=dropdown-menu-label] small" || element.closest("[data-account-notes]") ? 3 : 4.5 };
       }));
   });
   for (const value of values) assert(value.ratio >= value.minimum, JSON.stringify(value));
