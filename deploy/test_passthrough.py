@@ -64,6 +64,40 @@ class VendorPassthroughTest(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(value)
 
+    def native_fixture(self):
+        self.put('/sys/module/aml_media/parameters/vdin0_native_hdr', 'Y')
+        self.put('/sys/class/vfm/map', 'tvpath { vdin0(1) amvideo}')
+        self.put('/sys/class/video4linux/video0/status', 'vfm_started: 0\nfmt_valid: 0\nsm_state: 5\ndraining: 1')
+        self.put('/sys/class/hdmirx/hdmirx0/info', self.controller.read('/sys/class/hdmirx/hdmirx0/info').replace('SDR', 'SMPTE_ST_2048'))
+        self.put(passthrough.TX + 'dc_cap', '444,8bit\n422,12bit')
+        self.put(passthrough.TX + 'attr', '422,12bit\n\r')
+        self.put(passthrough.TX + 'hdmitx_pkt_dump', 'AVI.extended_colorimetry: BT.2020\nDRM.eotf: ST 2084')
+
+    def test_native_hdr_uses_direct_display_and_independent_capture_without_modeset(self):
+        self.native_fixture()
+        self.assertTrue(self.controller.supported())
+        with patch.object(self.controller, 'write', wraps=self.controller.write) as write:
+            self.controller.tick(True)
+            self.put('/sys/module/aml_media/parameters/display_frame_count', '130')
+            result = self.controller.tick(True)
+        self.assertEqual(result['state'], 'running')
+        self.assertFalse(result['output']['hdrToSdr'])
+        self.assertEqual(result['output']['colorFormat'], 'YCbCr422 12-bit limited')
+        self.assertFalse(any(call.args[0].startswith(passthrough.TX) for call in write.call_args_list))
+        self.put('/sys/class/video4linux/video0/status', 'sm_state: 2')
+        self.assertEqual(self.controller.tick(True)['state'], 'no-signal')
+
+    def test_native_hdr_does_not_claim_running_before_drm_is_ready(self):
+        self.native_fixture()
+        self.put(passthrough.TX + 'hdmitx_pkt_dump', 'DRM.eotf: sdr')
+        self.controller.tick(True)
+        self.put('/sys/module/aml_media/parameters/display_frame_count', '130')
+        self.assertEqual(self.controller.tick(True)['state'], 'starting')
+        self.put(passthrough.TX + 'hdmitx_pkt_dump', 'DRM.eotf: ST 2084')
+        self.assertEqual(self.controller.tick(True)['state'], 'starting')
+        self.put('/sys/module/aml_media/parameters/display_frame_count', '150')
+        self.assertEqual(self.controller.tick(True)['state'], 'running')
+
     def test_running_requires_advancing_scanout_and_steady_ticks_do_not_reconfigure(self):
         self.assertEqual(self.controller.tick(True)['state'], 'starting')
         self.put('/sys/module/aml_media/parameters/display_frame_count', '130')

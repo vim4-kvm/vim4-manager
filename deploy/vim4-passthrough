@@ -122,6 +122,11 @@ class VendorPassthrough:
         self.sink_changed_at = None
         self.capture_ready = False
         self.last_error = None
+        self.output_color = ('444', 8)
+
+    def native_path(self):
+        path = self.path('/sys/module/aml_media/parameters/vdin0_native_hdr')
+        return path.is_file() and path.read_text().strip().lower() in ('y', '1')
 
     def path(self, name):
         return self.root / name.lstrip('/')
@@ -168,7 +173,8 @@ class VendorPassthrough:
             return False
         try:
             route = self.read('/sys/class/vfm/map')
-            if not re.search(r'tvpath\s*\{\s*vdin0(?:\(\d+\))?\s+vfm_cap(?:\(\d+\))?\s+amvideo\s*\}', route):
+            middle = '' if self.native_path() else r'vfm_cap(?:\(\d+\))?\s+'
+            if not re.search(r'tvpath\s*\{\s*vdin0(?:\(\d+\))?\s+' + middle + r'amvideo\s*\}', route):
                 return False
             return all(self.path(name).is_file() for name in (*OSD_BLANKS,
                 VIDEO + 'disable_video', VIDEO + 'axis', TX + 'disp_mode',
@@ -180,7 +186,8 @@ class VendorPassthrough:
         if not self.qualified():
             raise ValueError('未验证的运行模块，保留独立 KVM 采集')
         self.write('/sys/class/vfm/map', 'rm tvpath')
-        self.write('/sys/class/vfm/map', 'add tvpath vdin0 vfm_cap amvideo')
+        route = 'vdin0 amvideo' if self.native_path() else 'vdin0 vfm_cap amvideo'
+        self.write('/sys/class/vfm/map', 'add tvpath ' + route)
         self.update(VIDEO + 'disable_video', 1)
         self.blank(self.load(RUNTIME + 'request.json', {'enabled': False})['enabled'])
 
@@ -190,9 +197,10 @@ class VendorPassthrough:
         if len(captures) != 1:
             raise ValueError('无法唯一识别 VFM 采集端点')
         capture = parse_fields((captures[0] / 'status').read_text())
-        self.capture_ready = capture.get('fmt_valid') == '1'
-        if any(capture.get(key) != value for key, value in
-               (('vfm_started', '1'), ('sm_state', '5'), ('draining', '0'))):
+        native = self.native_path()
+        self.capture_ready = capture.get('sm_state') == '5' if native else capture.get('fmt_valid') == '1'
+        required = (('sm_state', '5'),) if native else (('vfm_started', '1'), ('sm_state', '5'), ('draining', '0'))
+        if any(capture.get(key) != value for key, value in required):
             return None
         fields = parse_fields(self.read('/sys/class/hdmirx/hdmirx0/info'))
         width, height = int(fields.get('Hactive', 0)), int(fields.get('Vactive', 0))
@@ -325,7 +333,7 @@ class VendorPassthrough:
 
     def tx_mismatches(self, actual, mode, fractional):
         expected_rate = round(int(re.search(r'p(\d+)hz', mode)[1]) * 1000 / (1.001 if fractional else 1))
-        expected = {'mode': mode, 'color': ('444', 8), 'fractional': int(fractional), 'ready': 1}
+        expected = {'mode': mode, 'color': self.output_color, 'fractional': int(fractional), 'ready': 1}
         mismatch = {name: {'expected': value, 'actual': actual[name]} for name, value in expected.items()
                     if actual[name] != value}
         if actual['rate'] is None or abs(actual['rate'] - expected_rate) > 1:
@@ -334,7 +342,7 @@ class VendorPassthrough:
 
     def follow_mode(self, input_state, mode, fractional, actual):
         now = time.monotonic()
-        key = (input_state['width'], input_state['height'], mode, fractional, self.monitor_identity)
+        key = (input_state['width'], input_state['height'], mode, fractional, self.monitor_identity, self.output_color)
         mismatch = self.tx_mismatches(actual, mode, fractional)
         if key != self.mode_key:
             if not {name: value for name, value in mismatch.items() if name != 'ready'}:
@@ -352,7 +360,7 @@ class VendorPassthrough:
                 self.write(VIDEO + 'disable_video', 1)
                 self.write(TX + 'frac_rate_policy', int(fractional))
                 self.write('/sys/class/display/mode', mode)
-                self.write(TX + 'test_attr', '444,8bit')
+                self.write(TX + 'test_attr', f'{self.output_color[0]},{self.output_color[1]}bit')
                 self.write(TX + 'disp_mode', mode)
                 actual = self.read_tx()
                 mismatch = self.tx_mismatches(actual, mode, fractional)
@@ -408,8 +416,14 @@ class VendorPassthrough:
             state['state'] = 'video-error'
             state['reason'] = '请检查 HDMI 输入线或信号源设置。'
             return state
-        mapped = input_state['hdr'] != 'SDR'
-        if mapped:
+        native = self.native_path()
+        hdr = input_state['hdr'] != 'SDR'
+        hdr_cap = self.read(TX + 'hdr_cap')
+        eotf = 'Hybrid Log-Gamma' if input_state['hdr'] == 'HLG' else 'SMPTE ST 2084'
+        native_hdr = native and hdr and bool(re.search(re.escape(eotf) + r':\s*1', hdr_cap))
+        self.output_color = ('422', 12) if native_hdr else ('444', 8)
+        mapped = hdr and not native_hdr
+        if mapped and not native:
             mapping = self.path('/sys/class/vdin/vdin0/hdr_sdr')
             if not mapping.exists() or mapping.read_text().strip() != '1':
                 self.update(VIDEO + 'disable_video', 1)
@@ -427,14 +441,22 @@ class VendorPassthrough:
         self.rate_samples.append(input_state['refreshHz'])
         stable_input = dict(input_state, refreshHz=median(self.rate_samples))
         mode, width, height, fractional = select_mode(stable_input, display_modes(self.read(TX + 'disp_cap')), preferred)
-        if '444,8bit' not in self.read(TX + 'dc_cap').splitlines():
-            raise ValueError('显示器不支持已验证的 YCbCr444 8-bit 输出')
+        color = f'{self.output_color[0]},{self.output_color[1]}bit'
+        if color not in self.read(TX + 'dc_cap').splitlines():
+            raise ValueError('显示器不支持当前输入所需的颜色格式')
         actual = self.follow_mode(input_state, mode, fractional, actual)
         if actual is None:
             return state
         self.rate_choice = (int(re.search(r'p(\d+)hz', mode)[1]), fractional)
         self.update(VIDEO + 'axis', f'0 0 {width - 1} {height - 1}')
         self.update(VIDEO + 'disable_video', 0)
+        if native:
+            packets = self.read(TX + 'hdmitx_pkt_dump')
+            expected = 'HLG' if input_state['hdr'] == 'HLG' else 'ST 2084'
+            if native_hdr and f'DRM.eotf: {expected}' not in packets:
+                return state
+            if mapped and ('AVI.colorimetry: BT.709' not in packets or 'DRM.eotf: ST 2084' in packets or 'DRM.eotf: HLG' in packets):
+                return state
         frame = int(self.read('/sys/module/aml_media/parameters/display_frame_count'))
         now = time.monotonic()
         if frame != self.last_frame:
@@ -444,7 +466,7 @@ class VendorPassthrough:
             state['state'] = 'starting'
             return state
         state['output'] = {'width': width, 'height': height, 'refreshHz': actual['rate'] / 1000,
-                           'colorFormat': 'YCbCr444 8-bit limited',
+                           'colorFormat': f'YCbCr{self.output_color[0]} {self.output_color[1]}-bit limited',
                            'scaled': width != input_state['width'] or height != input_state['height'],
                            'hdrToSdr': mapped}
         state['state'] = 'running'
