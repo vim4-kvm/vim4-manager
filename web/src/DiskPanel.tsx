@@ -75,12 +75,8 @@ function Action({ working, className, children, ...props }: React.ComponentProps
 function ArmedButton({ label, armedLabel, ariaLabel, disabled, working, onConfirm }: {
   label: string; armedLabel: string; ariaLabel: string; disabled: boolean; working: boolean; onConfirm: () => void;
 }) {
+  // The dialog stays open until the user confirms, cancels or presses Escape.
   const [armed, setArmed] = useState(false);
-  useEffect(() => {
-    if (!armed) return;
-    const timer = window.setTimeout(() => setArmed(false), 4000);
-    return () => window.clearTimeout(timer);
-  }, [armed]);
   return (<>
     <Action aria-label={ariaLabel} disabled={disabled} working={working} onClick={() => setArmed(true)}>{label}</Action>
     <ConfirmDialog open={armed} onOpenChange={setArmed} title={ariaLabel} confirm={armedLabel} destructive disabled={disabled}

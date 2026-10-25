@@ -119,8 +119,11 @@ try {
   await page.getByRole("button", { name: "删除 readme.txt" }).click();
   await page.getByRole("button", { name: "确认删除" }).waitFor();
   await page.waitForTimeout(4200);
-  await page.getByRole("button", { name: "删除 readme.txt" }).waitFor();
-  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "an armed delete disarms on its own");
+  assert(await page.getByRole("alertdialog", { name: "删除 readme.txt" }).isVisible(), "the delete confirmation stays open until the user acts");
+  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "waiting never deletes");
+  await page.keyboard.press("Escape");
+  await page.getByRole("alertdialog").waitFor({ state: "detached" });
+  assert.notEqual(requests.at(-1).path, "/api/disks/rm", "Escape cancels the delete");
   await page.getByRole("button", { name: "删除 readme.txt" }).click();
   await page.getByRole("button", { name: "确认删除" }).click();
   await page.getByText("已删除 readme.txt").waitFor();
