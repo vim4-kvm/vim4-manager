@@ -162,10 +162,10 @@ export function WifiControl() {
 
   return (
     <SettingsCard label="Wi-Fi"><FadeIn className="flex min-w-0 flex-col gap-5">
-        <SettingRow title="Wi-Fi" description="连接周围的无线网络，或让板子发出热点供其他设备直接连入。有线网络不受影响。"
+        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Wifi className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Wi-Fi" description="连接到无线网络或创建热点，两种模式互斥。有线网络不受影响。"
           status={label} pending={!!pending} control={<Switch aria-label="Wi-Fi" checked={!!state?.enabled}
             disabled={locked || !state?.supported || !state.hardwareEnabled}
-            onCheckedChange={() => (state?.enabled ? setConfirming({ kind: "off" }) : void toggleRadio(true))} />} />
+            onCheckedChange={() => (state?.enabled ? setConfirming({ kind: "off" }) : void toggleRadio(true))} />} /></div></div>
 
         {on && state.mode && state.mode !== "off" && (
           <div className="flex min-w-0 flex-col gap-5">
@@ -178,7 +178,7 @@ export function WifiControl() {
 
             {state.mode === "client" && (
               <>
-                <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-md border px-3 py-2.5">
+                <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-chart-1/20 bg-chart-1/3 p-4">
                   <StatusDot tone={current ? "good" : state.state === "connecting" ? "warning" : "idle"} />
                   {current ? (
                     <>

@@ -17,8 +17,8 @@ export function Avatar({ username, className }: { username: string; className?: 
 }
 
 /**
- * Account menu: the sidebar shows name and role, the mobile top bar only the
- * avatar. Closes on route change and Tab; a failed logout keeps it open.
+ * Account menu: compact headers show an avatar, full triggers show name and role.
+ * Closes on route change and Tab; a failed logout keeps it open.
  */
 export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const { username } = useAccount();

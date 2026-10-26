@@ -1,9 +1,11 @@
 import { Spinner } from "@/components/Spinner";
+import { BrandMark } from "@/components/BrandMark";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
+import { useThemePreference } from "./theme";
 import { copyText } from "./lib/clipboard";
 import { Eye, EyeOff, LockKeyhole, LucideProvider } from "lucide-react";
 import { LazyMotion, MotionConfig } from "motion/react";
@@ -11,7 +13,6 @@ import { InlineError } from "@/components/InlineError";
 import { SettingsCard } from "@/components/SettingsCard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Collapse } from "@/components/Motion";
-import { ThemeSwitch } from "./components/ThemeSwitch";
 import "./index.css";
 
 const connectionError = "无法连接板子，请检查网络后重试";
@@ -50,6 +51,7 @@ function ResetCommand() {
 }
 
 function Login() {
+  useThemePreference();
   const [state, setState] = useState<AuthState>();
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [username, setUsername] = useState("admin");
@@ -177,7 +179,7 @@ function Login() {
   return (
     <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[12vh]">
       <header role="group" aria-label="设备" className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
-        <span className="mb-2 grid size-12 place-items-center rounded-lg bg-primary-fill text-lg font-semibold text-primary-foreground">V4</span>
+        <BrandMark className="mb-2 size-11" />
         {!state && !error ? (
           <Skeleton className="h-7 w-36" />
         ) : (
@@ -185,7 +187,7 @@ function Login() {
         )}
         <p>VIM4 KVM · {location.host}</p>
       </header>
-      <SettingsCard className="w-full max-w-[400px]" label={setup ? "创建管理员账户" : "设备登录"}>
+      <SettingsCard className="w-full max-w-[400px]" title={setup ? undefined : "登录"} label={setup ? "创建管理员账户" : "设备登录"}>
         {!state ? (
           error ? (
             <div className="flex flex-col items-start gap-4">
@@ -342,9 +344,6 @@ function Login() {
           此连接未加密，密码可能被窃听。外网访问请使用 HTTPS。
         </p>
       )}
-      <div className="w-full max-w-[400px]">
-        <ThemeSwitch />
-      </div>
     </main>
   );
 }

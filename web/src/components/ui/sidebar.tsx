@@ -17,8 +17,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { PanelLeftIcon } from "lucide-react"
 
-// The spec fixes a 232px, non-collapsible desktop sidebar: no cookie or shortcut.
-
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
   open: boolean
@@ -99,7 +97,7 @@ function SidebarProvider({
       <div
         data-slot="sidebar-wrapper"
         className={cn(
-          "group/sidebar-wrapper flex min-h-svh w-full [--sidebar-width:232px] [--sidebar-width-icon:3rem] has-data-[variant=inset]:bg-sidebar",
+          "group/sidebar-wrapper flex min-h-svh w-full [--sidebar-width:16rem] [--sidebar-width-icon:3rem] has-data-[variant=inset]:bg-sidebar",
           className
         )}
         {...props}
@@ -153,7 +151,7 @@ function Sidebar({
         >
           <SheetHeader className="sr-only">
             <SheetTitle>菜单</SheetTitle>
-            <SheetDescription>页面导航与外观</SheetDescription>
+            <SheetDescription>页面导航</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>
@@ -455,7 +453,6 @@ function SidebarMenuButton({
   asChild?: boolean
   isActive?: boolean
 } & VariantProps<typeof sidebarMenuButtonVariants>) {
-  // The expanded-only sidebar never shows icon-rail tooltips.
   const Comp = asChild ? Slot.Root : "button"
 
   return (

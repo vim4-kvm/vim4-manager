@@ -11,6 +11,7 @@ import { Cpu } from "lucide-react";
 import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
 import { request } from "./api";
+import { Notice } from "@/components/Notice";
 
 interface Kernel {
   id: string;
@@ -51,15 +52,17 @@ export function KernelPanel() {
     {error && <InlineError>{error}</InlineError>}
     {!state && !error && <PanelSkeleton label="正在读取…" />}
     {state && state.kernels.length === 0 && <EmptyState icon={Cpu}>尚未登记可切换的内核。</EmptyState>}
-    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="flex flex-col divide-y" itemClassName="py-4 first:pt-0 last:pb-0">{kernel => <div>
+    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="grid gap-4 lg:grid-cols-2" itemClassName="min-w-0">{kernel => <div className={`h-full rounded-lg border p-5 ${kernel.release === state.running ? "border-chart-1/30 bg-chart-1/4" : "bg-muted/20"}`}>
       <SettingRow title={kernel.name} badges={<>
         {kernel.release === "7.3.0-vim4kvm-uhd1+" && <Badge variant="secondary">正式版</Badge>}
         {kernel.selected && <Badge variant="secondary">默认启动</Badge>}
+        {kernel.release === state.running && <Badge variant="outline" className="border-success/20 bg-success/10 text-success-foreground">当前运行</Badge>}
       </>} description={<span className="font-mono break-all">{kernel.release}</span>}
         status={kernel.error || (kernel.release === state.running ? "正在运行" : kernel.available ? "可切换" : "不可用")}
         control={<Button variant="outline" disabled={busy || rebooting || !kernel.available || !!choice}
           onClick={() => setChoice(kernel)}>{kernel.release === state.running ? "重启此内核" : "切换并重启"}</Button>} />
     </div>}</AnimatedList></FadeIn>}
+    <Notice>切换需要重启，共用当前系统数据；已挂载的虚拟磁盘需先安全弹出。</Notice>
     {choice && <ConfirmDialog open title={`切换到 ${choice.name}`} confirm="确认重启" busy={busy}
       description={<>将默认启动设为 {choice.name} 并重启，当前连接会断开。请先安全弹出虚拟磁盘；启动失败时需通过串口或 OOWOW 恢复。</>}
       onOpenChange={(open) => { if (!open) setChoice(undefined); }} closeOnConfirm={false} onConfirm={() => void apply()} />}

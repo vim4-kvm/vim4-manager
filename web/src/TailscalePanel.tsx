@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { request } from "./api";
 import { CopyButton } from "@/components/CopyButton";
 import { TailscaleDevices, type TailscaleDevice } from "./TailscaleDevices";
+import { Network } from "lucide-react";
 
 export const OFFICIAL_CONTROL = "https://controlplane.tailscale.com";
 
@@ -170,10 +171,10 @@ export function TailscalePanel() {
 
   return (
     <SettingsCard label="Tailscale"><FadeIn className="flex min-w-0 flex-col gap-5">
-        <SettingRow title="Tailscale" description="把板子加入 tailnet，在外网通过 Tailscale 地址访问管理面板和 KVM 界面。"
+        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Network className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Tailscale" description="通过 Tailscale 安全地访问管理面板和 KVM 界面。"
           status={label} pending={jobRunning || !!pending}
           control={switchable && <Switch aria-label="Tailscale 连接" checked={connected} disabled={locked}
-            onCheckedChange={() => connected ? setConfirming("down") : void act("up")} />} />
+            onCheckedChange={() => connected ? setConfirming("down") : void act("up")} />} /></div></div>
 
         {state && !stale && current === "absent" && !jobRunning && (
           <div className="flex min-w-0 flex-col gap-4">
@@ -237,17 +238,18 @@ export function TailscalePanel() {
         )}
 
         {state && (current === "online" || current === "offline") && (
-          <FactGrid cols={3}>
+          <FactGrid cols={2}>
             {state.tailnet && (
-              <Fact label="Tailnet" value={state.tailnet} />
+              <Fact label="Tailnet" value={state.tailnet} className="@md:col-span-2" />
             )}
             <Fact label="控制服务器" value={state.controlURL || OFFICIAL_CONTROL} />
+            <Fact label="在线设备" value={state.peersOnline != null && state.peers != null ? `${state.peersOnline} / ${state.peers}` : "未知"} />
             {state.version && (
               <Fact label="版本" value={state.version} />
             )}
-            <Fact label="访问地址" className="@md:col-span-3" value={<div className="flex flex-col gap-2 text-sm font-normal">
+            <Fact label="访问地址" className="@md:col-span-2" value={<div className="flex flex-col gap-2 text-sm font-normal">
                 {accessURLs(state).length ? (
-                  <ul className="grid grid-cols-[auto_minmax(0,auto)_1fr] items-center gap-x-4 gap-y-1 [&_li]:contents">
+                  <ul className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 rounded-lg bg-muted/50 p-3 [&_li]:contents">
                     {accessURLs(state).map(({ label, url }) => (
                       <li key={url}>
                         <span className="text-xs text-muted-foreground">{label}</span>

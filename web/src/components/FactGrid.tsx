@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, type LucideIcon } from "lucide-react";
 import { FadeText } from "@/components/Motion";
 import { StatusDot, type Tone } from "@/components/StatusDot";
 import { cn } from "@/lib/utils";
@@ -8,7 +8,7 @@ const columns = {
   1: "",
   2: "@md:grid-cols-2",
   3: "@md:grid-cols-3",
-  4: "@md:grid-cols-2 @2xl:grid-cols-4",
+  4: "@md:grid-cols-2 @4xl:grid-cols-4",
 };
 
 /** Read-only facts: one column in narrow cards, otherwise 3 (or 4) columns. */
@@ -20,7 +20,7 @@ export function FactGrid({ children, cols = 3, className }: { children: ReactNod
  * One label/value pair. With `href` the whole tile becomes a link named by
  * its label, value and destination; extra `children` render below.
  */
-export function Fact({ label, value, valueKey, detail, tone, href, destination, children, className }: {
+export function Fact({ label, value, valueKey, detail, tone, href, destination, children, className, card = false, icon: Icon }: {
   label: string;
   value: ReactNode;
   /** Text identity of `value` when it is not a plain string, for the change fade. */
@@ -31,6 +31,8 @@ export function Fact({ label, value, valueKey, detail, tone, href, destination, 
   destination?: string;
   children?: ReactNode;
   className?: string;
+  card?: boolean;
+  icon?: LucideIcon;
 }) {
   const id = useId();
   const key = valueKey ?? (typeof value === "string" ? value : "");
@@ -41,9 +43,11 @@ export function Fact({ label, value, valueKey, detail, tone, href, destination, 
     </span>
   );
   return (
-    <div className={cn("group/fact relative flex min-w-0 flex-col gap-0.5", href && "-m-2 rounded-md p-2 hover:bg-accent", className)}>
-      <dt id={`${id}-label`} className="text-xs text-muted-foreground">{label}</dt>
-      <dd id={`${id}-value`} className="text-sm font-medium">
+    <div className={cn("group/fact relative flex min-w-0 flex-col gap-0.5", card ? "gap-2 rounded-xl border bg-card p-5 shadow-xs" : href && "-m-2 rounded-md p-2 hover:bg-accent", card && href && "transition-colors hover:border-ring/50", className)}>
+      <dt id={`${id}-label`} className={cn("flex items-center justify-between gap-3 text-xs text-muted-foreground", card && "text-sm font-medium text-foreground")}>
+        {label}{Icon && <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />}
+      </dt>
+      <dd id={`${id}-value`} className={card ? "text-xl font-semibold tracking-tight tabular-nums" : "text-sm font-medium"}>
         {href ? (
           <a href={href} aria-labelledby={`${id}-label ${id}-value ${detail ? `${id}-detail ` : ""}${id}-to`}
             className="flex items-center justify-between gap-2 rounded-sm outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-3 focus-visible:after:ring-ring/50">

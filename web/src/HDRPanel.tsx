@@ -12,7 +12,7 @@ const NITS_MIN = 0.1;
 const NITS_MAX = 10000;
 const PREVIEW_MS = 120;
 
-const HEIGHT = 150;
+const HEIGHT = 200;
 const PAD_LEFT = 30;
 const PAD_RIGHT = 8;
 const PAD_TOP = 8;
@@ -96,7 +96,7 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
     <figure className="flex min-w-0 flex-col gap-3 [&_figcaption]:flex [&_figcaption]:flex-wrap [&_figcaption]:gap-4">
       <figcaption>
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="h-0.5 w-3.5 rounded-sm bg-primary" aria-hidden="true" />
+          <span className="h-0.5 w-3.5 rounded-sm bg-chart-1" aria-hidden="true" />
           当前曲线
         </span>
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -119,8 +119,8 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--primary)" stopOpacity=".18" />
-                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--chart-1)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0" />
               </linearGradient>
             </defs>
             <path fill={`url(#${gradientId})`} d={`${path(curve)}L${x(NITS_MAX)},${y(0)}L${x(NITS_MIN)},${y(0)}Z`} />
@@ -146,12 +146,12 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
               高光上限
             </text>
             <path className="fill-none [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground" d={path(VENDOR)} />
-            <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round]" d={path(curve)} />
-            <circle className="fill-primary stroke-card stroke-3" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
+            <path className="fill-none stroke-chart-1 [stroke-width:2] [stroke-linecap:round] [stroke-linejoin:round]" d={path(curve)} />
+            <circle className="fill-chart-1 stroke-card stroke-3" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
             {active !== undefined && (
               <>
                 <line className="stroke-muted-foreground stroke-1 [stroke-dasharray:2_3]" x1={x(active)} x2={x(active)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
-                <circle className="fill-primary stroke-card stroke-3" cx={x(active)} cy={y(srgb(mapNits(active, curve)))} r={4} />
+                <circle className="fill-chart-1 stroke-card stroke-3" cx={x(active)} cy={y(srgb(mapNits(active, curve)))} r={4} />
               </>
             )}
           </svg>
@@ -230,7 +230,7 @@ function Slider({
       </span>
       <input
         type="range"
-        className="my-2 h-2 w-full cursor-pointer accent-primary focus-visible:outline-ring disabled:opacity-50"
+        className="my-2 h-2 w-full cursor-pointer accent-chart-1 focus-visible:outline-ring disabled:opacity-50"
         min={0}
         max={1000}
         value={position}
@@ -314,9 +314,9 @@ export function HDRPanel({
   const live = hdr && hdr !== "SDR";
 
   return (
-    <div className="grid min-w-0 gap-6 @2xl:grid-cols-2">
+    <div className="min-w-0">
       <div className="flex min-w-0 flex-col gap-5">
-        <div className="flex flex-col gap-5">
+        <div className="grid gap-5 @md:grid-cols-2">
           <Slider
             label="桌面亮度"
             value={`SDR 白 ${draft.white} 尼特`}
@@ -341,6 +341,7 @@ export function HDRPanel({
             onCommit={commit}
           />
         </div>
+        <CurveChart curve={draft} />
         <Ramp curve={draft} />
         <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
           <span className="text-muted-foreground">
@@ -351,7 +352,6 @@ export function HDRPanel({
           </Button>
         </div>
       </div>
-      <CurveChart curve={draft} />
     </div>
   );
 }

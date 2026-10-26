@@ -32,7 +32,7 @@ const THROTTLE_C = 95;
 
 const T_MIN = 20;
 const T_MAX = 105;
-const HEIGHT = 168;
+const HEIGHT = 240;
 const PAD_LEFT = 34;
 const PAD_RIGHT = 14;
 const PAD_TOP = 22;
@@ -161,8 +161,8 @@ function CurveEditor({
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--primary)" stopOpacity=".18" />
-                <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+                <stop offset="0%" stopColor="var(--chart-1)" stopOpacity=".18" />
+                <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0" />
               </linearGradient>
             </defs>
             <path fill={`url(#${gradientId})`} d={`${path(draft)}L${x(T_MAX)},${y(0)}Z`} />
@@ -184,16 +184,17 @@ function CurveEditor({
               {THROTTLE_C}° 起 CPU 降频
             </text>
             {dirty && <path className="fill-none [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
-            <path className="fill-none stroke-primary [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round]" d={path(draft)} />
+            <path className="fill-none stroke-chart-1 [stroke-width:2] [stroke-linecap:round] [stroke-linejoin:round]" d={path(draft)} />
             {vertices(draft)
               .slice(0, 2)
               .map(([tc, d]) => (
-                <circle key={tc} className="fill-card stroke-primary stroke-2" cx={x(tc)} cy={y(d)} r={3} />
+                <circle key={tc} className="fill-card stroke-chart-1 stroke-2" cx={x(tc)} cy={y(d)} r={3} />
               ))}
             {hover !== undefined && hoverDuty !== undefined && !dragging.current && (
               <line className="stroke-muted-foreground stroke-1 [stroke-dasharray:2_3]" x1={x(hover)} x2={x(hover)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
             )}
-            <circle className="pointer-events-none fill-primary stroke-card stroke-3" cx={x(tempC)} cy={y(percent)} r={5} />
+            <line className="stroke-chart-1/60 stroke-1 [stroke-dasharray:4_4]" x1={x(tempC)} x2={x(tempC)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
+            <circle className="pointer-events-none fill-chart-1 stroke-card stroke-3" cx={x(tempC)} cy={y(percent)} r={5} />
             {HANDLES.map(({ key: k, label, duty }) => {
               const [lo, hi] = LIMITS[k](draft);
               return (
@@ -219,7 +220,7 @@ function CurveEditor({
                   }}
                 >
                   <circle className="fill-transparent group-hover/handle:fill-primary/10 group-focus-visible/handle:fill-primary/10" cx={x(draft[k])} cy={y(duty)} r={18} />
-                  <circle className="fill-card stroke-primary stroke-2 group-hover/handle:[r:8] group-focus-visible/handle:[r:8]" cx={x(draft[k])} cy={y(duty)} r={7} />
+                  <circle className="fill-card stroke-chart-1 stroke-2 group-hover/handle:[r:8] group-focus-visible/handle:[r:8]" cx={x(draft[k])} cy={y(duty)} r={7} />
                   <text className="pointer-events-none fill-foreground stroke-card stroke-4 text-[11.5px] font-semibold tabular-nums [paint-order:stroke] [stroke-linejoin:round]" x={x(draft[k])} y={y(duty) - 14} textAnchor="middle">
                     {draft[k]}°
                   </text>
@@ -274,7 +275,7 @@ export function FanPanel({
   };
 
   return (
-    <div className="grid min-w-0 gap-6 @2xl:grid-cols-2">
+    <div className="min-w-0">
       <div className="flex min-w-0 flex-col gap-5">
         <Segmented label="预设曲线">
           {PRESETS.map((p) => (
@@ -282,6 +283,15 @@ export function FanPanel({
           ))}
           {!preset && <SegmentedStatic title="自定义" detail="拖动曲线" />}
         </Segmented>
+
+        <CurveEditor
+          draft={invalid ? saved : shown}
+          saved={saved}
+          tempC={tempC}
+          percent={percent}
+          disabled={busy}
+          onChange={setDraft}
+        />
 
         <div className="grid grid-cols-3 gap-3">
           {HANDLES.map(({ key, label, duty }) => (
@@ -337,14 +347,6 @@ export function FanPanel({
           </Button>
         </div>
       </div>
-      <CurveEditor
-        draft={invalid ? saved : shown}
-        saved={saved}
-        tempC={tempC}
-        percent={percent}
-        disabled={busy}
-        onChange={setDraft}
-      />
     </div>
   );
 }

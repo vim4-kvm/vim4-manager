@@ -50,6 +50,15 @@ export function kvmURL(port: number, app: string): string {
 
 export const celsius = (v: number) => `${v.toFixed(1)} °C`;
 
+// Receiver values include HDR10-GAMMA_ST2084, HDR10-GAMMA_HLG and HDR10Plus-VSIF.
+export function hdrLabel(status?: string): string | undefined {
+  if (!status) return undefined;
+  if (status === "SDR") return "SDR";
+  if (status.includes("HLG")) return "HLG";
+  if (status.includes("Plus")) return "HDR10+";
+  return status.startsWith("HDR") ? "HDR10" : status;
+}
+
 export function clockTime(t: number, now: number): string {
   const d = new Date(t);
   const time = d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });

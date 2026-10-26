@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { request, type PassthroughState } from "@/api";
+import { DeviceConnections } from "@/components/DeviceConnections";
 import { Fact, FactGrid } from "@/components/FactGrid";
 import { InlineError } from "@/components/InlineError";
 import { Collapse, FadeIn } from "@/components/Motion";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsCard } from "@/components/SettingsCard";
+import { PageHeading } from "@/components/PageHeading";
+import { Notice } from "@/components/Notice";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { useActionStore } from "@/stores/action";
@@ -61,6 +64,7 @@ function PassthroughSkeleton() {
 }
 
 export function PassthroughPanel() {
+  const status = useStatusStore((s) => s.status);
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const stale = useStatusStore((s) => s.stale);
@@ -138,9 +142,9 @@ export function PassthroughPanel() {
     actionPending.current = false;
   }
 
-  if (!state) return <SettingsCard label="透传">
+  if (!state) return <><PageHeading page="output" /><SettingsCard label="透传">
     {error ? <InlineError>读取失败：{error}</InlineError> : <PassthroughSkeleton />}
-  </SettingsCard>;
+  </SettingsCard></>;
 
   const current = pending === "starting" || pending === "stopping" ? pending : state.state;
   const transitioning = current === "starting" || current === "stopping";
@@ -188,11 +192,15 @@ export function PassthroughPanel() {
     : ["error", "unavailable"].includes(state.audioState || "") ? "声音暂不可用"
     : state.audioState && state.audioState !== "running" ? "正在连接声音…" : "输出中";
 
-  return <SettingsCard label="透传">
+  return <>
+    <PageHeading page="output" />
+    <section role="region" aria-label="透传" className="flex min-w-0 flex-col gap-5">
+    <SettingsCard title="信号路径" description="查看 HDMI、USB-C 与网络连接，点击接口查看详情。">
     <FadeIn><SettingRow title="透传" description="把 HDMI IN 的画面原样送到本地显示器，远程 KVM 照常使用。"
       status={labels[current]} pending={transitioning}
       control={<Switch aria-label="透传" checked={enabled} disabled={locked}
         onCheckedChange={() => void change({ enabled: !state.enabled })} />} /></FadeIn>
+    <FadeIn><DeviceConnections status={status} passthrough={{ ...state, state: current }} stale={stale || readStale} /></FadeIn>
     <FadeIn className="flex flex-col gap-4" data-passthrough-body>
       <Collapse open={state.supported}>
         <FactGrid>
@@ -209,6 +217,9 @@ export function PassthroughPanel() {
         <InlineError>刷新失败：{error}，显示的是上次读取的状态。</InlineError>
       </Collapse>
     </FadeIn>
+    </SettingsCard>
+    {state.supported && <div className="grid items-start gap-5 lg:grid-cols-2">
+    <SettingsCard title="输出设置">
     {state.supported && <FadeIn><SettingRow title="HDR" description="开启时把 HDR 画面原样送到显示器，关闭时转为 SDR 显示。远程 KVM 不受影响。"
       status={hdrLabel} inactive={hdrInactive} pending={pending === "hdr"}
       control={<Switch aria-label="HDR" checked={pending === "hdr" ? hdrTarget : hdr}
@@ -217,5 +228,22 @@ export function PassthroughPanel() {
       status={audioLabel} inactive={!audioEffective}
       control={<Switch aria-label="声音" checked={state.audio}
         disabled={locked || (state.enabled && audioUnsupported)} onCheckedChange={() => void change({ audio: !state.audio })} />} /></FadeIn>}
-  </SettingsCard>;
+      <Notice>信号源切换分辨率时，本地显示器可能短暂黑屏。</Notice>
+    </SettingsCard>
+    <SettingsCard title="显示器信息">
+      <dl className="space-y-4 text-sm">{[
+        ["型号", monitor?.name || (monitor ? "未知型号" : "未连接")],
+        ["最大分辨率", monitor ? `${monitor.maxWidth} × ${monitor.maxHeight}` : "—"],
+        ["最高刷新率", monitor ? refreshLabel(monitor.maxRefreshHz) : "—"],
+        ["HDR", monitor ? monitor.hdr ? "支持" : "不支持" : "—"],
+        ["音频", monitor ? monitor.audio ? "支持" : "不支持" : "—"],
+      ].map(([label, value], i) => <div className={`flex justify-between gap-6 ${i ? "border-t pt-4" : ""}`} key={label}><dt className="shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 break-words text-right font-medium">{value}</dd></div>)}</dl>
+    </SettingsCard>
+    </div>}
+    {state.supported && <SettingsCard title="当前信号格式"><FactGrid cols={2}>
+      <Fact label="输入格式" value={input ? `${input.colorFormat} · ${input.hdr}` : "无信号"} />
+      <Fact label="输出格式" value={current === "running" && output ? `${output.colorFormat} · ${output.hdrToSdr ? "SDR" : input?.hdr || "未知"}` : "—"} />
+    </FactGrid></SettingsCard>}
+    </section>
+  </>;
 }

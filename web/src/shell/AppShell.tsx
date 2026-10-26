@@ -1,36 +1,42 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
-import { LucideProvider, Menu } from "lucide-react";
+import { ChevronRight, LucideProvider, Menu, PanelLeft } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
+import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import { enter, exit } from "@/lib/motion";
+import { cn } from "@/lib/utils";
 
 // Animation features load after first paint; until then m.* renders statically.
 const animationFeatures = () => import("@/lib/motion-dom").then((module) => module.default);
 import { AppSidebar } from "./AppSidebar";
 import { pageMeta, type PageId } from "./pages";
 
-function MobileTopBar({ title }: { title: string }) {
-  const { setOpenMobile } = useSidebar();
-  return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b bg-background/95 px-2 backdrop-blur-sm md:hidden">
-      <Button variant="ghost" size="icon" className="size-10" aria-label="打开菜单" onClick={() => setOpenMobile(true)}>
-        <Menu className="size-5" />
-      </Button>
-      <span className="min-w-0 flex-1 truncate text-base font-semibold">{title}</span>
-      <AccountMenu compact />
-    </header>
-  );
-}
-
-function PageHeader({ page }: { page: PageId }) {
+function TopBar({ page }: { page: PageId }) {
+  const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
   const meta = pageMeta(page);
   return (
-    <header className="mb-6 flex flex-col gap-1 empty:hidden max-md:mb-4">
-      <h1 id="page-title" className="text-xl font-semibold tracking-tight max-md:sr-only">{meta.title}</h1>
-      {meta.description && <p className="max-w-prose text-sm text-pretty text-muted-foreground">{meta.description}</p>}
+    <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur-sm md:px-6">
+      <Button variant="ghost" size="icon" className="size-9" aria-label={isMobile ? "打开菜单" : open ? "收起侧栏" : "展开侧栏"}
+        aria-expanded={isMobile ? openMobile : open} onClick={toggleSidebar}>
+        {isMobile ? <Menu /> : <PanelLeft />}
+      </Button>
+      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
+      <nav aria-label="当前位置" className="min-w-0 flex-1 text-sm">
+        <ol className="flex min-w-0 items-center gap-2">
+          <li className="hidden items-center gap-2 text-muted-foreground sm:flex">
+            <span>{meta.group}</span>
+            <ChevronRight aria-hidden="true" className="size-3.5" />
+          </li>
+          <li aria-current="page" className="truncate font-medium">{meta.title}</li>
+        </ol>
+      </nav>
+      <div className="flex shrink-0 items-center gap-1">
+        <ThemeSwitch />
+        <AccountMenu compact />
+      </div>
     </header>
   );
 }
@@ -55,15 +61,13 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
     <MotionConfig reducedMotion="user">
       <LazyMotion features={animationFeatures} strict>
       <LucideProvider strokeWidth={1.75}>
-        {/* Desktop stays expanded: the spec has no collapsed icon rail. */}
-        <SidebarProvider open onOpenChange={() => {}}>
+        <SidebarProvider>
           <AppSidebar page={page} />
           <div className="flex min-w-0 flex-1 flex-col">
-            <MobileTopBar title={pageMeta(page).title} />
+            <TopBar page={page} />
             <main ref={main} tabIndex={-1} aria-labelledby="page-title"
-              className="mx-auto w-full max-w-[880px] px-4 pt-4 pb-16 outline-none md:px-8 md:pt-8">
+              className={cn("mx-auto w-full px-4 py-6 pb-16 outline-none md:px-6 lg:px-8", pageMeta(page).wide ? "max-w-7xl" : "max-w-4xl")}>
               <PageTransition page={page}>
-                <PageHeader page={page} />
                 <div className="flex flex-col gap-6">{children}</div>
               </PageTransition>
             </main>

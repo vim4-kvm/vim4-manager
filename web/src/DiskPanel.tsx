@@ -6,13 +6,16 @@ import { FileActions } from "@/components/FileActions";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { File, Folder, HardDrive } from "lucide-react";
+import { ExternalLink, File, Folder, FolderPlus, HardDrive, MoreHorizontal, Plus, RefreshCw, Upload } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { InlineError } from "@/components/InlineError";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsCard } from "@/components/SettingsCard";
+import { PageHeading } from "@/components/PageHeading";
+import { DetailsDialog } from "@/components/DetailsDialog";
+import { Notice } from "@/components/Notice";
 import { StatusLabel } from "@/components/StatusDot";
 import { useActionStore, report } from "@/stores/action";
 import { useStatusStore } from "@/stores/status";
@@ -51,7 +54,7 @@ export const normalizeLabel = (label: string) => label.toUpperCase().replace(/[^
 function DiskIcon() { return <HardDrive aria-hidden="true" className="size-4 shrink-0 text-primary" />; }
 function FileIcon({ dir }: { dir: boolean }) {
   const Icon = dir ? Folder : File;
-  return <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />;
+  return <Icon aria-hidden="true" className={`size-4 shrink-0 ${dir ? "fill-amber-400/20 text-amber-500" : "text-muted-foreground"}`} />;
 }
 
 // Shows progress on the button that started an action, not only in the page banner.
@@ -99,7 +102,7 @@ function Usage({ disk }: { disk: Disk }) {
   const percent = Math.min(100, (used / disk.size) * 100);
   return (
     <span className={`flex flex-col gap-2 text-xs text-muted-foreground${disk.freeBytes < disk.size * 0.1 ? " [&>span>span]:bg-warning" : ""}`}>
-      <span className="block h-1 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:bg-primary" aria-hidden="true">
+      <span className="block h-1.5 w-full overflow-hidden rounded-full bg-muted [&>span]:block [&>span]:h-full [&>span]:bg-chart-1" aria-hidden="true">
         <span style={{ width: `${percent}%` }} />
       </span>
       <span className="tabular-nums">剩余 {bytes(disk.freeBytes)} / {bytes(disk.size)}</span>
@@ -120,16 +123,12 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
     : sizeMiB < 64 || sizeMiB > 32768 ? "容量需在 64 MiB 到 32 GiB 之间。"
     : undefined;
 
-  if (!open) {
-    return (
-      <Button variant="outline" disabled={busy || disks.length >= 8} onClick={() => setOpen(true)}>
-        新建数据盘
-      </Button>
-    );
-  }
   return (
+    <>
+    <Button disabled={busy || disks.length >= 8} onClick={() => setOpen(true)}><Plus />新建数据盘</Button>
+    {open && <DetailsDialog open title="新建数据盘" onOpenChange={(value) => { if (!busy) setOpen(value); }}>
     <form
-      className="flex w-full min-w-0 flex-col gap-4 rounded-md border bg-muted/40 p-4 "
+      className="flex w-full min-w-0 flex-col gap-4"
       onKeyDown={(event) => { if (event.key === "Escape" && !busy) setOpen(false); }}
       onSubmit={(event) => {
         event.preventDefault();
@@ -165,6 +164,8 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
         <Action variant="default" type="submit" working={doing === "create"} disabled={busy || !!invalid}>创建</Action>
       </div>
     </form>
+    </DetailsDialog>}
+    </>
   );
 }
 
@@ -368,9 +369,9 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
       }
       action={
         <span className="flex flex-wrap items-center justify-end gap-2">
-          <Action working={loading && !!listing} disabled={busy || !entries} onClick={() => setReload((value) => value + 1)}>刷新</Action>
-          <Button variant="outline" disabled={locked || !entries} onClick={() => { setFolder(""); }}>新建文件夹</Button>
-          <Button variant="default" disabled={locked || !entries} onClick={() => input.current?.click()}>上传文件</Button>
+          <Button variant="outline" disabled={locked || !entries} onClick={() => input.current?.click()}><Upload />上传文件</Button>
+          <Button variant="outline" disabled={locked || !entries} onClick={() => { setFolder(""); }}><FolderPlus />新建文件夹</Button>
+          <Action working={loading && !!listing} disabled={busy || !entries} onClick={() => setReload((value) => value + 1)}><RefreshCw />刷新</Action>
           <input ref={input} type="file" multiple hidden onChange={(event) => { chooseFiles(event.target.files); event.target.value = ""; }} />
         </span>
       }
@@ -424,6 +425,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
         : !listing ? <PanelSkeleton />
         : (
           <div className={`min-w-0${loading ? " opacity-60" : ""}`} aria-busy={loading}>
+            <div className="rounded-md bg-muted/60 px-2 py-3"><FileColumns size="大小" date="修改时间" actions><span className="text-xs text-muted-foreground">名称</span></FileColumns></div>
             {shown !== "/" && (
               <div className="flex min-w-0 flex-wrap items-center gap-2 border-b py-1.5" role="row">
                 <Button variant="ghost" className="h-auto min-w-0 flex-1 justify-start gap-2 px-2 py-2 text-left font-normal whitespace-normal" onClick={() => setPath(parent(shown))}>
@@ -439,7 +441,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
               const target = join(shown, entry.name);
               const open = selected === entry.name;
               return (
-                <div key={entry.name} role="row" className="group/file relative flex min-w-0 flex-wrap items-center gap-2 py-1.5">
+                <div key={entry.name} role="row" className="group/file relative flex min-w-0 flex-wrap items-center gap-2 rounded-md px-2 py-2 hover:bg-muted/40">
                   {renaming === entry.name ? (
                     <form
                       className="flex w-full min-w-0 flex-wrap items-center gap-2 [&_input]:min-w-24 [&_input]:flex-1 "
@@ -487,6 +489,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
             }}</AnimatedList>
           </div>
         )}
+      {!disk.attached && <Notice>文件管理仅在数据盘未挂载时可用。</Notice>}
     </div></SettingsCard>
   );
 }
@@ -518,8 +521,8 @@ function defaultGrow(disk: Disk) {
   return sizes.find((size) => size * 2 ** 20 >= disk.size * 2) ?? sizes.at(-1) ?? 0;
 }
 
-function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
-  disk: Disk; busy: boolean; run: Run; onChanged: () => void; onDeleted: () => void;
+function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
+  disk: Disk; busy: boolean; run: Run; onChanged: () => void; onDeleted: () => void; expanded: boolean;
 }) {
   const { doing, track } = useTracked(run);
   const [label, setLabel] = useState(disk.label ?? "");
@@ -550,11 +553,13 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
 
   return (
     <SettingsCard
-      title="维护"
-      description={disk.attached ? "数据盘挂载期间不能维护，先在被控电脑安全弹出，再到「虚拟介质」页弹出。" : "以下操作需要数据盘未挂载到被控电脑。"}
+      id="disk-maintenance"
+      className="scroll-mt-20"
+      title="备份与快照"
+      description={`${disk.snapshots.length} / 3 个快照${expanded ? " · 已展开维护操作" : ""}`}
       onKeyDown={(event) => { if (event.key === "Escape" && open && !busy) setOpen(undefined); }}
     >
-      <form
+      {expanded && <div className="space-y-5"><p className="text-sm text-muted-foreground">{disk.attached ? "数据盘挂载期间不能维护，先在被控电脑安全弹出，再到「虚拟介质」页弹出。" : "维护操作需要数据盘未挂载到被控电脑。"}</p><form
         className="grid grid-cols-1 items-center gap-x-6 gap-y-1 @md:grid-cols-[minmax(0,1fr)_auto]"
         onSubmit={(event) => {
           event.preventDefault();
@@ -583,7 +588,7 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
             {doing === "check" ? "正在检查…" : "开始检查"}
           </Action>} />
         {check && <pre className={`max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs${check.ok ? "" : " text-destructive"}`}>{check.output || (check.ok ? "无错误" : "")}</pre>}
-      </div>
+      </div></div>}
 
       <SettingRow title="备份" description="下载完整镜像，可在电脑上直接挂载或写入真实 U 盘。" control={
         <Button asChild variant="outline"><a
@@ -642,7 +647,7 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted }: {
         )}
       </div>
 
-      {dangers.map((item) => (
+      {expanded && dangers.map((item) => (
           <div key={item.id} className="flex flex-col gap-4">
             <SettingRow title={item.title} description={item.text} control={
             <Button variant={item.danger ? "destructive" : "outline"}
@@ -716,6 +721,7 @@ export function DiskPanel() {
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<string>();
   const [reload, setReload] = useState(0);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     getDisks(controller.signal).then((list) => {
@@ -755,18 +761,24 @@ export function DiskPanel() {
 
   return (
     <>
+      <PageHeading page="disks" action={disks && <CreateDisk disks={disks} busy={busy} run={run} onCreated={(name) => { setSelected(name); refresh(); }} />} />
+      {status && <SettingsCard label="系统盘空间"><div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-3"><HardDrive className="size-7 text-muted-foreground" aria-hidden="true" /><strong className="text-sm">系统盘剩余 {bytes(status.system.disk.freeBytes)}</strong></div>
+        <div className="h-2 min-w-24 flex-1 basis-40 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-chart-1" style={{ width: `${Math.max(0, Math.min(100, (1 - status.system.disk.freeBytes / Math.max(1, status.system.disk.totalBytes)) * 100))}%` }} /></div>
+        <span className="text-xs tabular-nums text-muted-foreground">共 {bytes(status.system.disk.totalBytes)}</span>
+      </div></SettingsCard>}
+      <div className="grid items-start gap-5 xl:grid-cols-[250px_minmax(0,1fr)]">
       <SettingsCard label="数据盘列表" title="数据盘"
-        description="板子上的 FAT32 磁盘镜像。未挂载时可在这里管理文件；在「虚拟介质」页挂载后，被控电脑和四个 KVM 界面都能使用。"
-        action={disks && <CreateDisk disks={disks} busy={busy} run={run} onCreated={(name) => { setSelected(name); refresh(); }} />}>
+        >
         {error ? <div className="flex flex-col items-start gap-3"><InlineError>{error}</InlineError><Button variant="outline" onClick={refresh}>重新读取数据盘</Button></div>
           : !disks ? <PanelSkeleton />
           : disks.length === 0 ? (
             <EmptyState icon={HardDrive}>还没有数据盘。新建一个，用来在被控电脑和这里之间传递文件。</EmptyState>
           ) : (
-            <FadeIn><div className="grid gap-3 @lg:grid-cols-2" role="radiogroup" aria-label="选择数据盘">
+            <FadeIn><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1" role="radiogroup" aria-label="选择数据盘">
               {disks.map((item) => (
-                <label key={item.name} className={`flex min-w-0 cursor-pointer flex-col gap-3 rounded-md border p-4 transition-colors hover:bg-accent/60 has-checked:border-primary has-checked:bg-primary/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50${item.name === selected ? " border-primary bg-primary/5" : ""}`}>
-                  <input className="sr-only" type="radio" name="disk" checked={item.name === selected} onChange={() => setSelected(item.name)} />
+                <label key={item.name} className={`flex min-w-0 cursor-pointer flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/60 has-checked:border-chart-1 has-checked:bg-chart-1/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50${item.name === selected ? " border-chart-1 bg-chart-1/5" : ""}`}>
+                  <input className="sr-only" type="radio" name="disk" checked={item.name === selected} onChange={() => { setSelected(item.name); setMaintenanceOpen(false); }} />
                   <span className="flex flex-wrap items-center gap-2 [&>strong]:break-all">
                     <DiskIcon />
                     <strong className="font-medium">{item.name}</strong>
@@ -780,11 +792,25 @@ export function DiskPanel() {
           )}
       </SettingsCard>
       {disk && (
-        <>
-          <Files key={disk.name} disk={disk} busy={busy} run={run} report={report} onChanged={refresh} />
-          <Maintenance disk={disk} busy={busy} run={run} onChanged={refresh} onDeleted={() => { setSelected(undefined); refresh(); }} />
-        </>
+        <div key={disk.name} className="flex min-w-0 flex-col gap-5">
+          <SettingsCard label="所选数据盘">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="min-w-0 flex-1 break-all text-lg font-semibold">{disk.name}</h2>
+              <DiskState disk={disk} />
+              <div className="ml-auto flex flex-wrap gap-2">
+                <Button variant="outline" asChild><a href="#/media"><ExternalLink />前往挂载</a></Button>
+                <Button variant="outline" aria-expanded={maintenanceOpen} aria-controls="disk-maintenance" onClick={() => {
+                  setMaintenanceOpen((value) => !value);
+                  if (!maintenanceOpen) requestAnimationFrame(() => document.getElementById("disk-maintenance")?.scrollIntoView({ block: "start" }));
+                }}><MoreHorizontal />维护</Button>
+              </div>
+            </div>
+          </SettingsCard>
+          <Files disk={disk} busy={busy} run={run} report={report} onChanged={refresh} />
+          <Maintenance disk={disk} expanded={maintenanceOpen} busy={busy} run={run} onChanged={refresh} onDeleted={() => { setSelected(undefined); refresh(); }} />
+        </div>
       )}
+      </div>
     </>
   );
 }

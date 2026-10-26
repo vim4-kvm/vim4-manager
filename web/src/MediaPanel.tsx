@@ -1,9 +1,8 @@
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
-import { FileColumns } from "@/components/FileColumns";
 import { useEffect, useState } from "react";
 import { request, type Media, type MediaImage } from "./api";
-import { Disc3, HardDrive, Loader2 } from "lucide-react";
+import { BookOpen, Disc3, ExternalLink, HardDrive, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SettingRow } from "@/components/SettingRow";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -12,6 +11,8 @@ import { InlineError } from "@/components/InlineError";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingsCard } from "@/components/SettingsCard";
 import { StatusLabel } from "@/components/StatusDot";
+import { PageHeading } from "@/components/PageHeading";
+import { kvmURL } from "@/lib/units";
 import { useActionStore } from "@/stores/action";
 import { useStatusStore } from "@/stores/status";
 
@@ -107,9 +108,9 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
 
   if (!media?.known) {
     return (
-      <SettingsCard label="当前介质">
+      <SettingsCard title="当前介质">
         <div className="flex flex-wrap items-center gap-4">
-          <MediaIcon empty />
+          <div className="flex size-20 items-center justify-center rounded-full bg-muted"><HardDrive className="size-10 text-muted-foreground" aria-hidden="true" /></div>
           <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
             <h3 className="text-sm font-medium">状态未知</h3>
             <p className="text-sm text-muted-foreground">暂时无法读取介质状态，请等待状态恢复。</p>
@@ -120,9 +121,9 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
   }
   if (!media.inserted) {
     return (
-      <SettingsCard label="当前介质">
+      <SettingsCard title="当前介质">
         <div className="flex flex-wrap items-center gap-4">
-          <MediaIcon empty />
+          <div className="flex size-20 items-center justify-center rounded-full bg-muted"><Disc3 className="size-12 text-muted-foreground" aria-hidden="true" /></div>
           <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
             <h3 className="text-sm font-medium">未挂载介质</h3>
             <p className="text-sm text-muted-foreground">从下方镜像库选择一个镜像，挂载到被控电脑。</p>
@@ -132,20 +133,23 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
     );
   }
   return (
-    <SettingsCard label="当前介质">
-      <div className="flex flex-wrap items-center gap-4">
-        <MediaIcon cdrom={media.cdrom} />
-        <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
-          <span className="text-xs text-muted-foreground">已挂载到被控电脑</span>
-          <h3 className="text-sm font-medium">{mediaName(media)}</h3>
+    <SettingsCard title="当前介质">
+      <div className="flex flex-wrap items-center gap-5 py-2">
+        <div className="flex size-24 shrink-0 items-center justify-center rounded-full border-8 border-muted bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300">{media.cdrom ? <Disc3 className="size-16" aria-hidden="true" /> : <HardDrive className="size-12" aria-hidden="true" />}</div>
+        <div className="flex min-w-0 flex-1 basis-48 flex-col gap-3 [overflow-wrap:anywhere]">
+          <h3 className="text-xl font-semibold tracking-tight">{mediaName(media)}</h3>
+          <StatusLabel tone="good">已挂载到被控电脑</StatusLabel>
           <MediaFacts media={media} />
           {media.nasdisk?.mode === "rw" && <p className="text-sm text-muted-foreground">弹出后修改会写回 NAS，进度见「网络存储」页。</p>}
         </div>
+        <div className="flex max-w-sm flex-col items-end gap-5">
         {!ejecting && (
           <Button variant="outline" disabled={locked} onClick={() => setEjecting(true)}>
             弹出…
           </Button>
         )}
+        <p className="text-xs text-muted-foreground">请先在被控电脑安全弹出，再从这里移除介质。</p>
+        </div>
       </div>
       <ConfirmDialog open={ejecting} onOpenChange={setEjecting} title="弹出…" confirm="弹出虚拟磁盘"
         busy={locked} disabled={!confirmed || !media.token} closeOnConfirm={false}
@@ -171,7 +175,8 @@ export function MediaPanel() {
   const stale = useStatusStore((s) => s.stale);
   const media = stale ? undefined : status?.media;
   const active = status?.active ?? "";
-  const activeName = status?.apps.find((a) => a.id === active)?.name;
+  const activeApp = status?.apps.find((a) => a.id === active);
+  const activeName = activeApp?.name;
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const [images, setImages] = useState<MediaImage[]>([]);
@@ -201,9 +206,10 @@ export function MediaPanel() {
 
   return (
     <>
+      <PageHeading page="media" />
       <CurrentMedia media={media} locked={locked} run={run} />
-      <SettingsCard title="镜像库" description="数据盘与各 KVM 的 ISO/IMG 目录。数据盘在「数据盘」页新建和管理文件，ISO 请在对应 KVM 中上传。"
-        action={<Button variant="outline" disabled={busy || loading} onClick={() => setReload(value => value + 1)}>刷新</Button>}>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_250px]">
+      <SettingsCard title="镜像库" action={<div className="flex flex-wrap gap-2"><Button variant="outline" disabled={busy || loading} onClick={() => setReload(value => value + 1)}><RefreshCw />刷新</Button><Button variant="outline" asChild><a href="#/disks">管理数据盘<ExternalLink /></a></Button></div>}>
         {loading ? <PanelSkeleton />
           : error ? <InlineError>{error}</InlineError>
           : images.length === 0 ? (
@@ -211,13 +217,13 @@ export function MediaPanel() {
           ) : (
             <FadeIn><div className="flex flex-col gap-5" role="radiogroup" aria-label="镜像文件">
               {groups.map(source => (
-                <div key={source} className="flex flex-col gap-2 [&_h4]:flex [&_h4]:items-baseline [&_h4]:justify-between [&_h4]:text-sm [&_h4]:font-medium">
+                <div key={source} className="flex flex-col gap-2 [&_h4]:flex [&_h4]:items-baseline [&_h4]:justify-between [&_h4]:text-xs [&_h4]:font-medium [&_h4]:text-muted-foreground">
                   <h4>
                     {sources[source] ?? source}
                     {source === "data" && <a className="text-xs text-primary" href="#/disks">管理文件 →</a>}
                   </h4>
                   <AnimatedList className="flex flex-col divide-y" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
-                    <label className="flex min-w-0 cursor-pointer items-center gap-3 py-2.5 transition-colors hover:bg-accent/60 has-checked:bg-primary/5 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-primary">
+                    <label className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-4 transition-colors hover:bg-accent/60 has-checked:bg-chart-1/7 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-chart-1">
                       <input
                         type="radio"
                         name="media-image"
@@ -226,16 +232,18 @@ export function MediaPanel() {
                         disabled={locked}
                         onChange={() => { setImageID(image.id); setReadonly(true); }}
                       />
-                      <FileColumns size={<>{image.cdrom ? "光盘" : "磁盘"} · {size(image.size)}</>}>
-                        <MediaIcon cdrom={image.cdrom} /><span className="min-w-0 text-sm">{image.name}</span>
-                      </FileColumns>
+                      <span className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 md:grid-cols-[minmax(0,1fr)_6rem_4rem]">
+                        <span className="flex min-w-0 items-center gap-3"><MediaIcon cdrom={image.cdrom} /><span className="min-w-0 break-all text-sm font-medium">{image.name}</span></span>
+                        <span className="text-right text-xs tabular-nums text-muted-foreground">{size(image.size)}</span>
+                        <span className="hidden text-right text-xs text-muted-foreground md:block">{image.cdrom ? "光盘" : "磁盘"}</span>
+                      </span>
                     </label>
                   )}</AnimatedList>
                 </div>
               ))}
             </div></FadeIn>
           )}
-        <SettingRow title="只读挂载" description={blocker} control={<>
+        <SettingRow title={selected ? `已选 ${selected.name}` : "选择镜像"} description={blocker} control={<>
           <label className="flex items-start gap-2 text-sm [&_input]:mt-1 [&_input]:accent-primary">
             <input
               type="checkbox"
@@ -245,16 +253,25 @@ export function MediaPanel() {
             />
             只读挂载{readOnlyRequired ? "（光盘或 JetKVM 必须只读）" : ""}
           </label>
-          <Button variant="default"
+          <Button variant="default" aria-label="挂载镜像"
             disabled={locked || loading || !!media?.inserted || !selected || !active}
             onClick={() => {
               if (selected) void run("正在挂载虚拟磁盘…", () => request("/api/media/mount", { app: active, image: selected.id, cdrom: selected.cdrom, readOnly: readonly || readOnlyRequired }), "虚拟磁盘已挂载");
             }}
           >
-            挂载镜像
+            {media?.inserted ? "先弹出当前介质" : "挂载镜像"}
           </Button>
         </>} />
       </SettingsCard>
+      <SettingsCard title="镜像来源" action={<BookOpen className="size-5 text-muted-foreground" aria-hidden="true" />}>
+        <div className="space-y-4 text-sm text-muted-foreground">
+          <p><strong className="font-medium text-foreground">数据盘</strong>：在数据盘页创建镜像和管理文件。</p>
+          <p><strong className="font-medium text-foreground">ISO / IMG</strong>：在对应 KVM 界面上传，然后刷新镜像库。</p>
+          {activeApp && <a className="inline-flex items-center gap-1 text-chart-1 hover:underline" href={kvmURL(activeApp.port, activeApp.id)}>打开 {activeApp.name}<ExternalLink className="size-3.5" /></a>}
+        </div>
+        <p className="text-xs text-muted-foreground">四个界面共用同一个 USB 存储设备。已有介质时，需先弹出再挂载其他镜像。</p>
+      </SettingsCard>
+      </div>
     </>
   );
 }
