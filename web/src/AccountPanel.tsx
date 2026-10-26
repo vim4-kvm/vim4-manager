@@ -11,6 +11,7 @@ import { InlineError } from "@/components/InlineError";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsCard } from "@/components/SettingsCard";
+import { PageHeading } from "@/components/PageHeading";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { request } from "./api";
 import { logout, useAccount } from "./auth";
@@ -263,6 +264,7 @@ export function AccountPanel() {
   ];
   return (
     <>
+      <PageHeading page="account" />
       {message && (
         <div data-account-success className="flex items-center gap-3 rounded-md border border-success/30 bg-card p-3 text-sm text-success-foreground [&_button]:ml-auto [&_button]:size-7 [&_button]:border-0" role="status">
           <Check className="size-4 shrink-0" aria-hidden="true" />
@@ -272,32 +274,18 @@ export function AccountPanel() {
           </Button>
         </div>
       )}
-      <SettingsCard>
-        <div className="flex min-w-0 flex-wrap items-center gap-3">
-          <Avatar username={signedInName} className="size-9 text-sm" />
-          <div className="flex min-w-0 flex-1 flex-col [&_strong]:font-semibold [&_small]:text-xs [&_small]:text-muted-foreground">
-            <strong>{signedInName}</strong>
-            <small>管理员</small>
+      <SettingsCard title="管理员账户">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
+          <div className="flex min-w-0 items-center gap-5 py-3 lg:border-r lg:pr-6">
+            <Avatar username={signedInName} className="size-20 bg-chart-1/10 text-3xl text-chart-1" />
+            <div className="min-w-0 space-y-1"><strong className="block break-all text-xl font-semibold">{signedInName}</strong><p className="text-sm text-muted-foreground">本机管理员</p></div>
           </div>
-          <Button variant="outline"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setError("");
-              try {
-                await logout();
-              } catch {
-                setError("退出失败，请重试");
-                setBusy(false);
-              }
-            }}
-          >
-            {busy && !mode ? "正在退出…" : "退出登录"}
-          </Button>
+          <div className="@container min-w-0 divide-y [&>div]:py-4 [&>div:first-child]:pt-0 [&>div:last-child]:pb-0">
+            <SettingRow title="用户名" description={signedInName} control={<Button variant="outline" aria-label="修改用户名" onClick={() => open("username")}>修改用户名</Button>} />
+            <SettingRow title="密码" description={<><span className="block tracking-widest text-foreground">••••••••</span><span>{account ? `上次修改 ${localDate(account.passwordChanged)}（${passwordAge(account.passwordChanged)}）` : "—"}</span></>}
+              control={<Button variant="outline" aria-label="修改密码" disabled={!account} onClick={() => open("password")}>修改密码</Button>} />
+          </div>
         </div>
-        <SettingRow title="用户名" status={signedInName} control={<Button variant="outline" aria-label="修改用户名" onClick={() => open("username")}>修改</Button>} />
-        <SettingRow title="密码" status={account ? `上次修改 ${localDate(account.passwordChanged)}（${passwordAge(account.passwordChanged)}）` : "—"}
-          control={<Button variant="outline" aria-label="修改密码" disabled={!account} onClick={() => open("password")}>修改</Button>} />
         {error && !mode && (
           <InlineError>
             {error}
@@ -305,7 +293,7 @@ export function AccountPanel() {
         )}
       </SettingsCard>
       <SettingsCard data-account-devices><div className="flex min-w-0 flex-col gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 [&>div]:min-w-0 [&>div]:flex-1 [&>div]:basis-64 [&_h3]:text-sm [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 [&>div]:min-w-0 [&>div]:flex-1 [&>div]:basis-64 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
           <div>
             <h3>登录设备</h3>
             <p>已登录管理面板的浏览器和工具。退出后需要重新输入密码。</p>
@@ -322,7 +310,7 @@ export function AccountPanel() {
             ))}
         </div>
         <div className="min-w-0" role="table" aria-label="登录设备" aria-busy={loading}>
-          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,180px)_90px_56px] items-center gap-3 border-b py-2 text-xs text-muted-foreground md:grid" role="row">
+          <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,180px)_100px_80px] items-center gap-3 rounded-md bg-muted/60 px-3 py-3 text-xs text-muted-foreground md:grid" role="row">
             <span role="columnheader">设备</span>
             <span role="columnheader">地址</span>
             <span role="columnheader">最后活动</span>
@@ -344,7 +332,7 @@ export function AccountPanel() {
                 const info = deviceInfo(device.userAgent);
                 const address = addressInfo(device.address);
                 return (
-                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b py-3 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,180px)_90px_56px]" role="row" key={device.id}>
+                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 border-b px-3 py-5 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,180px)_100px_80px]" role="row" key={device.id}>
                     <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 [&>span]:break-all" role="cell">
                       {info.icon === "terminal" ? <Terminal className="size-4 shrink-0" /> : info.icon === "phone" ? <Smartphone className="size-4 shrink-0" /> : info.icon === "laptop" ? <Laptop className="size-4 shrink-0" /> : <Monitor className="size-4 shrink-0" />}
                       <span>{info.name}</span>
@@ -373,11 +361,20 @@ export function AccountPanel() {
                           {revoking.includes(device.id) ? "退出中…" : "退出"}
                         </Button>
                       )}
+                      {device.current && <span className="text-xs text-muted-foreground">当前会话</span>}
                     </span>
                   </div>
                 );
               }}</AnimatedList></FadeIn>
           )}
+        </div>
+        <p className="text-xs text-muted-foreground">退出设备会结束该设备的管理面板和 KVM 会话。</p>
+        <div className="flex justify-end border-t pt-4">
+          <Button variant="outline" disabled={busy} onClick={async () => {
+            setBusy(true);
+            setError("");
+            try { await logout(); } catch { setError("退出失败，请重试"); setBusy(false); }
+          }}>{busy && !mode ? "正在退出…" : "退出登录"}</Button>
         </div>
       </div></SettingsCard>
       <div data-account-notes className="space-y-2 text-xs text-muted-foreground [&_code]:break-all [&_code]:font-mono">

@@ -13,7 +13,7 @@ export function Segmented({ label, children, className }: { label: string; child
 
 const option = "flex min-w-0 flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left";
 // Solid in both themes so hover never blends the selected option into the track.
-const selected = "bg-card text-foreground shadow-xs dark:bg-[color-mix(in_oklab,var(--input)_60%,var(--muted))]";
+const selected = "bg-chart-1 text-white shadow-xs hover:text-white [&>span]:text-white dark:text-slate-950 dark:hover:text-slate-950 dark:[&>span]:text-slate-950";
 
 export function SegmentedOption({ title, detail, pressed, className, ...props }: {
   title: string;

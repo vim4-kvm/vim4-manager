@@ -41,16 +41,6 @@ function TopBar({ page }: { page: PageId }) {
   );
 }
 
-function PageHeader({ page }: { page: PageId }) {
-  const meta = pageMeta(page);
-  return (
-    <header className="mb-6 flex flex-col gap-1.5">
-      <h1 id="page-title" className="text-2xl font-bold tracking-tight md:text-3xl">{meta.title}</h1>
-      {meta.description && <p className="max-w-prose text-sm text-pretty text-muted-foreground">{meta.description}</p>}
-    </header>
-  );
-}
-
 /** Finish the outgoing fade before entering the next page. */
 function PageTransition({ page, children }: { page: PageId; children: ReactNode }) {
   const reduced = useReducedMotion();
@@ -78,7 +68,6 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
             <main ref={main} tabIndex={-1} aria-labelledby="page-title"
               className={cn("mx-auto w-full px-4 py-6 pb-16 outline-none md:px-6 lg:px-8", pageMeta(page).wide ? "max-w-7xl" : "max-w-4xl")}>
               <PageTransition page={page}>
-                {page !== "overview" && <PageHeader page={page} />}
                 <div className="flex flex-col gap-6">{children}</div>
               </PageTransition>
             </main>

@@ -11,6 +11,9 @@ import { useCallback, useEffect, useState } from "react";
 import { getUpdates, installUpdate, type Update } from "./api";
 import { DevelopmentBadge } from "@/components/DevelopmentBadge";
 import { isDevelopmentVersion } from "@/lib/version";
+import { PageHeading } from "@/components/PageHeading";
+import { KernelPanel } from "@/KernelPanel";
+import { RefreshCw } from "lucide-react";
 
 
 // NanoKVM, JetKVM and One-KVM install updates from their own settings page,
@@ -33,12 +36,13 @@ export function UpdatesPanel() {
   const [error, setError] = useState<string>();
   const [checking, setChecking] = useState(false);
   const [confirming, setConfirming] = useState<string>();
+  const [checkedAt, setCheckedAt] = useState<number>();
 
   const check = useCallback(async (signal?: AbortSignal) => {
     setChecking(true);
     try {
       const next = await getUpdates(signal);
-      if (!signal?.aborted) (setUpdates(next), setError(undefined));
+      if (!signal?.aborted) { setUpdates(next); setError(undefined); setCheckedAt(Date.now()); }
     } catch (e) {
       if (!signal?.aborted) setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -63,22 +67,24 @@ export function UpdatesPanel() {
 
   return (
     <>
-      <SettingsCard label="更新">
-      <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 text-sm">
-        <span className="max-w-prose min-w-0 flex-1 basis-64 text-pretty text-muted-foreground">从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。</span>
-        <Button variant="outline" disabled={busy || checking} onClick={() => void check()}>
+      <PageHeading page="updates" action={
+        <Button disabled={busy || checking} onClick={() => void check()}><RefreshCw className={checking ? "motion-safe:animate-spin" : undefined} />
           {checking ? "检查中…" : "重新检查"}
         </Button>
-      </div>
+      } />
+      <SettingsCard label="内核" title="运行内核"><KernelPanel /></SettingsCard>
+      <SettingsCard label="更新" title="软件组件" description="从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。" flush>
+      <div className="p-4 sm:p-6">
       {error && <InlineError>检查失败：{error}</InlineError>}
       {!updates ? (
         !error && <PanelSkeleton />
       ) : (
-        <FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:pb-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-t [&_td]:py-3 [&_td]:align-middle [&_td:not(:last-child)]:pr-4 [&_th:not(:last-child)]:pr-4 [&_tr:last-child_td]:pb-0">
+        <FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:bg-muted/60 [&_th]:px-3 [&_th]:py-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-b [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle [&_tr:last-child_td]:border-b-0">
           <thead>
             <tr>
               <th>项目</th>
               <th className="hidden md:table-cell">已安装</th>
+              <th className="hidden xl:table-cell">最新版本</th>
               <th>状态</th>
               <th aria-label="操作" />
             </tr>
@@ -95,6 +101,7 @@ export function UpdatesPanel() {
                     </a>
                   </td>
                   <td className="font-mono break-all text-muted-foreground hidden md:table-cell text-xs">{update.installed || "—"}</td>
+                  <td className="hidden break-all font-mono text-xs text-muted-foreground xl:table-cell">{update.latest || "—"}</td>
                   <td>
                     <StatusLabel tone={tone}>
                       {label}
@@ -120,6 +127,7 @@ export function UpdatesPanel() {
                         </Button>
                       )
                     )}
+                    {!update.available && update.selfService && <span className="text-xs text-muted-foreground">在 KVM 内更新</span>}
                   </td>
                 </tr>
               );
@@ -127,7 +135,9 @@ export function UpdatesPanel() {
           </tbody>
         </table></FadeIn>
       )}
+      </div>
       </SettingsCard>
+      <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground"><span>上次检查：{checkedAt ? new Date(checkedAt).toLocaleTimeString("zh-CN", { hour12: false }) : "尚未完成"}</span><a className="text-chart-1 hover:underline" href="#/overview">查看设备与版本 →</a></div>
     </>
   );
 }

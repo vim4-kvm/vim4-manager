@@ -2,8 +2,8 @@
 
 VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM、One-KVM 或 PiKVM），
 查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
-页面按侧边栏分为概览、KVM 界面、虚拟介质、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由）。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
-网络存储页路由约定为 `#/storage`，使用下述 SMB/NFS 后端 API（前端另行实现）。
+页面按侧边栏分为概览、KVM 界面、虚拟介质、数据盘、网络存储、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由），账户页从右上角进入。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
+网络存储页（`#/storage`）管理下述 SMB/NFS 连接与 NAS 文件夹 U 盘。
 
 前端采用 [shadcn-admin](https://github.com/satnaing/shadcn-admin) 的分组导航、顶部工具栏、
 仪表盘布局和 Slate 配色，适配现有设备状态与操作流程。

@@ -62,19 +62,12 @@ export function EDIDPanel() {
   };
 
   return <FadeIn className="flex flex-col gap-5">
-    <FactGrid>
-      <Fact label="已保存" value={name(state.selected) ?? (state.savedName || "自定义 EDID")}
-        tone={state.selected ? "good" : "warning"} />
-      <Fact label="本次开机加载" value={state.activeKnown ? name(state.active) ?? "自定义 EDID" : "未记录"}
-        tone={!state.activeKnown ? "idle" : state.active === state.selected ? "good" : "warning"} />
-      <Fact label="JetKVM" value={state.jetkvmSynced ? "已同步" : "配置不同"} tone={state.jetkvmSynced ? "good" : "warning"} />
-    </FactGrid>
     <Collapse open={!!error}><InlineError>刷新失败：{error}，显示的是上次读取的状态。</InlineError></Collapse>
     <div className="flex flex-col gap-2" role="radiogroup" aria-label="EDID 预设">
       {state.presets.map(p => <label key={p.id}
-        className="flex cursor-pointer items-start gap-3 rounded-md border p-3 has-checked:border-primary has-checked:bg-primary/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+        className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 has-checked:border-chart-1 has-checked:bg-chart-1/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
         <input type="radio" name="edid" value={p.id} checked={p.id === selected} disabled={busy}
-          className="mt-1 shrink-0 accent-primary" onChange={() => { setChoice(p.id); setConfirming(false); }} />
+          className="mt-1 size-4 shrink-0 accent-chart-1" onChange={() => { setChoice(p.id); setConfirming(false); }} />
         <span className="flex min-w-0 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-2"><strong className="font-medium">{p.name}</strong>
             {p.id === state.selected && <Badge variant="secondary">已保存</Badge>}
@@ -84,6 +77,13 @@ export function EDIDPanel() {
         </span>
       </label>)}
     </div>
+    <FactGrid>
+      <Fact label="已保存" value={name(state.selected) ?? (state.savedName || "自定义 EDID")}
+        tone={state.selected ? "good" : "warning"} />
+      <Fact label="本次开机加载" value={state.activeKnown ? name(state.active) ?? "自定义 EDID" : "未记录"}
+        tone={!state.activeKnown ? "idle" : state.active === state.selected ? "good" : "warning"} />
+      <Fact label="JetKVM" value={state.jetkvmSynced ? "已同步" : "配置不同"} tone={state.jetkvmSynced ? "good" : "warning"} />
+    </FactGrid>
     <SettingRow title="EDID" description={inSync ? "所选预设已保存并加载。" : !state.jetkvmSynced && selected === state.selected
       ? "重新应用可同步 JetKVM 配置。" : "应用后保存，重启仍然有效。"}
       control={<>

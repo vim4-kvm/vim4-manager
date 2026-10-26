@@ -5,13 +5,15 @@ import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { MoreHorizontal, Server } from "lucide-react";
+import { HardDrive, MoreHorizontal, Pencil, Plus, Server, Usb } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Fact, FactGrid } from "@/components/FactGrid";
 import { InlineError } from "@/components/InlineError";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingsCard } from "@/components/SettingsCard";
+import { PageHeading } from "@/components/PageHeading";
+import { Notice } from "@/components/Notice";
 import { StatusDot, type Tone } from "@/components/StatusDot";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useActionStore } from "@/stores/action";
@@ -96,6 +98,8 @@ export function StoragePanel() {
   const [test, setTest] = useState<StorageTest & { running?: boolean }>();
   const [confirming, setConfirming] = useState<Confirm>();
   const [diskSetup, setDiskSetup] = useState<string>();
+  const [selectedID, setSelectedID] = useState<string>();
+  const [connectionTest, setConnectionTest] = useState<{ id: string; result: StorageTest }>();
   const disk = useNasDisk();
   const session = disk.state?.session;
 
@@ -144,6 +148,7 @@ export function StoragePanel() {
 
   function openEditor(storage?: Storage) {
     setDiskSetup(undefined);
+    setConnectionTest(undefined);
     setTest(undefined);
     setError("");
     setEditor(
@@ -188,11 +193,19 @@ export function StoragePanel() {
   const locked = busy || !!pending || stale;
   const storages = state?.storages ?? [];
   const missingTools = state && (!state.tools.smb || !state.tools.nfs);
+  const selectedStorage = storages.find((s) => s.id === selectedID) ?? storages.find((s) => s.mounted) ?? storages[0];
 
   return (
     <div className="flex flex-col gap-6">
+    <PageHeading page="storage" action={!editor && storages.length > 0 && <Button disabled={locked || storages.length >= 8} onClick={() => openEditor()}><Plus />添加 NAS</Button>} />
+    {stale && state && <Notice warning>无法刷新网络存储，显示的是上次读取的状态。连接恢复后再操作。</Notice>}
+    {state?.known && <dl className="grid gap-4 sm:grid-cols-3">
+      <Fact card icon={Server} label="已连接" value={`${storages.filter((s) => s.mounted).length} / ${storages.length}`} />
+      <Fact card icon={HardDrive} label="可用空间" value={selectedStorage?.mounted && selectedStorage.freeBytes != null && !selectedStorage.stale ? bytes(selectedStorage.freeBytes) : "—"} detail={selectedStorage?.name || "尚无连接"} />
+      <Fact card icon={Usb} label="虚拟 U 盘" value={!disk.state?.known ? "状态未知" : session ? "使用中" : "未使用"} detail={session?.storageName} />
+    </dl>}
     <NasDiskPanel disk={disk} locked={locked} />
-    <SettingsCard label="网络存储" title="NAS" description="断开不会删除 NAS 上的文件。" action={
+    <section role="region" aria-label="网络存储" className="@container min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           {(pending || (!disk.hasActivity && disk.pending)) && (
             <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
@@ -200,13 +213,8 @@ export function StoragePanel() {
               {pending || disk.pending}
             </span>
           )}
-          {!editor && storages.length > 0 && (
-            <Button variant="default" disabled={locked || storages.length >= 8} onClick={() => openEditor()}>
-              添加 NAS
-            </Button>
-          )}
         </div>
-      }><div className="flex flex-col gap-5 empty:hidden">
+      <div className="flex flex-col gap-5 empty:hidden">
       {missingTools && (
         <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-warning-foreground">
           板子缺少{[!state.tools.smb && "SMB（cifs-utils）", !state.tools.nfs && "NFS（nfs-common）"].filter(Boolean).join("、")}
@@ -234,28 +242,30 @@ export function StoragePanel() {
           <strong className="font-medium text-foreground">还没有 NAS</strong><br />添加后可以把录屏保存到 NAS，或把 NAS 上的文件夹作为 U 盘交给被控电脑。
         </EmptyState>
       ) : (
-        <FadeIn><AnimatedList className="flex min-w-0 flex-col divide-y [&>li]:flex [&>li]:flex-col [&>li]:gap-4 [&>li]:py-4 [&>li:first-child]:pt-0 [&>li:last-child]:pb-0" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
+        <FadeIn><AnimatedList className="flex min-w-0 flex-col gap-3 [&>li]:min-w-0" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
             const connection = stateLabel(s);
             const room = capacity(s);
             const open = editor?.editing && editor.draft.id === s.id;
             const inUse = session?.storage === s.id;
             return (
-              <div className={open ? "bg-accent" : undefined}>
+              <div className={`rounded-xl border p-5 ${s.id === selectedStorage?.id ? "border-chart-1/40 bg-chart-1/3" : "bg-card"} ${open ? "space-y-5" : ""}`}>
                 <div className="flex min-w-0 flex-wrap items-start gap-3">
-                  <StatusDot tone={connection.tone} className="mt-1.5" />
+                  <div className="rounded-lg bg-chart-1/8 p-3 text-chart-1"><Server className="size-5" aria-hidden="true" /></div>
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2 [&_strong]:font-medium">
-                      <strong>{s.name}</strong>
+                      <button type="button" className="rounded-sm text-left text-base font-semibold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50" aria-pressed={s.id === selectedStorage?.id} aria-label={`查看 ${s.name} 连接信息`} onClick={() => setSelectedID(s.id)}>{s.name}</button>
+                      <StatusDot tone={connection.tone} />
                       <Badge variant="secondary">{s.type.toUpperCase()}</Badge>
+                      {s.autoMount && <Badge variant="secondary">自动连接</Badge>}
                       {s.insecure && <Badge variant="secondary" className="bg-warning/15 text-warning-foreground">SMB 1.0</Badge>}
                       <span className="text-sm text-muted-foreground">{connection.text}</span>
                       {inUse && <Badge variant="secondary">U 盘使用中</Badge>}
                     </div>
                     <span className="text-xs text-muted-foreground font-mono break-all">{storageAddress(s)}</span>
                     {room && (
-                      <div className="flex max-w-sm flex-col gap-2 text-xs">
+                      <div className="flex max-w-xl flex-col gap-2 pt-2 text-xs">
                         {room.ratio !== undefined && (
-                          <span className={`block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:rounded-full${room.ratio > 0.95 ? " [&>span]:bg-destructive-fill" : room.ratio > 0.85 ? " [&>span]:bg-warning" : " [&>span]:bg-primary"}`}>
+                          <span className={`block h-2 w-full overflow-hidden rounded-full bg-muted [&>span]:block [&>span]:h-full [&>span]:rounded-full${room.ratio > 0.95 ? " [&>span]:bg-destructive-fill" : room.ratio > 0.85 ? " [&>span]:bg-warning" : " [&>span]:bg-chart-1"}`}>
                             <span style={{ width: `${Math.max(2, room.ratio * 100)}%` }} />
                           </span>
                         )}
@@ -275,6 +285,7 @@ export function StoragePanel() {
                         aria-expanded={diskSetup === s.id}
                         onClick={() => {
                           setDiskSetup(s.id);
+                          setSelectedID(s.id);
                           setEditor(undefined);
                           setConfirming(undefined);
                         }}
@@ -289,6 +300,7 @@ export function StoragePanel() {
                         连接
                       </Button>
                     )}
+                    <Button variant="outline" disabled={locked} onClick={() => { setSelectedID(s.id); openEditor(s); }}><Pencil />编辑连接</Button>
                     <StorageMenu storage={s} locked={locked} inUse={inUse}
                       onEdit={() => (open ? setEditor(undefined) : openEditor(s))}
                       onConfirm={(kind) => setConfirming({ kind, storage: s })} />
@@ -346,7 +358,30 @@ export function StoragePanel() {
       )}
       {!disk.hasActivity && disk.state && !disk.state.known && <p className="text-sm text-warning-foreground">暂时无法读取 U 盘状态。</p>}
       {!disk.hasActivity && disk.error && <InlineError>{disk.error}</InlineError>}
-    </div></SettingsCard>
+    </div></section>
+    {selectedStorage && <SettingsCard title="连接信息" description={selectedStorage.name}>
+      <FactGrid cols={2}>
+        <Fact label="协议" value={`${selectedStorage.type.toUpperCase()}${selectedStorage.version === "auto" ? " · 自动协商" : ` ${selectedStorage.version}`}`} />
+        <Fact label="用户名" value={selectedStorage.type === "smb" ? selectedStorage.username || "访客" : "—"} />
+        <Fact label="共享" value={selectedStorage.share} />
+        <Fact label="开机自动连接" value={selectedStorage.autoMount ? "已开启" : "已关闭"} />
+        <Fact label="服务器" value={selectedStorage.server} />
+        <Fact label="访问权限" value={!selectedStorage.mounted || selectedStorage.writable == null ? "未知" : selectedStorage.writable ? "可读写" : "只读"} />
+      </FactGrid>
+      <div className="space-y-4"><div className="flex flex-wrap gap-3">
+        <Button variant="outline" disabled={locked} onClick={() => {
+          const s = selectedStorage;
+          setConnectionTest(undefined);
+          void act(`正在测试「${s.name}」…`, async () => {
+            const result = await storageWrite<StorageTest>("/test", { id: s.id, type: s.type, server: s.server, share: s.share, domain: s.domain, username: s.username, version: s.version });
+            setConnectionTest({ id: s.id, result });
+          });
+        }}>测试已保存连接</Button>
+        {selectedStorage.mounted && <Button variant="outline" disabled={locked || session?.storage === selectedStorage.id} onClick={() => setConfirming({ kind: "unmount", storage: selectedStorage })}>断开连接…</Button>}
+      </div>
+      {connectionTest?.id === selectedStorage.id && <p role="status" className={`text-sm ${connectionTest.result.ok ? "text-success-foreground" : "text-destructive"}`}>{connectionTest.result.ok ? "连接测试成功" : `连接测试失败：${connectionTest.result.error || "NAS 不可用"}`}</p>}
+      <Notice>断开只移除连接，不会删除 NAS 上的文件。作为 U 盘使用时会创建目录快照，文件不会实时共享。</Notice></div>
+    </SettingsCard>}
     </div>
   );
 }
