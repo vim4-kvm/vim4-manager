@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ArrowUpRight, Computer, Keyboard, Monitor, Network, Usb, X, Zap, type LucideIcon } from "lucide-react";
 import type { PassthroughState, Status } from "@/api";
 import boardImage from "@/assets/vim4-board.webp";
@@ -6,6 +6,7 @@ import { powerConnection } from "@/lib/power";
 import { hdrLabel } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import { StatusLabel, type Tone } from "./StatusDot";
+import { ConnectionLines } from "./ConnectionLines";
 import "./DeviceConnections.css";
 
 type Port = "input" | "output" | "network" | "usb";
@@ -70,7 +71,7 @@ export function DeviceConnections({ status, passthrough = status?.passthrough, s
 }) {
   const [selected, setSelected] = useState<Port>();
   const detailsId = useId();
-  const markerId = useId();
+  const mapRef = useRef<HTMLDivElement>(null);
   const data = connections(status, passthrough);
   const power = powerConnection(status?.power);
   const tone = (port: Port) => stale ? "idle" : data[port].tone;
@@ -79,19 +80,12 @@ export function DeviceConnections({ status, passthrough = status?.passthrough, s
   return (
     <section aria-label="设备连线图" className="device-connections">
       {stale && <p role="status" className="mb-3 text-xs text-warning-foreground">连接中断 · 以下为上次读取的状态</p>}
-      <div className="connection-map">
-        <svg className="connection-lines" viewBox="0 0 1000 500" fill="none" aria-hidden="true">
-          <defs><marker id={markerId} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="m1 1 7 4-7 4" fill="none" stroke="context-stroke" strokeWidth="2" /></marker></defs>
-          <path className="connection-line connection-network" data-tone={tone("network")} d="M200 130 H245 V85 Q245 75 255 75 H408 Q418 75 418 85 V145" />
-          <path className="connection-line connection-usb" data-tone={tone("usb")} d="M800 105 H760 V65 Q760 55 750 55 H598 Q588 55 588 65 V145" />
-          <path className="connection-line connection-video" data-tone={tone("input")} d="M200 390 H245 Q255 390 255 400 V406 Q255 416 266 416 H354" markerEnd={`url(#${markerId})`} />
-          <path className="connection-line connection-video" data-tone={tone("output")} d="M513 145 V195 Q513 205 523 205 H750 Q760 205 760 215 V385 Q760 395 770 395 H800" markerEnd={`url(#${markerId})`} />
-          <path className="connection-line connection-internal" data-tone={tone("output")} d="M354 416 H420 Q440 416 440 401 V350 Q440 335 455 335 H530 Q545 335 545 320 V290 H528 Q513 290 513 275 V145" markerEnd={`url(#${markerId})`} />
-        </svg>
+      <div className="connection-map" ref={mapRef}>
+        <ConnectionLines mapRef={mapRef} tones={{ network: tone("network"), usb: tone("usb"), input: tone("input"), output: tone("output") }} />
         <div className="connection-board">
           <img src={boardImage} alt="Khadas VIM4 板卡俯视图" width={1500} height={1063} className="block h-auto w-full" />
           {ports.map((port) => <button key={port.id} type="button" className="connection-port" style={{ left: `${port.x}%`, top: `${port.y}%` }}
-            data-tone={tone(port.id)} data-selected={selected === port.id} aria-label={`${port.label} 接口`} aria-pressed={selected === port.id} aria-controls={detailsId}
+            data-port={port.id} data-tone={tone(port.id)} data-selected={selected === port.id} aria-label={`${port.label} 接口`} aria-pressed={selected === port.id} aria-controls={detailsId}
             title={`${port.label} · ${data[port.id].value}`} onClick={() => select(port.id)}>
             <span className="connection-port-dot" /><span className={cn("connection-port-label", port.id === "input" && "connection-port-label-bottom")}>{port.label}</span>
           </button>)}
@@ -116,7 +110,7 @@ export function DeviceConnections({ status, passthrough = status?.passthrough, s
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t px-1 pt-3 text-[11px] text-muted-foreground">
         <div className="flex flex-wrap gap-x-4 gap-y-1"><span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-chart-1" />视频</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-chart-2" />网络</span><span className="flex items-center gap-1.5"><i className="h-0.5 w-5 bg-cyan-600 dark:bg-cyan-400" />USB 数据</span><span className="flex items-center gap-1"><Zap aria-hidden="true" className="size-3.5 text-warning-foreground" />供电</span></div>
-        <span>逻辑连接示意 · 点击接口查看详情</span>
+        <span>逻辑连接示意 · 光点示意流向 · 点击接口查看详情</span>
       </div>
       <div id={detailsId}>
         {selectedData && <div role="region" aria-label={`${selectedData.label}详情`} className="mt-4 flex flex-wrap items-start gap-3 rounded-lg border bg-muted/30 p-4">

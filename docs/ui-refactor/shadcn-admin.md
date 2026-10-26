@@ -176,3 +176,18 @@ tvserver 和 gadget 的 PID 与启动时间安装前后完全一致。实际透�
 |---|---|---|
 | 概览展开 | [截图](screens/connections/overview-expanded-light.png) | [截图](screens/connections/overview-expanded-dark.png) |
 | HDMI 输出 | [截图](screens/connections/output-expanded-light.png) | [截图](screens/connections/output-expanded-dark.png) |
+
+### 连线对齐与流向动画
+
+连线端点改为读取卡片边缘中心和接口热点的实际位置；窗口、侧栏和卡片内容改变尺寸时
+重新计算路径。网口与 USB-C 使用单个圆角转弯，HDMI 输入使用平滑曲线，移除卡片旁的折返。
+热点标签置于连线之上，避免线条穿过文字。
+
+正常连接在线上显示少量原生 SVG 移动光点，HDMI 沿输入到输出方向移动，网络与 USB
+双向示意；不表示实时流量。关闭、异常或过期的路径不显示光点，概览收起时移除动画。
+遵循系统减少动态效果设置，不增加轮询或逐帧 JavaScript 定时器。
+
+前端构建通过，复核 35 张连接图截图。另检查 390/768/1024/1120/1280/1440/1984px
+及侧栏收起/展开，路径与实际卡片/接口位置匹配；通过推进 SVG 时钟确认光点沿路径移动，
+并核验减少动态效果、关闭透传、连接中断和重新展开。没有新增依赖或仓库测试文件。
+本轮临时证据在 `/tmp/vim4-flow-verified/` 和 `/tmp/vim4-pages-design-verified/connections-flow.log`。
