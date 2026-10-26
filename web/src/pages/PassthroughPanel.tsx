@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Computer, Monitor, Server } from "lucide-react";
 import { request, type PassthroughState } from "@/api";
+import { DeviceConnections } from "@/components/DeviceConnections";
 import { Fact, FactGrid } from "@/components/FactGrid";
 import { InlineError } from "@/components/InlineError";
 import { Collapse, FadeIn } from "@/components/Motion";
@@ -64,6 +64,7 @@ function PassthroughSkeleton() {
 }
 
 export function PassthroughPanel() {
+  const status = useStatusStore((s) => s.status);
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const stale = useStatusStore((s) => s.stale);
@@ -194,20 +195,14 @@ export function PassthroughPanel() {
   return <>
     <PageHeading page="output" />
     <section role="region" aria-label="透传" className="flex min-w-0 flex-col gap-5">
-    <SettingsCard title="本地画面透传">
+    <SettingsCard title="信号路径" description="查看 HDMI、USB-C 与网络连接，点击接口查看详情。">
     <FadeIn><SettingRow title="透传" description="把 HDMI IN 的画面原样送到本地显示器，远程 KVM 照常使用。"
       status={labels[current]} pending={transitioning}
       control={<Switch aria-label="透传" checked={enabled} disabled={locked}
         onCheckedChange={() => void change({ enabled: !state.enabled })} />} /></FadeIn>
+    <FadeIn><DeviceConnections status={status} passthrough={{ ...state, state: current }} stale={stale || readStale} /></FadeIn>
     <FadeIn className="flex flex-col gap-4" data-passthrough-body>
       <Collapse open={state.supported}>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 py-6 text-center sm:gap-5" aria-hidden="true">
-          <div className="flex min-w-0 flex-col items-center gap-3"><Computer className="size-10 text-muted-foreground sm:size-16" /><strong className="text-xs sm:text-sm">被控电脑</strong><span className="text-xs text-muted-foreground">HDMI IN</span></div>
-          <ArrowRight className="size-5 text-muted-foreground sm:size-8" />
-          <div className="flex min-w-0 flex-col items-center gap-3"><Server className="size-10 text-muted-foreground sm:size-16" /><strong className="text-xs sm:text-sm">VIM4 KVM</strong><span className="text-xs text-muted-foreground">{labels[current]}</span></div>
-          <ArrowRight className="size-5 text-muted-foreground sm:size-8" />
-          <div className="flex min-w-0 flex-col items-center gap-3"><Monitor className="size-10 text-muted-foreground sm:size-16" /><strong className="max-w-full break-words text-xs sm:text-sm">{monitor?.name || "本地显示器"}</strong><span className="text-xs text-muted-foreground">HDMI OUT</span></div>
-        </div>
         <FactGrid>
           <Fact label="输入" value={input ? mode(input.width, input.height, input.refreshHz) : "无信号"}
             detail={input ? `${input.hdr} · ${input.colorFormat}` : undefined} tone={input ? "good" : "idle"} />

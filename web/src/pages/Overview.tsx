@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { BoardEvent, Hardware, Link, PowerCapability, Status } from "@/api";
 import { AnimatedList } from "@/components/AnimatedList";
 import { DevelopmentBadge } from "@/components/DevelopmentBadge";
+import { DeviceConnections } from "@/components/DeviceConnections";
 import { EmptyState } from "@/components/EmptyState";
 import { Fact, FactGrid } from "@/components/FactGrid";
 import { Collapse, FadeIn } from "@/components/Motion";
@@ -12,19 +13,10 @@ import { SettingsCard } from "@/components/SettingsCard";
 import { StatusDot, StatusLabel, type Tone } from "@/components/StatusDot";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { celsius, clockTime, duration, kvmURL, since, tempTone, unitLabel, unitTone } from "@/lib/units";
+import { celsius, clockTime, duration, hdrLabel, kvmURL, since, tempTone, unitLabel, unitTone } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import { baseVersion, isDevelopmentVersion } from "@/lib/version";
 import { useStatusStore } from "@/stores/status";
-
-// hdmi_hdr_status values include SDR, HDR10-GAMMA_ST2084, HDR10-GAMMA_HLG and HDR10Plus-VSIF.
-function hdrLabel(status?: string): string | undefined {
-  if (!status) return undefined;
-  if (status === "SDR") return "SDR";
-  if (status.includes("HLG")) return "HLG";
-  if (status.includes("Plus")) return "HDR10+";
-  return status.startsWith("HDR") ? "HDR10" : status;
-}
 
 function OverviewHeading() {
   const { stale, refresh } = useStatusStore(useShallow((s) => ({ stale: s.stale, refresh: s.refresh })));
@@ -50,18 +42,37 @@ function OverviewHeading() {
 }
 
 function DeviceStatus({ status, now, stale }: { status: Status; now: number; stale: boolean }) {
+  const [open, setOpen] = useState(false);
+  const panel = useId();
   const failed = [...status.platform.map((p) => p.unit), ...status.apps.filter((a) => a.id === status.active).map((a) => a.unit)].filter((unit) => unit.active === "failed").length;
   const address = status.system.links.filter((link) => link.up).flatMap((link) => link.addrs ?? []).find((addr) => !addr.includes(":"));
   const hdr = status.hardware.hdmi.signal ? hdrLabel(status.hardware.hdmi.hdr) : undefined;
   return (
-    <section aria-label="设备连接状态" className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border bg-card px-4 py-3 text-xs">
+    <section aria-label="设备连接状态" className="overflow-hidden rounded-lg border bg-card text-xs">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
       <StatusLabel tone={stale ? "warning" : failed ? "critical" : "good"} className="font-medium">
         {stale ? "连接中断 · 显示上次状态" : failed ? `${failed} 项服务异常` : "设备在线"}
       </StatusLabel>
       <span className="min-w-0 break-all text-muted-foreground">{status.hardware.hostname}{address && <> · <span className="font-mono">{address}</span></>}</span>
       <span className="text-muted-foreground" title={`开机于 ${clockTime(now - status.hardware.uptimeSeconds * 1000, now)}`}>已运行 {duration(status.hardware.uptimeSeconds)}</span>
       {stale && <span className="text-muted-foreground">上次更新 {clockTime(now, Date.now())}</span>}
-      {hdr && <span className="ml-auto rounded-md bg-muted px-2 py-1 text-muted-foreground">{hdr}</span>}
+      <div className="ml-auto flex items-center gap-3">
+        {hdr && <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{hdr}</span>}
+        <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-chart-1 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+          {open ? "收起连接状态" : "展开连接状态"}<ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+        </button>
+      </div>
+      </div>
+      <Collapse open={open}>
+        <div id={panel} className="border-t p-4 sm:p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold">设备连接</h2>
+            <a href="#/output" className="inline-flex items-center gap-1 rounded-sm text-chart-1 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">查看 HDMI 输出<ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
+          </div>
+          <DeviceConnections status={status} stale={stale} />
+        </div>
+      </Collapse>
     </section>
   );
 }

@@ -1,0 +1,90 @@
+.device-connections {
+  container: device-connections / inline-size;
+  min-width: 0;
+}
+
+.connection-map {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-bottom: 20px;
+}
+
+.connection-board {
+  position: relative;
+  grid-column: 1 / -1;
+  width: min(82%, 430px);
+  margin: 38px auto 24px;
+  filter: drop-shadow(0 8px 10px rgb(0 0 0 / 8%));
+}
+
+.connection-lines { display: none; }
+
+.connection-endpoint {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 12px;
+  text-align: left;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.connection-endpoint:hover { background: var(--muted); }
+.connection-endpoint:focus-visible, .connection-port:focus-visible { outline: 2px solid var(--chart-1); outline-offset: 3px; }
+.connection-endpoint[data-selected="true"] { border-color: var(--chart-1); background: color-mix(in srgb, var(--chart-1) 5%, var(--card)); }
+.connection-usb-row { display: flex; align-items: flex-start; gap: 8px; width: 100%; border-radius: 5px; background: var(--muted); padding: 8px; }
+
+.connection-port {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  place-items: center;
+  border-radius: 50%;
+  color: var(--chart-1);
+  cursor: pointer;
+}
+.connection-port-dot { width: 15px; height: 15px; border: 2px solid white; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px currentColor, 0 0 0 5px rgb(255 255 255 / 20%); }
+.connection-port[data-selected="true"] .connection-port-dot { box-shadow: 0 0 0 3px currentColor, 0 0 0 7px rgb(255 255 255 / 40%); }
+.connection-port[data-tone="idle"] { color: var(--idle); }
+.connection-port[data-tone="warning"] { color: var(--warning); }
+.connection-port[data-tone="critical"] { color: var(--destructive-fill); }
+.connection-port-label { position: absolute; bottom: 38px; left: 50%; transform: translateX(-50%); white-space: nowrap; border: 1px solid var(--border); border-radius: 4px; background: var(--card); padding: 2px 5px; color: var(--foreground); font-size: 10px; font-weight: 600; box-shadow: 0 1px 2px rgb(0 0 0 / 5%); }
+.connection-port-label-bottom { top: 30px; bottom: auto; }
+
+@container device-connections (max-width: 399px) {
+  .connection-map { grid-template-columns: minmax(0, 1fr); }
+  .connection-endpoint { padding: 14px; }
+  .connection-board { width: 88%; }
+}
+
+@container device-connections (min-width: 760px) {
+  .connection-map { display: block; aspect-ratio: 2 / 1; padding: 0; }
+  .connection-board { position: absolute; left: 28.5%; top: 26%; width: 43%; margin: 0; }
+  .connection-lines { position: absolute; z-index: 1; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
+  .connection-line { stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
+  .connection-video, .connection-internal { stroke: var(--chart-1); }
+  .connection-network { stroke: var(--chart-2); }
+  .connection-usb { stroke: #0891b2; }
+  .connection-internal { stroke-dasharray: 5 6; stroke-width: 2; }
+  .connection-line[data-tone="idle"] { stroke: var(--idle); stroke-dasharray: 5 6; }
+  .connection-line[data-tone="warning"] { stroke: var(--warning); stroke-dasharray: 5 6; }
+  .connection-line[data-tone="critical"] { stroke: var(--destructive-fill); stroke-dasharray: 5 6; }
+  .connection-endpoint { position: absolute; z-index: 2; width: 20%; padding: 12px; gap: 7px; }
+  .connection-endpoint-network { left: 0; top: 9%; }
+  .connection-endpoint-usb { right: 0; top: 3%; }
+  .connection-endpoint-input { left: 0; top: 60%; }
+  .connection-endpoint-output { right: 0; top: 64%; }
+  .connection-usb-row { padding: 6px; gap: 6px; }
+}
