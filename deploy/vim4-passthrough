@@ -173,7 +173,8 @@ class VendorPassthrough:
             return False
         try:
             route = self.read('/sys/class/vfm/map')
-            middle = '' if self.native_path() else r'vfm_cap(?:\(\d+\))?\s+'
+            middle = (r'(?:vfm_cap(?:\(\d+\))?\s+)?' if self.native_path()
+                      else r'vfm_cap(?:\(\d+\))?\s+')
             if not re.search(r'tvpath\s*\{\s*vdin0(?:\(\d+\))?\s+' + middle + r'amvideo\s*\}', route):
                 return False
             return all(self.path(name).is_file() for name in (*OSD_BLANKS,
@@ -186,7 +187,7 @@ class VendorPassthrough:
         if not self.qualified():
             raise ValueError('未验证的运行模块，保留独立 KVM 采集')
         self.write('/sys/class/vfm/map', 'rm tvpath')
-        route = 'vdin0 amvideo' if self.native_path() else 'vdin0 vfm_cap amvideo'
+        route = 'vdin0 vfm_cap amvideo'
         self.write('/sys/class/vfm/map', 'add tvpath ' + route)
         self.update(VIDEO + 'disable_video', 1)
         self.blank(self.load(RUNTIME + 'request.json', {'enabled': False})['enabled'])

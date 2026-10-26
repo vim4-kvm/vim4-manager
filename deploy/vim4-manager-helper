@@ -977,11 +977,11 @@ def validate_edid(data):
     # Runtime markers store the driver's padded 256-byte slot.
     if len(data) == 256 and data[126] == 0 and data[128:] == bytes(128):
         data = data[:128]
-    if (len(data) not in (128, 256) or data[:8] != bytes.fromhex('00ffffffffffff00') or
+    if (len(data) not in (128, 256, 384, 512) or data[:8] != bytes.fromhex('00ffffffffffff00') or
             data[126] != len(data) // 128 - 1 or
             any(sum(data[i:i + 128]) % 256 for i in range(0, len(data), 128))):
         raise ValueError('EDID 长度、扩展块或校验和无效')
-    return data + bytes(256 - len(data))
+    return data + bytes(max(256 - len(data), 0))
 
 
 def edid_catalog():
