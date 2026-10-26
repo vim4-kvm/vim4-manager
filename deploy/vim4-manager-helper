@@ -1065,7 +1065,7 @@ def write_jetkvm_config(content):
 
 
 def load_edid(name, data):
-    args = ['preset', name] if name in ('VIM4-4K60', 'VIM4-1080P60', 'VIM4-1080P60-SDR8') else ['apply', name]
+    args = ['preset', name] if name in ('VIM4-4K60', 'VIM4-1080P60', 'VIM4-1080P60-SDR8', 'RTK-1080P120') else ['apply', name]
     subprocess.run([EDID_HELPER, *args], input=data[:128 * (1 + data[126])], check=True, timeout=30)
 
 
