@@ -1,5 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
-import { Monitor } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
 import { StatusDot } from "@/components/StatusDot";
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
@@ -20,7 +20,7 @@ const hintTones = {
 function Brand() {
   return (
     <a href="#/overview" aria-label="VIM4 KVM 管理面板" className="flex h-12 items-center gap-2.5 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:px-0">
-      <span aria-hidden="true" className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary-fill text-primary-foreground"><Monitor className="size-4" /></span>
+      <BrandMark />
       <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
         <span data-brand className="text-sm font-semibold text-foreground">VIM4 KVM</span>
         <span className="mt-0.5 text-xs text-muted-foreground">管理面板</span>

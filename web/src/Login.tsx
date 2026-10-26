@@ -1,4 +1,5 @@
 import { Spinner } from "@/components/Spinner";
+import { BrandMark } from "@/components/BrandMark";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
@@ -6,7 +7,7 @@ import { createRoot } from "react-dom/client";
 import { safeNext, type AuthState } from "./auth";
 import { useThemePreference } from "./theme";
 import { copyText } from "./lib/clipboard";
-import { Eye, EyeOff, LockKeyhole, LucideProvider, Monitor } from "lucide-react";
+import { Eye, EyeOff, LockKeyhole, LucideProvider } from "lucide-react";
 import { LazyMotion, MotionConfig } from "motion/react";
 import { InlineError } from "@/components/InlineError";
 import { SettingsCard } from "@/components/SettingsCard";
@@ -178,7 +179,7 @@ function Login() {
   return (
     <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[12vh]">
       <header role="group" aria-label="设备" className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
-        <span aria-hidden="true" className="mb-2 grid size-11 place-items-center rounded-xl bg-primary-fill text-primary-foreground"><Monitor className="size-5" /></span>
+        <BrandMark className="mb-2 size-11" />
         {!state && !error ? (
           <Skeleton className="h-7 w-36" />
         ) : (

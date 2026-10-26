@@ -129,3 +129,14 @@ manager helper 与 Go 测试通过；包校验、安装后服务检查通过。
 One-KVM、HDMI、tvserver 和 gadget 的进程与启动时间在安装前后完全一致，
 没有验证视频、音频、HID 或延迟端到端性能。安装日志、25 张截图、服务对比与
 `verification.json` 在 `/tmp/vim4-pages-design-deployed/`。
+
+### 黑蓝 V 品牌图标
+
+侧栏、登录页与浏览器页签共用 `web/src/assets/brand.svg`：左侧黑色、右侧蓝色，
+白色圆角底板保证深色主题下的可辨识度。HTML 入口交由 Vite 生成带内容指纹的图标地址。
+没有新增依赖或仓库测试文件。
+
+前端构建（含 TypeScript）通过；离线检查浅色/深色、1280/390px、侧栏展开/收起、
+手机菜单与登录页，共 12 张截图。图标加载、两入口 favicon 与品牌资源一致性、
+浏览器错误及横向溢出检查通过。临时证据在 `/tmp/vim4-pages-design-verified/brand/`。
+本次图标改动尚未部署；后续板卡连接图仅为效果图，未包含在实现中。
