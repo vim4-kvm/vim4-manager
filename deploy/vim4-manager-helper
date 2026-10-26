@@ -1070,6 +1070,8 @@ def load_edid(name, data):
 
 
 def select_edid(preset_id):
+    if preset_id == 'RTK-1080P120':
+        preset_id = 'RTK-CONTROL'
     presets = edid_catalog()
     preset = next((p for p in presets if p['id'] == preset_id), None)
     if preset is None:

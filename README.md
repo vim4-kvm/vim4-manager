@@ -491,7 +491,11 @@ HLG 使用厂商 HLG 曲线。错误内部细节只进入服务日志，HDR API 
 
 ## EDID 兼容性预设
 
-面板可选择 RTK UHD HDR 4K60、厂商 VIM4 4K60 或 VIM4 1080p60。
+面板保留一个 RTK UHD HDR 入口（`RTK-CONTROL`），合并4K60、1080p100/120和
+HDMI Forum VRR声明；旧 `RTK-1080P120` 请求映射到它，不单列实验项。
+其他选择为厂商 VIM4 4K60、VIM4 1080p60和1080p60 SDR 8-bit。
+配套5.15下One-KVM已测1080p约49–120Hz、4K约49–60Hz SDR8；HDR VRR、本地输出
+与其他应用VRR仍待验证。原始物理RTK表在公共仓库 `board/edid/rtk-uhd-hdr.bin` 留作回退。
 RTK 表在当前 Mac 的 Screen Sharing 虚拟屏进退测试中可恢复 HDMI；这不保证所有电脑兼容。
 实际 UU 客户端连接并创建虚拟屏后，用户仍复现无法恢复，RTK 不能作为该场景的修复保证。
 安装管理器不改变现有 EDID，点击「应用预设」才加载并保存；相同配置已加载时不触发重连。

@@ -59,6 +59,13 @@ class EDIDTest(unittest.TestCase):
         self.load.assert_not_called()
         self.assertEqual(self.config.read_bytes(), self.original_config)
 
+    def test_former_rtk_experiment_selects_current_rtk_without_an_extra_catalog_entry(self):
+        self.presets.append({'id': 'RTK-CONTROL', 'name': 'RTK UHD HDR',
+                             'description': '', 'data': self.new})
+        helper.select_edid('RTK-1080P120')
+        self.load.assert_called_once_with('RTK-CONTROL', self.new)
+        self.assertEqual(json.loads(self.config.read_text())['hdmi_edid_string'], self.new.hex().upper())
+
     def test_snapshot_after_shutdown_preserves_last_saved_settings(self):
         self.run.return_value.returncode = 0
         events = []

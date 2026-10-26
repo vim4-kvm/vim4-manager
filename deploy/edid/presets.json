@@ -6,15 +6,9 @@
     "file": "/usr/share/vim4-kvm/edid/1080p60-sdr8.bin"
   },
   {
-    "id": "RTK-1080P120",
-    "name": "RTK UHD HDR · 4K60 + 1080p120 + VRR（实验）",
-    "description": "保留 RTK 固定模式并增加 1080p100/120；HDMI Forum VRR 48–60Hz 需配套5.15驱动与应用。先测1080p60 SDR 8-bit，VRR范围尚待真实信号验收，不开启本地输出VRR。",
-    "file": "/usr/share/vim4-kvm/edid/rtk-uhd-hdr-1080p120.bin"
-  },
-  {
     "id": "RTK-CONTROL",
-    "name": "RTK UHD HDR · 4K60",
-    "description": "兼容性选项；曾通过当前 Mac 的 Screen Sharing 恢复测试，但 UU 虚拟屏场景仍可能无法恢复。",
+    "name": "RTK UHD HDR",
+    "description": "4K60、1080p100/120与HDMI Forum VRR；5.15 One-KVM已测1080p约49–120Hz、4K约49–60Hz SDR8。HDR VRR、本地输出跟随及其他应用VRR仍待验收。",
     "file": "/usr/share/vim4-manager/edid/rtk-uhd-hdr.bin"
   },
   {
