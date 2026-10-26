@@ -7,8 +7,8 @@
   },
   {
     "id": "RTK-1080P120",
-    "name": "RTK UHD HDR · 4K60 + 1080p120（实验）",
-    "description": "基于 RTK 原表增加 1080p100/120；需要配套高刷驱动和应用。仅扩展固定刷新率，VRR 范围仍为 40–61Hz。",
+    "name": "RTK UHD HDR · 4K60 + 1080p120 + VRR（实验）",
+    "description": "保留 RTK 固定模式并增加 1080p100/120；HDMI Forum VRR 48–60Hz 需配套5.15驱动与应用。先测1080p60 SDR 8-bit，VRR范围尚待真实信号验收，不开启本地输出VRR。",
     "file": "/usr/share/vim4-kvm/edid/rtk-uhd-hdr-1080p120.bin"
   },
   {
