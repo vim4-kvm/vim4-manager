@@ -139,7 +139,7 @@ One-KVM、HDMI、tvserver 和 gadget 的进程与启动时间在安装前后完�
 前端构建（含 TypeScript）通过；离线检查浅色/深色、1280/390px、侧栏展开/收起、
 手机菜单与登录页，共 12 张截图。图标加载、两入口 favicon 与品牌资源一致性、
 浏览器错误及横向溢出检查通过。临时证据在 `/tmp/vim4-pages-design-verified/brand/`。
-本次图标改动尚未部署；后续板卡连接图仅为效果图，未包含在实现中。
+图标已随下方设备连接图一同部署。
 
 ### 设备连接图
 
@@ -160,3 +160,19 @@ USB-C 的供电检测与键鼠枚举独立显示，PD 数值标明开机协商�
 复用现有透传检查，状态、HDR/声音、刷新失败和操作生命周期检查通过（62 张截图）。
 没有新增依赖、API 或仓库测试文件。临时证据在 `/tmp/vim4-connections-verified/`
 及 `/tmp/vim4-pages-design-verified/passthrough.log`。
+
+实现提交 `a44100d`，管理器包 `2.5.1+vim4.20261026.1` 已部署至
+<http://192.168.50.210>，未推送分支或发布版本。ARM64 打包所需的根仓离线检查、
+manager helper 和 Go 测试通过；包校验与安装后服务检查通过。
+构建曾自动生成旧基础版本的开发包，该包未安装；部署使用干净源码的上述递增版本。
+
+上板核验概览收起/展开、HDMI 输出、接口点选/关闭，覆盖桌面浅色与手机深色，
+共 10 张截图，无横向溢出或浏览器错误。除登录外均为读取请求；One-KVM、HDMI、
+tvserver 和 gadget 的 PID 与启动时间安装前后完全一致。实际透传关闭，输出路径置灰；
+未为演示修改设置。未验证视频、音频、HID 或延迟端到端性能。
+完整安装日志、服务对比、状态快照和截图在 `/tmp/vim4-connections-deployed/`。
+
+| 实际页面 | 桌面浅色 | 手机深色 |
+|---|---|---|
+| 概览展开 | [截图](screens/connections/overview-expanded-light.png) | [截图](screens/connections/overview-expanded-dark.png) |
+| HDMI 输出 | [截图](screens/connections/output-expanded-light.png) | [截图](screens/connections/output-expanded-dark.png) |
