@@ -146,6 +146,19 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		}
 		respond(w, service.SetHDRCurve(r.Context(), curve))
 	})
+	mux.HandleFunc("POST /api/hdr-mapping", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if !decode(w, r, &request) {
+			return
+		}
+		if request.Enabled == nil {
+			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 布尔值"))
+			return
+		}
+		respond(w, service.SetHDRMapping(r.Context(), *request.Enabled))
+	})
 	mux.HandleFunc("POST /api/hdr-curve/preview", func(w http.ResponseWriter, r *http.Request) {
 		var curve board.HDRCurve
 		if !decode(w, r, &curve) {

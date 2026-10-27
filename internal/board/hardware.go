@@ -46,11 +46,13 @@ type Hardware struct {
 	FanAuto   bool    `json:"fanAuto"`
 	FanPct    int     `json:"fanPercent"`
 	// The MCU fan has no tachometer; FanCurve is the auto-mode target duty.
-	FanCurve    []CurvePoint `json:"fanCurve,omitempty"`
-	FanTriggers *FanTriggers `json:"fanTriggers,omitempty"`
-	USB         string       `json:"usb"`
-	HDMI        HDMI         `json:"hdmi"`
-	HDRCurve    HDRCurve     `json:"hdrCurve"`
+	FanCurve           []CurvePoint `json:"fanCurve,omitempty"`
+	FanTriggers        *FanTriggers `json:"fanTriggers,omitempty"`
+	USB                string       `json:"usb"`
+	HDMI               HDMI         `json:"hdmi"`
+	HDRCurve           HDRCurve     `json:"hdrCurve"`
+	HDRToSDR           bool         `json:"hdrToSdr"`
+	HDRRemoteAvailable bool         `json:"hdrRemoteAvailable"`
 }
 
 // Zone is one readable thermal zone, named without the "_thermal" suffix.
@@ -111,6 +113,18 @@ func ReadHardware(root string) Hardware {
 		h.HDMI.HDR = read("sys/class/hdmirx/hdmirx0/hdmi_hdr_status")
 	}
 	h.HDRCurve = hdrCurve(read("etc/default/vim4-kvm-hdr"))
+	h.HDRToSDR = true
+	for _, n := range envInts(read("etc/default/vim4-kvm-hdr")) {
+		if n.key == "HDR_SDR_ENABLED" && (n.value == 0 || n.value == 1) {
+			h.HDRToSDR = n.value == 1
+		}
+	}
+	h.HDRRemoteAvailable = strings.HasPrefix(h.Kernel, "5.15.") &&
+		read("sys/module/aml_media/parameters/vdin0_native_hdr") == "Y" &&
+		read("sys/module/vfm_cap/parameters/hdr_metadata_version") == "1"
+	if _, err := os.Stat(filepath.Join(root, "usr/lib/vim4-kvm/gstreamer-1.0/libgstvim4hevc10.so")); err != nil {
+		h.HDRRemoteAvailable = false
+	}
 	return h
 }
 

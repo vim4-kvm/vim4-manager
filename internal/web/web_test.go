@@ -53,6 +53,31 @@ func TestFrontendIsServed(t *testing.T) {
 	}
 }
 
+func TestHDRMappingRequiresAnExplicitBoolean(t *testing.T) {
+	var calls []string
+	service := &board.Service{Run: func(_ context.Context, name string, args ...string) (string, error) {
+		calls = append(calls, name+" "+strings.Join(args, " "))
+		return "", nil
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	for _, body := range []string{`{}`, `{"enabled":null}`, `{"enabled":"false"}`} {
+		r := httptest.NewRequest(http.MethodPost, "/api/hdr-mapping", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != http.StatusBadRequest || len(calls) != 0 {
+			t.Fatalf("%s: %d %v", body, w.Code, calls)
+		}
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/hdr-mapping", strings.NewReader(`{"enabled":false}`))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || len(calls) != 1 || !strings.HasSuffix(calls[0], "hdr-mapping false") {
+		t.Fatalf("explicit false: %d %v", w.Code, calls)
+	}
+}
+
 func TestMediaChangesRequireExplicitModeAndEjectConfirmation(t *testing.T) {
 	called := false
 	service := &board.Service{Run: func(context.Context, string, ...string) (string, error) {

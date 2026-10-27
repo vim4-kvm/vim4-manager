@@ -1807,7 +1807,16 @@ def apply_hdr_curve(white, peak):
 def hdr_curve(white, peak):
     """Apply the curve now and keep it for the next HDMI service start."""
     white, peak = apply_hdr_curve(white, peak)
-    write_config(HDR_CONFIG, f'HDR_SDR_WHITE={white}\nHDR_SDR_PEAK={peak}\n'.encode())
+    save_hdr_config({'HDR_SDR_WHITE': str(white), 'HDR_SDR_PEAK': str(peak)})
+
+
+def save_hdr_config(changes):
+    """Keep the shared output preference when either UI edits the curve."""
+    path = Path(HDR_CONFIG)
+    lines = path.read_text().splitlines() if path.exists() else []
+    lines = [line for line in lines if line.split('=', 1)[0].strip() not in changes]
+    lines.extend(f'{key}={value}' for key, value in changes.items())
+    write_config(HDR_CONFIG, ('\n'.join(lines) + '\n').encode())
 
 
 def celsius(text, low, high):
@@ -2888,13 +2897,15 @@ def main(argv):
             hdr_curve(white, peak)
         case ['hdr-preview', white, peak]:
             apply_hdr_curve(white, peak)
+        case ['hdr-mapping', enabled] if enabled in ('true', 'false'):
+            save_hdr_config({'HDR_SDR_ENABLED': '1' if enabled == 'true' else '0'})
         case ['fan-curve', low, mid, high]:
             fan_curve(low, mid, high)
         case ['fan-restore']:
             fan_restore()
         case _:
             raise ValueError('usage: vim4-manager-helper select nanokvm|jetkvm|onekvm|pikvm | restart UNIT | '
-                             'hdr-curve|hdr-preview WHITE PEAK | fan-curve LOW MID HIGH | fan-restore | '
+                             'hdr-curve|hdr-preview WHITE PEAK | hdr-mapping true|false | fan-curve LOW MID HIGH | fan-restore | '
                              'wifi on|off | media-status | media-list | media-mount APP IMAGE CDROM READONLY | '
                              'media-eject TOKEN | edid-status | edid-select ID | update PACKAGE SHA256 VERSION | '
                              'tailscale-status|tailscale-install|tailscale-uninstall|tailscale-up|tailscale-down|'

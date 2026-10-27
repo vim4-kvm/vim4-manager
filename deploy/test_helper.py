@@ -1081,6 +1081,21 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(self.applied, [[helper.HDR_CURVE, 'apply', '180', '2000']])
         self.assertFalse(path.exists())
 
+    def test_hdr_mapping_and_curve_preserve_each_other_without_restarting(self):
+        path = self.hdr_config()
+        path.write_text('# shared preference\nHDR_SDR_WHITE=250\nHDR_SDR_PEAK=2000\n')
+        helper.main(['hdr-mapping', 'false'])
+        self.assertIn('HDR_SDR_ENABLED=0\n', path.read_text())
+        self.assertIn('HDR_SDR_WHITE=250\n', path.read_text())
+        self.assertEqual(self.applied, [])
+        helper.main(['hdr-curve', '203', '1000'])
+        self.assertIn('HDR_SDR_ENABLED=0\n', path.read_text())
+        self.assertIn('HDR_SDR_WHITE=203\n', path.read_text())
+        helper.main(['hdr-mapping', 'true'])
+        self.assertEqual(path.read_text().count('HDR_SDR_ENABLED='), 1)
+        self.assertIn('HDR_SDR_ENABLED=1\n', path.read_text())
+        self.assertEqual(self.calls, [])
+
     def test_failed_apply_keeps_saved_curve(self):
         path = self.hdr_config()
         path.write_text('HDR_SDR_WHITE=250\n')

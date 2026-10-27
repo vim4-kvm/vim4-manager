@@ -22,6 +22,7 @@ try {
       if (path === "/api/edid") Object.assign(data.edid, { selected: body.id, active: body.id });
       if (path === "/api/fan-curve") data.status.hardware.fanTriggers = body;
       if (path === "/api/hdr-curve") data.status.hardware.hdrCurve = body;
+      if (path === "/api/hdr-mapping") data.status.hardware.hdrToSdr = body.enabled;
       return route.fulfill({ json: { ok: true } });
     }
     const responses = { "/__vim4/api/auth/state": data.auth, "/api/status": data.status, "/api/disks": data.disks,
@@ -66,6 +67,18 @@ try {
   const hdr = writes.findLast((write) => write.path === "/api/hdr-curve");
   assert(hdr && hdr.body.white <= 203 && hdr.body.peak === 1000);
   assert(writes.some((write) => write.path === "/api/hdr-curve/preview"), "keyboard editing previews before saving");
+  const mapping = page.getByRole("switch", { name: "启用 HDR 转 SDR", exact: true });
+  await mapping.click();
+  await page.getByText("HDR 转 SDR 默认设置已关闭", { exact: true }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="启用 HDR 转 SDR"]')?.getAttribute('aria-checked') === 'false');
+  assert(await brightness.isDisabled());
+  await page.reload();
+  await mapping.waitFor();
+  assert.equal(await mapping.getAttribute("aria-checked"), "false");
+  await mapping.click();
+  await page.getByText("HDR 转 SDR 已开启", { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector('input[type="range"]')?.disabled);
+  assert.deepEqual(writes.filter(w => w.path === "/api/hdr-mapping").map(w => w.body), [{enabled:false}, {enabled:true}]);
 
   await page.getByRole("link", { name: /散热/ }).click();
   const low = page.getByRole("spinbutton", { name: /起转温度/ });

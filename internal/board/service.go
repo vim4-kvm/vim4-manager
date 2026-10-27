@@ -189,6 +189,11 @@ func (s *Service) SetHDRCurve(ctx context.Context, curve HDRCurve) error {
 	return s.record(s.hdrCurve(ctx, "hdr-curve", curve), "保存 HDR 映射 %d / %d 尼特", curve.White, curve.Peak)
 }
 
+// SetHDRMapping saves the shared default without restarting HDMI or a KVM session.
+func (s *Service) SetHDRMapping(ctx context.Context, enabled bool) error {
+	return s.record(s.helper(ctx, "hdr-mapping", strconv.FormatBool(enabled)), "HDR 转 SDR：%t", enabled)
+}
+
 // PreviewHDRCurve applies the mapping without saving it, for slider drags.
 func (s *Service) PreviewHDRCurve(ctx context.Context, curve HDRCurve) error {
 	return s.hdrCurve(ctx, "hdr-preview", curve)

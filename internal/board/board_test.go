@@ -71,6 +71,9 @@ func TestReadHardware(t *testing.T) {
 	write("proc/meminfo", "MemTotal:        7990828 kB\nMemAvailable:    6775820 kB\n")
 	write("etc/default/vim4-kvm-hdmi", "HDMI_WIDTH=1920\nHDMI_HEIGHT=\"1080\"\n")
 	h := ReadHardware(root)
+	if !h.HDRToSDR {
+		t.Fatal("legacy installation must default to HDR mapping")
+	}
 	if h.TempC != 52.8 || !h.FanAuto || h.FanPct != 15 || h.USB != "configured" || h.MemAvail != 6775820 {
 		t.Errorf("ReadHardware = %+v", h)
 	}
@@ -126,6 +129,10 @@ func TestReadHardwareHDR(t *testing.T) {
 	write("sys/class/hdmirx/hdmirx0/info", string(info))
 	if got := ReadHardware(root).HDMI.HDR; got != "HDR10-GAMMA_ST2084" {
 		t.Errorf("HDR = %q", got)
+	}
+	write("etc/default/vim4-kvm-hdr", "HDR_SDR_ENABLED=0\nHDR_SDR_WHITE=250\n")
+	if h := ReadHardware(root); h.HDRToSDR || h.HDRCurve.White != 250 {
+		t.Fatalf("shared HDR preference: %+v", h)
 	}
 }
 

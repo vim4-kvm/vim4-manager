@@ -253,12 +253,14 @@ function Slider({
 export function HDRPanel({
   curve,
   hdr,
+  mappingEnabled = true,
   busy,
   onPreview,
   onSave,
 }: {
   curve: HDRCurve;
   hdr?: string;
+  mappingEnabled?: boolean;
   busy: boolean;
   onPreview: (curve: HDRCurve) => Promise<unknown>;
   onSave: (curve: HDRCurve) => void;
@@ -345,7 +347,7 @@ export function HDRPanel({
         <Ramp curve={draft} />
         <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
           <span className="text-muted-foreground">
-            {live ? "拖动时网页画面实时变化，松开后保存。" : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。"}
+            {!mappingEnabled ? "转换已关闭；SDR 兼容画面仍使用已保存曲线。" : live ? "拖动时网页画面实时变化，松开后保存。" : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。"}
           </span>
           <Button variant="outline" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
             恢复默认

@@ -96,9 +96,11 @@ PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 - `restart nanokvm.service|vim4-kvm.service|one-kvm.service|vim4-pikvm.service|vim4-kvm-hdmi.service`：重启 HDMI
   采集前先停止运行中的界面，完成后再启动。
 
-- `hdr-curve WHITE PEAK`：校验后原子写入 /etc/default/vim4-kvm-hdr（HDR 输入映射为
-  SDR 的 SDR 白和高光上限，单位尼特），再按上条方式重启 HDMI 采集；重启失败时恢复
-  原配置并重新启动采集。
+- `hdr-mapping true|false`：保存全局远程画面 HDR 转 SDR 默认值，视频输入页切换。
+  One-KVM 同步设置，UU 会话可临时覆盖，断开后恢复最新全局值；H.264、截图和
+  不支持真 HDR 的应用保持 SDR，HDMI OUT 独立控制，不修改 EDID 或重启 HDMI。
+- `hdr-curve WHITE PEAK`：校验后原子保存 /etc/default/vim4-kvm-hdr 中的 SDR 白和
+  高光上限（尼特），保留全局开关，下一帧重载曲线，不重启采集。`hdr-preview` 只预览。
 
 - `fan-curve LOW MID HIGH`：校验后按驱动接受的顺序写入 /sys/class/fan 的三个触发温度，
   切换为自动调速，原子保存到 /etc/default/vim4-kvm-fan。
