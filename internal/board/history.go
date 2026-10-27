@@ -14,6 +14,8 @@ import (
 type Sample struct {
 	UnixMs int64   `json:"t"`
 	CPU    float64 `json:"cpu"`
+	// Null means the driver does not expose a valid GPU utilization reading.
+	GPU *float64 `json:"gpu"`
 	// Null means unavailable; zero is a valid idle dynamic-power estimate.
 	CPUPowerW         *float64 `json:"cpuPowerW"`
 	CPUPowerAvailable bool     `json:"cpuPowerAvailable"`
@@ -64,6 +66,12 @@ func (h *History) Sample(now time.Time) {
 	}
 	busy, total := cpuTimes(read("proc/stat"))
 	s := Sample{UnixMs: now.UnixMilli()}
+	// The vendor Mali driver publishes the last DVFS interval as 0–100 percent,
+	// not the 0–255 scale used internally by its clock-control callback.
+	if value, err := strconv.Atoi(read("sys/class/mpgpu/utilization")); err == nil && value >= 0 && value <= 100 {
+		percent := float64(value)
+		s.GPU = &percent
+	}
 	if total, avail := memInfo(read("proc/meminfo")); total > 0 {
 		s.Mem = 100 * float64(total-avail) / float64(total)
 	}

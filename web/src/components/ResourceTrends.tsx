@@ -5,7 +5,7 @@ import { TrendChart, tempDomain, type Point } from "@/components/TrendChart";
 import { celsius } from "@/lib/units";
 
 const metrics = [
-  { id: "cpu", title: "CPU" }, { id: "mem", title: "内存" }, { id: "network", title: "网络" },
+  { id: "cpu", title: "CPU" }, { id: "gpu", title: "GPU" }, { id: "mem", title: "内存" }, { id: "network", title: "网络" },
   { id: "temp", title: "温度" }, { id: "fan", title: "风扇" }, { id: "power", title: "功耗" },
 ] as const;
 type Metric = typeof metrics[number]["id"];
@@ -45,6 +45,7 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
   const samples = history.filter((sample) => sample.t >= end - windowMinutes * 60000);
   const series = (pick: (sample: Sample) => number): Point[] => samples.map((sample) => ({ t: sample.t, v: pick(sample) }));
   const cpu = series((s) => s.cpu);
+  const gpu = samples.flatMap((s) => s.gpu == null ? [] : [{ t: s.t, v: s.gpu }]);
   const mem = series((s) => s.mem);
   const temp = series((s) => s.tempC);
   const fan = series((s) => s.fan);
@@ -59,6 +60,10 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
   const definitions: Record<Metric, Series> = {
     cpu: { label: "CPU 使用率", value: latest ? percent(latest.cpu) : "—", detail: `${hw.cpus} 核 · 当前负载 ${hw.load1.toFixed(2)}`,
       points: cpu, ...percentageScale(cpu), format: percent },
+    gpu: { label: "GPU 使用率", value: latest?.gpu == null ? "—" : percent(latest.gpu),
+      detail: latest?.gpu == null ? "等待 GPU 采样或当前驱动未提供读数" : "Mali GPU · 驱动最近采样周期的忙碌比例",
+      points: gpu, ...percentageScale(gpu), format: percent, maxGapMs: 7500,
+      currentAvailable: latest?.gpu != null, emptyMessage: latest ? "暂无 GPU 数据" : "正在采样…" },
     mem: { label: "内存占用", value: memUsed === undefined ? "—" : percent(memUsed * 100),
       detail: `可用 ${(hw.memAvailableKiB / 1048576).toFixed(1)} / ${(hw.memTotalKiB / 1048576).toFixed(1)} GiB`,
       points: mem, ...percentageScale(mem), format: percent },
