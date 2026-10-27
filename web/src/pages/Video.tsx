@@ -32,7 +32,7 @@ export function Video() {
     <SettingsCard title="显示器能力 · EDID" description="被控电脑根据 EDID 选择分辨率和 HDR 模式。"><EDIDPanel /></SettingsCard>
     <SettingsCard title="HDR 转 SDR" description="远程画面的全局默认设置。UU 连接期间可临时切换 HDR，断开后恢复此设置。HDMI 输出单独设置。">
       {hw && <SettingRow title="启用 HDR 转 SDR"
-        description="关闭后，支持 HDR 的 H.265 远程画面保留 HDR10；H.264、截图及其他界面继续使用 SDR。"
+        description="关闭后，四套 KVM 的 H.265 可保留 HDR10，需客户端支持 HDR；H.264、JPEG 和截图仍为 SDR。"
         status={!mapping && !hw.hdrRemoteAvailable ? "当前运行环境继续使用 SDR" : !hw.hdmi.signal ? "等待输入信号" : hw.hdmi.hdr === "SDR" ? "输入为 SDR" : mapping ? "默认转换为 SDR" : "默认保留 HDR10"}
         inactive={!hw.hdmi.signal || hw.hdmi.hdr === "SDR"}
         control={<Switch aria-label="启用 HDR 转 SDR" checked={mapping} disabled={busy || stale}
