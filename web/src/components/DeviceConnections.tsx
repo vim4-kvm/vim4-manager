@@ -83,7 +83,7 @@ export function DeviceConnections({ status, passthrough = status?.passthrough, s
       <div className="connection-map" ref={mapRef}>
         <ConnectionLines mapRef={mapRef} tones={{ network: tone("network"), usb: tone("usb"), input: tone("input"), output: tone("output") }} />
         <div className="connection-board">
-          <img src={boardImage} alt="Khadas VIM4 板卡俯视图" width={1500} height={1063} className="block h-auto w-full" />
+          <img src={boardImage} alt="Khadas New VIM4 板卡俯视图" width={1995} height={1414} className="block h-auto w-full" />
           {ports.map((port) => <button key={port.id} type="button" className="connection-port" style={{ left: `${port.x}%`, top: `${port.y}%` }}
             data-port={port.id} data-tone={tone(port.id)} data-selected={selected === port.id} aria-label={`${port.label} 接口`} aria-pressed={selected === port.id} aria-controls={detailsId}
             title={`${port.label} · ${data[port.id].value}`} onClick={() => select(port.id)}>

@@ -148,9 +148,15 @@ USB-C 供电和键鼠状态。HDMI 输出页复用同一组件，保留透传、
 接口热点及状态卡可用鼠标或键盘点选，详情提供现有设置页入口；点选本身不修改设备。
 手机端保留板卡热点并顺排状态卡，桌面端增加连线。板内路径为逻辑示意。
 
-板卡图片为用户提供的 [Khadas VIM4 俯视图](https://www.khadas.cn/qfy-content/uploads/2022/06/4cbbb1744065fab5d0cd8bfd55ca85a7-100.webp)，
+板卡图片为用户提供的 [Khadas New VIM4 俯视图](https://docs.khadas.com/_media/products/sbc/vim4/hardware/new-vim4-top-side.webp)，
 保存为 `web/src/assets/vim4-board.webp`，经 Vite 打包，不依赖运行时外链。
 RJ45、HDMI OUT、USB-C 和 micro-HDMI IN 的落点按该图方向标定。
+2026-10-27 将原 V12 图片替换为用户指定的 New VIM4（图片丝印 V13），
+采用原始 1995×1414 WebP，同步图片尺寸与替代文本；方向和接口百分比落点保持对齐。
+前端构建、8 张离线手机/桌面及浅色/深色连接图检查通过；候选管理器已直接部署，
+10 张实机页面截图及接口交互通过，线上图片 SHA256 与源文件一致。
+One-KVM、HDMI、tvserver 和 gadget 的 PID/启动时间保持不变；未制作新组件包。
+本轮证据在工作区 `build/new-vim4/`，没有新增测试文件或运行时图片外链。
 USB-C 的供电检测与键鼠枚举独立显示，PD 数值标明开机协商额度；不推断 VIN 供电。
 缺少读数显示未知，读取失败显示上次状态并将连线置灰；Wi-Fi、USB 网卡不映射为网口连接。
 
