@@ -44,10 +44,11 @@ export function Fact({ label, value, valueKey, detail, tone, href, destination, 
   );
   return (
     <div className={cn("group/fact relative flex min-w-0 flex-col gap-0.5", card ? "gap-2 rounded-xl border bg-card p-5 shadow-xs" : href && "-m-2 rounded-md p-2 hover:bg-accent", card && href && "transition-colors hover:border-ring/50", className)}>
-      <dt id={`${id}-label`} className={cn("flex items-center justify-between gap-3 text-xs text-muted-foreground", card && "text-sm font-medium text-foreground")}>
-        {label}{Icon && <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />}
+      {/* Cards pin the icon to the corner; inline facts keep it next to the label it names. */}
+      <dt id={`${id}-label`} className={cn("flex items-center gap-1.5 text-xs text-muted-foreground", card && "justify-between gap-3 text-sm font-medium text-foreground")}>
+        {!card && Icon && <Icon aria-hidden="true" className="size-3.5 shrink-0" />}{label}{card && Icon && <Icon aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />}
       </dt>
-      <dd id={`${id}-value`} className={card ? "text-xl font-semibold tracking-tight tabular-nums" : "text-sm font-medium"}>
+      <dd id={`${id}-value`} className={card ? "text-lg font-semibold tracking-tight tabular-nums sm:text-xl" : "text-sm font-medium"}>
         {href ? (
           <a href={href} aria-labelledby={`${id}-label ${id}-value ${detail ? `${id}-detail ` : ""}${id}-to`}
             className="flex items-center justify-between gap-2 rounded-sm outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-3 focus-visible:after:ring-ring/50">

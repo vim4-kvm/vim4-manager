@@ -73,7 +73,7 @@ export function Applications() {
       </StatusLabel>
       {activeApp && <span className="text-muted-foreground">已运行 <span className="text-foreground tabular-nums">{since(activeApp.unit, now) ?? "—"}</span></span>}
       <span className="min-w-0 break-all text-muted-foreground">虚拟介质：{stale || !status.media?.known ? "状态未知" : status.media.inserted ? mediaName(status.media) : "未挂载"}</span>
-      <a className="ml-auto inline-flex items-center gap-1 text-chart-1 hover:underline" href="#/media">管理虚拟介质 <ExternalLink className="size-3.5" /></a>
+      <a className="ml-auto inline-flex items-center gap-1 text-link hover:underline" href="#/media">管理虚拟介质 <ExternalLink className="size-3.5" /></a>
     </div>
     {waiting ? <MediaWait media={status.media} target={waiting.app.name} onCancel={cancelWaiting} />
       : <MediaSummary media={stale ? undefined : status.media} />}

@@ -12,8 +12,8 @@ export function Segmented({ label, children, className }: { label: string; child
 }
 
 const option = "flex min-w-0 flex-col items-start gap-0.5 rounded-md px-3 py-2 text-left";
-// Solid in both themes so hover never blends the selected option into the track.
-const selected = "bg-chart-1 text-white shadow-xs hover:text-white [&>span]:text-white dark:text-slate-950 dark:hover:text-slate-950 dark:[&>span]:text-slate-950";
+// Same raised tile as the resource tabs; the track stays muted in both themes.
+const selected = "bg-card text-foreground shadow-xs ring-1 ring-border hover:text-foreground dark:bg-input/60";
 
 export function SegmentedOption({ title, detail, pressed, className, ...props }: {
   title: string;

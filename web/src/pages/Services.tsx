@@ -30,7 +30,7 @@ export function Services() {
   return <>
     <PageHeading page="services" />
     {status && <SettingsCard><div className="flex flex-wrap items-center gap-6">
-      <div className="min-w-0 flex-1 basis-60 space-y-1"><StatusLabel tone={stale ? "warning" : failed ? "critical" : healthy ? "good" : "warning"}><strong className="text-base">{stale ? "连接中断，显示上次状态" : failed ? "有服务运行异常" : healthy ? "所有已列出服务正常" : "部分服务未运行"}</strong></StatusLabel><p className="ml-4 text-xs text-muted-foreground">状态自动更新</p></div>
+      <div className="min-w-0 flex-1 basis-60 space-y-1"><StatusLabel tone={stale ? "warning" : failed ? "critical" : healthy ? "good" : "warning"}><strong className="text-base">{stale ? "连接中断，显示上次状态" : failed ? "有服务运行异常" : healthy ? "所有已列出服务正常" : "部分服务未运行"}</strong></StatusLabel><p className="ml-4 text-xs text-muted-foreground">状态自动刷新</p></div>
       <FactGrid className="flex-1 basis-60" cols={3}><Fact label="运行中" value={String(running)} /><Fact label="已完成" value={String(completed)} /><Fact label="异常" value={String(failed)} tone={failed ? "critical" : undefined} /></FactGrid>
       <Button variant="outline" size="icon" aria-label="刷新服务状态" disabled={refreshing} onClick={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}><RefreshCw className={refreshing ? "motion-safe:animate-spin" : undefined} /></Button>
     </div></SettingsCard>}

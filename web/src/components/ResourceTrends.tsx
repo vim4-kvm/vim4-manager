@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/ui/native-select";
 import { useState } from "react";
 import { Tabs } from "radix-ui";
 import type { Hardware, Sample } from "@/api";
@@ -87,18 +88,17 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
   const partial = span < (windowMinutes - 0.5) * 60000;
   const minutes = samples.length ? partial ? Math.max(1, Math.floor(span / 60000)) : windowMinutes : 0;
   return (
-    <section aria-labelledby="resource-trends" data-trends className="min-w-0 rounded-xl border bg-card p-4 shadow-xs @lg:p-5">
+    <section aria-labelledby="resource-trends" data-trends className="h-full min-w-0 rounded-xl border bg-card p-4 shadow-xs @lg:p-5">
       <Tabs.Root value={metric} onValueChange={(value) => { setMetric(value as Metric); setHover(undefined); }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 id="resource-trends" className="text-base font-semibold tracking-tight">资源趋势</h2>
-          <select aria-label="趋势时间范围" value={windowMinutes} onChange={(event) => { setWindowMinutes(Number(event.target.value)); setHover(undefined); }}
-            className="h-8 rounded-md border bg-background px-2 text-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+          <NativeSelect size="sm" aria-label="趋势时间范围" value={windowMinutes} onChange={(event) => { setWindowMinutes(Number(event.target.value)); setHover(undefined); }}>
             <option value={15}>最近 15 分钟</option><option value={5}>最近 5 分钟</option>
-          </select>
+          </NativeSelect>
         </div>
-        <Tabs.List aria-label="资源指标" className="mb-4 flex w-fit max-w-full flex-wrap gap-0.5 rounded-md bg-muted p-1">
+        <Tabs.List aria-label="资源指标" className="mb-4 flex w-fit max-w-full gap-0.5 overflow-x-auto rounded-md bg-muted p-1 [scrollbar-width:none]">
           {metrics.map((item) => <Tabs.Trigger key={item.id} value={item.id}
-            className="rounded-sm px-2.5 py-1.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs">{item.title}</Tabs.Trigger>)}
+            className="shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs">{item.title}</Tabs.Trigger>)}
         </Tabs.List>
         <Tabs.Content key={metric} value={metric} className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
           <figure>
@@ -111,7 +111,7 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
               hover={hover} onHover={setHover} sampledFrom={samples[0]?.t} sampledMinutes={minutes || windowMinutes} />
             <dl className="mt-4 grid grid-cols-3 divide-x border-t pt-3 text-xs">
               {[{ label: "平均", value: average }, { label: "峰值", value: peak },
-                { label: metric === "cpu" ? "当前负载" : "最低", value: metric === "cpu" ? hw.load1.toFixed(2) : values.length ? selected.format(Math.min(...values)) : "—" }].map((stat, index) => (
+                { label: "最低", value: values.length ? selected.format(Math.min(...values)) : "—" }].map((stat, index) => (
                   <div key={stat.label} className={index ? "min-w-0 pl-4" : "min-w-0"}><dt className="text-muted-foreground">{stat.label}</dt><dd className="mt-1 font-semibold tabular-nums">{stat.value}</dd></div>
                 ))}
             </dl>

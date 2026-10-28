@@ -357,7 +357,7 @@ try {
   state.configured = true; loginStatus = 200;
   await password.fill("password1"); await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(/#\/account$/);
-  await page.getByText("本机转发", { exact: true }).waitFor();
+  await page.getByText("经板上代理", { exact: true }).waitFor();
   await page.getByText(/上次修改 2026-10-18/).waitFor();
   const shot = name => stableScreenshot(page, name, true, accountShots);
   const menuButton = page.getByRole("button", { name: "账户菜单", exact: true });
@@ -409,7 +409,7 @@ try {
   await menuButton.click();
   await menu.getByRole("menuitem", { name: "账户与登录设备" }).click();
   await page.waitForURL(/#\/account$/);
-  await page.getByText("本机转发", { exact: true }).waitFor();
+  await page.getByText("经板上代理", { exact: true }).waitFor();
   logoutFail = true;
   await menuButton.click();
   await menu.getByRole("menuitem", { name: "退出登录" }).click();
@@ -441,7 +441,7 @@ try {
   await page.getByText("命令行工具 · curl", { exact: true }).waitFor();
   pass("tool names, Tailscale IPv4/IPv6, loopback, aligned columns and loading retry");
   revokeFail = true;
-  const otherRow = page.getByRole("table", { name: "登录设备" }).getByRole("row").filter({ has: page.getByRole("cell") }).filter({ hasText: "本机转发" });
+  const otherRow = page.getByRole("table", { name: "登录设备" }).getByRole("row").filter({ has: page.getByRole("cell") }).filter({ hasText: "经板上代理" });
   await otherRow.getByRole("button", { name: "退出", exact: true }).click();
   await otherRow.getByRole("alert").waitFor();
   revokeFail = false;

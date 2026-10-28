@@ -288,7 +288,7 @@ export function TailscalePanel() {
                 退出登录
               </Button>
             )}
-            <Button variant="outline" disabled={locked} onClick={() => setConfirming("uninstall")}>
+            <Button variant="destructive" disabled={locked} onClick={() => setConfirming("uninstall")}>
               卸载
             </Button>
           </div>

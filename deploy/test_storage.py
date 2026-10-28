@@ -98,7 +98,7 @@ class StorageTest(unittest.TestCase):
 
     def test_failed_unit_reports_readable_error(self):
         config = helper.storage_validate(request(id='nas'))
-        for result, text in (('exit-code', '测试连接'), ('timeout', '超时')):
+        for result, text in (('exit-code', '连接失败'), ('timeout', '超时')):
             with self.subTest(result=result), patch.object(
                     helper, 'storage_run', side_effect=lambda args, timeout=35: (
                         'x.mount' if args[0] == 'systemd-escape' else f'ActiveState=failed\nResult={result}')):

@@ -1,3 +1,4 @@
+import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/Spinner";
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
@@ -15,7 +16,6 @@ import { SettingRow } from "@/components/SettingRow";
 import { SettingsCard } from "@/components/SettingsCard";
 import { PageHeading } from "@/components/PageHeading";
 import { DetailsDialog } from "@/components/DetailsDialog";
-import { Notice } from "@/components/Notice";
 import { StatusLabel } from "@/components/StatusDot";
 import { useActionStore, report } from "@/stores/action";
 import { useStatusStore } from "@/stores/status";
@@ -105,7 +105,7 @@ function Usage({ disk }: { disk: Disk }) {
       <span className="block h-1.5 w-full overflow-hidden rounded-full bg-muted [&>span]:block [&>span]:h-full [&>span]:bg-chart-1" aria-hidden="true">
         <span style={{ width: `${percent}%` }} />
       </span>
-      <span className="tabular-nums">剩余 {bytes(disk.freeBytes)} / {bytes(disk.size)}</span>
+      <span className="tabular-nums">已用 {bytes(used)} / {bytes(disk.size)}</span>
     </span>
   );
 }
@@ -231,6 +231,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
   const [error, setError] = useState<string>();
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<string>();
+  const [showHidden, setShowHidden] = useState(false);
   const [renaming, setRenaming] = useState<string>();
   const [deleting, setDeleting] = useState<DiskEntry>();
   const [newName, setNewName] = useState("");
@@ -271,6 +272,9 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
     track(key)(label, action, done).then((ok) => { refresh(); return ok; });
   const entries = listing?.path === path ? listing.entries : undefined;
   const shown = listing?.path ?? path;
+  // Dot entries are mostly Finder/Spotlight metadata (.fseventsd, ._name); keep them one click away.
+  const hidden = listing?.entries.filter((entry) => entry.name.startsWith(".")) ?? [];
+  const visible = showHidden ? listing?.entries ?? [] : listing?.entries.filter((entry) => !entry.name.startsWith(".")) ?? [];
   const crumbs = path === "/" ? [] : path.slice(1).split("/");
   const blocked = dropBlocked(disk, busy, uploading, !!entries);
 
@@ -434,10 +438,10 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                 </Button>
               </div>
             )}
-            {listing.entries.length === 0 && (
+            {visible.length === 0 && (
               <EmptyState icon={File}>{readOnly ? "文件夹为空。" : "文件夹为空。把文件拖到这里，或点「上传文件」。"}</EmptyState>
             )}
-            <AnimatedList className="flex flex-col divide-y" items={listing.entries} getKey={(entry) => entry.name} label="文件列表">{(entry: DiskEntry) => {
+            <AnimatedList className="flex flex-col divide-y" items={visible} getKey={(entry) => entry.name} label="文件列表">{(entry: DiskEntry) => {
               const target = join(shown, entry.name);
               const open = selected === entry.name;
               return (
@@ -487,9 +491,14 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                 </div>
               );
             }}</AnimatedList>
+            {hidden.length > 0 && (
+              <p className="flex flex-wrap items-baseline gap-x-2 px-2 pt-3 text-xs text-muted-foreground">
+                {showHidden ? `已显示 ${hidden.length} 个隐藏项（名称以 . 开头）` : `已隐藏 ${hidden.length} 个系统文件（名称以 . 开头，多为 macOS 索引）`}
+                <Button variant="link" size="inline" className="text-xs" onClick={() => setShowHidden(!showHidden)}>{showHidden ? "隐藏" : "显示"}</Button>
+              </p>
+            )}
           </div>
         )}
-      {!disk.attached && <Notice>文件管理仅在数据盘未挂载时可用。</Notice>}
     </div></SettingsCard>
   );
 }
@@ -687,8 +696,8 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
               <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "format"} action="格式化" onConfirm={() =>
                 void act("format", "正在格式化…", () => request("/api/disks/format", { name: disk.name, label: formatLabel, confirm: disk.name, snapshot: snapshotFirst }), `${disk.name} 已格式化`)}>
                 <p>清空 {disk.name} 中的全部文件，保留容量，卷标设为「{formatLabel}」。</p>
-                <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
-                  <input className="accent-primary" type="checkbox" checked={snapshotFirst} disabled={locked} onChange={(event) => setSnapshotFirst(event.target.checked)} />
+                <label className="flex items-start gap-2 text-sm">
+                  <Checkbox className="mt-0.5" checked={snapshotFirst} disabled={locked} onCheckedChange={(value) => setSnapshotFirst(value === true)} />
                   格式化前创建快照{disk.snapshots.length >= 3 ? "（已达 3 个上限）" : ""}
                 </label>
               </Confirmed>
@@ -698,8 +707,8 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
                 void act("delete", "正在删除数据盘…", () => request("/api/disks/delete", { name: disk.name, confirm: disk.name, keepSnapshots }), `${disk.name} 已删除`).then((ok) => { if (ok) onDeleted(); })}>
                 <p>删除镜像文件 {disk.name}，释放 {bytes(disk.size)}。此操作无法撤销。</p>
                 {disk.snapshots.length > 0 && (
-                  <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
-                    <input className="accent-primary" type="checkbox" checked={keepSnapshots} disabled={locked} onChange={(event) => setKeepSnapshots(event.target.checked)} />
+                  <label className="flex items-start gap-2 text-sm">
+                    <Checkbox className="mt-0.5" checked={keepSnapshots} disabled={locked} onCheckedChange={(value) => setKeepSnapshots(value === true)} />
                     保留 {disk.snapshots.length} 个快照
                   </label>
                 )}
@@ -765,7 +774,7 @@ export function DiskPanel() {
       {status && <SettingsCard label="系统盘空间"><div className="flex flex-wrap items-center gap-x-6 gap-y-3">
         <div className="flex items-center gap-3"><HardDrive className="size-7 text-muted-foreground" aria-hidden="true" /><strong className="text-sm">系统盘剩余 {bytes(status.system.disk.freeBytes)}</strong></div>
         <div className="h-2 min-w-24 flex-1 basis-40 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-chart-1" style={{ width: `${Math.max(0, Math.min(100, (1 - status.system.disk.freeBytes / Math.max(1, status.system.disk.totalBytes)) * 100))}%` }} /></div>
-        <span className="text-xs tabular-nums text-muted-foreground">共 {bytes(status.system.disk.totalBytes)}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">已用 {bytes(status.system.disk.totalBytes - status.system.disk.freeBytes)} / 共 {bytes(status.system.disk.totalBytes)}</span>
       </div></SettingsCard>}
       <div className="grid items-start gap-5 xl:grid-cols-[250px_minmax(0,1fr)]">
       <SettingsCard label="数据盘列表" title="数据盘"
@@ -795,7 +804,7 @@ export function DiskPanel() {
         <div key={disk.name} className="flex min-w-0 flex-col gap-5">
           <SettingsCard label="所选数据盘">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="min-w-0 flex-1 break-all text-lg font-semibold">{disk.name}</h2>
+              <h2 className="min-w-32 flex-1 text-lg font-semibold [overflow-wrap:anywhere]">{disk.name}</h2>
               <DiskState disk={disk} />
               <div className="ml-auto flex flex-wrap gap-2">
                 <Button variant="outline" asChild><a href="#/media"><ExternalLink />前往挂载</a></Button>

@@ -1,8 +1,9 @@
+import { Checkbox } from "@/components/ui/checkbox";
 import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { useEffect, useState } from "react";
 import { request, type Media, type MediaImage } from "./api";
-import { BookOpen, Disc3, ExternalLink, HardDrive, Loader2, RefreshCw } from "lucide-react";
+import { Disc3, ExternalLink, HardDrive, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SettingRow } from "@/components/SettingRow";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -72,7 +73,7 @@ export function MediaSummary({ media }: { media?: Media }) {
           </span>
         </>
       )}
-      <span className="ml-auto text-xs text-primary">管理介质 →</span>
+      <span className="ml-auto text-xs text-link">管理介质 →</span>
     </a>
   );
 }
@@ -161,7 +162,7 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
           <li>{hostEject}</li><li>确认主机已停止使用后，再从这里移除。</li>
         </ol>
         <label className="flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-1 accent-primary" checked={confirmed} disabled={locked} onChange={(event) => setConfirmed(event.target.checked)} />
+          <Checkbox className="mt-0.5" checked={confirmed} disabled={locked} onCheckedChange={(value) => setConfirmed(value === true)} />
           被控电脑已停止使用磁盘并安全卸载
         </label>
         <p className="text-sm text-muted-foreground">此操作无法替代主机上的安全移除；主机仍锁定介质时会拒绝弹出。</p>
@@ -220,7 +221,7 @@ export function MediaPanel() {
                 <div key={source} className="flex flex-col gap-2 [&_h4]:flex [&_h4]:items-baseline [&_h4]:justify-between [&_h4]:text-xs [&_h4]:font-medium [&_h4]:text-muted-foreground">
                   <h4>
                     {sources[source] ?? source}
-                    {source === "data" && <a className="text-xs text-primary" href="#/disks">管理文件 →</a>}
+                    {source === "data" && <a className="text-xs text-link hover:underline" href="#/disks">管理文件 →</a>}
                   </h4>
                   <AnimatedList className="flex flex-col divide-y" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
                     <label className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-4 transition-colors hover:bg-accent/60 has-checked:bg-chart-1/7 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-chart-1">
@@ -244,12 +245,11 @@ export function MediaPanel() {
             </div></FadeIn>
           )}
         <SettingRow title={selected ? `已选 ${selected.name}` : "选择镜像"} description={blocker} control={<>
-          <label className="flex items-start gap-2 text-sm [&_input]:mt-1 [&_input]:accent-primary">
-            <input
-              type="checkbox"
+          <label className="flex items-start gap-2 text-sm">
+            <Checkbox className="mt-0.5"
               checked={readonly || readOnlyRequired}
               disabled={locked || !!media?.inserted || readOnlyRequired}
-              onChange={(event) => setReadonly(event.target.checked)}
+              onCheckedChange={(value) => setReadonly(value === true)}
             />
             只读挂载{readOnlyRequired ? "（光盘或 JetKVM 必须只读）" : ""}
           </label>
@@ -263,11 +263,11 @@ export function MediaPanel() {
           </Button>
         </>} />
       </SettingsCard>
-      <SettingsCard title="镜像来源" action={<BookOpen className="size-5 text-muted-foreground" aria-hidden="true" />}>
+      <SettingsCard title="镜像来源">
         <div className="space-y-4 text-sm text-muted-foreground">
           <p><strong className="font-medium text-foreground">数据盘</strong>：在数据盘页创建镜像和管理文件。</p>
           <p><strong className="font-medium text-foreground">ISO / IMG</strong>：在对应 KVM 界面上传，然后刷新镜像库。</p>
-          {activeApp && <a className="inline-flex items-center gap-1 text-chart-1 hover:underline" href={kvmURL(activeApp.port, activeApp.id)}>打开 {activeApp.name}<ExternalLink className="size-3.5" /></a>}
+          {activeApp && <a className="inline-flex items-center gap-1 text-link hover:underline" href={kvmURL(activeApp.port, activeApp.id)}>打开 {activeApp.name}<ExternalLink className="size-3.5" /></a>}
         </div>
         <p className="text-xs text-muted-foreground">四个界面共用同一个 USB 存储设备。已有介质时，需先弹出再挂载其他镜像。</p>
       </SettingsCard>

@@ -1,3 +1,5 @@
+import { Checkbox } from "@/components/ui/checkbox";
+import { NativeSelect } from "@/components/ui/native-select";
 import { Segmented, SegmentedOption } from "@/components/Segmented";
 import { Wifi } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
@@ -90,19 +92,18 @@ export function WifiHotspot({
             </div>} />
         )}
         <Fact label="开机启动" value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
-            <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
-              <input className="accent-primary"
+            <label className="flex items-start gap-2 text-sm">
+              <Checkbox className="mt-0.5"
                 aria-label="开机直接进入热点模式"
-                type="checkbox"
                 checked={hotspot.autostart}
                 disabled={locked}
-                onChange={(e) =>
+                onCheckedChange={(value) =>
                   void act("正在保存…", () =>
                     wifiWrite("/hotspot", {
                       ssid: hotspot.ssid,
                       password: "",
                       channel: hotspot.channel,
-                      autostart: e.target.checked,
+                      autostart: value === true,
                     }),
                   )
                 }
@@ -138,14 +139,14 @@ export function WifiHotspot({
           </label>
           <label className="flex min-w-0 flex-col gap-2 text-sm">
             信道
-            <select value={channel} onChange={(e) => setChannel(Number(e.target.value))}>
+            <NativeSelect className="w-full" value={channel} onChange={(e) => setChannel(Number(e.target.value))}>
               <option value={0}>自动</option>
               {Array.from({ length: 11 }, (_, i) => i + 1).map((c) => (
                 <option key={c} value={c}>
                   {c}（2.4 GHz）
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
           <p className="text-xs text-muted-foreground col-span-full">
             {hotspot.active ? "保存后热点会重启，已连入的设备需要用新设置重新连接。" : "板子的无线网卡只支持 2.4 GHz 热点。"}

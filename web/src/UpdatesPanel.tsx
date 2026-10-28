@@ -13,7 +13,7 @@ import { DevelopmentBadge } from "@/components/DevelopmentBadge";
 import { isDevelopmentVersion } from "@/lib/version";
 import { PageHeading } from "@/components/PageHeading";
 import { KernelPanel } from "@/KernelPanel";
-import { RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 
 
 // NanoKVM, JetKVM and One-KVM install updates from their own settings page,
@@ -25,6 +25,8 @@ function state(update: Update): { tone: Tone; label: string } {
   if (update.error) return { tone: "warning", label: update.error };
   if (update.available) return { tone: "warning", label: `可更新到 ${update.latest}` };
   if (isDevelopmentVersion(update.installed)) return { tone: "idle", label: "暂无更新的正式版" };
+  // Not offered but different: a local build at or past the newest release.
+  if (update.latest && update.installed !== update.latest) return { tone: "good", label: "高于最新发布版" };
   return { tone: "good", label: "已是最新" };
 }
 
@@ -68,7 +70,7 @@ export function UpdatesPanel() {
   return (
     <>
       <PageHeading page="updates" action={
-        <Button disabled={busy || checking} onClick={() => void check()}><RefreshCw className={checking ? "motion-safe:animate-spin" : undefined} />
+        <Button variant="outline" disabled={busy || checking} onClick={() => void check()}><RefreshCw className={checking ? "motion-safe:animate-spin" : undefined} />
           {checking ? "检查中…" : "重新检查"}
         </Button>
       } />
@@ -96,8 +98,9 @@ export function UpdatesPanel() {
                 <tr key={update.package}>
                   <td>
                     <span className="flex flex-wrap items-center gap-2 font-medium">{update.name}<DevelopmentBadge version={update.installed} /></span>
-                    <a className="font-mono break-all text-muted-foreground" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer">
-                      {update.repo}
+                    <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-link hover:underline" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer"
+                      aria-label={`${update.name} 的 GitHub 发布页（${update.repo}）`}>
+                      发布页<ExternalLink aria-hidden="true" className="size-3" />
                     </a>
                   </td>
                   <td className="font-mono break-all text-muted-foreground hidden md:table-cell text-xs">{update.installed || "—"}</td>
@@ -137,7 +140,7 @@ export function UpdatesPanel() {
       )}
       </div>
       </SettingsCard>
-      <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground"><span>上次检查：{checkedAt ? new Date(checkedAt).toLocaleTimeString("zh-CN", { hour12: false }) : "尚未完成"}</span><a className="text-chart-1 hover:underline" href="#/overview">查看设备与版本 →</a></div>
+      <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground"><span>上次检查：{checkedAt ? new Date(checkedAt).toLocaleTimeString("zh-CN", { hour12: false }) : "尚未完成"}</span><a className="text-link hover:underline" href="#/overview">查看设备与版本 →</a></div>
     </>
   );
 }

@@ -120,7 +120,7 @@ export function DeviceConnections({ status, passthrough = status?.passthrough, s
             <StatusLabel tone={tone(selected!)} className="text-xs">{selectedData.value}</StatusLabel>
             <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{selectedData.detail}</p>
             {selected === "usb" && <p className="text-xs text-muted-foreground">协商额度不代表实时电流或功耗；键鼠状态以 USB 枚举为准。</p>}
-            <a href={selectedData.href} className="mt-1 inline-flex w-fit items-center gap-1 rounded-sm text-xs text-chart-1 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{selectedData.destination}<ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
+            <a href={selectedData.href} className="mt-1 inline-flex w-fit items-center gap-1 rounded-sm text-xs text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{selectedData.destination}<ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
           </div>
           <button type="button" aria-label="关闭接口详情" className="rounded-md p-1 text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring" onClick={() => setSelected(undefined)}><X aria-hidden="true" className="size-4" /></button>
         </div>}

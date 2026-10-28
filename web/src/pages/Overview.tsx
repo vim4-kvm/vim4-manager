@@ -1,4 +1,4 @@
-import { ArrowUpRight, ChevronDown, Disc3, FolderOpen, History, MonitorPlay, MonitorUp, Plug, RefreshCw, Video, Zap } from "lucide-react";
+import { ArrowUpRight, ChevronDown, Disc3, History, MonitorPlay, Plug, RefreshCw, Zap } from "lucide-react";
 import { useId, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { BoardEvent, Hardware, Link, PowerCapability, Status } from "@/api";
@@ -32,7 +32,7 @@ function OverviewHeading() {
         <p className="text-sm text-muted-foreground">设备状态、资源趋势与常用操作。</p>
       </div>
       <div className="flex items-center gap-3">
-        <StatusLabel tone={stale ? "warning" : "good"} className="text-xs text-muted-foreground">{stale ? "连接中断" : "自动更新"}</StatusLabel>
+        <StatusLabel tone={stale ? "warning" : "good"} className="text-xs text-muted-foreground">{stale ? "连接中断" : "自动刷新"}</StatusLabel>
         <Button variant="outline" size="icon" aria-label="刷新设备状态" title="刷新设备状态" disabled={busy} onClick={() => void reload()}>
           <RefreshCw aria-hidden="true" className={cn(busy && "animate-spin motion-reduce:animate-none")} />
         </Button>
@@ -46,7 +46,6 @@ function DeviceStatus({ status, now, stale }: { status: Status; now: number; sta
   const panel = useId();
   const failed = [...status.platform.map((p) => p.unit), ...status.apps.filter((a) => a.id === status.active).map((a) => a.unit)].filter((unit) => unit.active === "failed").length;
   const address = status.system.links.filter((link) => link.up).flatMap((link) => link.addrs ?? []).find((addr) => !addr.includes(":"));
-  const hdr = status.hardware.hdmi.signal ? hdrLabel(status.hardware.hdmi.hdr) : undefined;
   return (
     <section aria-label="设备连接状态" className="overflow-hidden rounded-lg border bg-card text-xs">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
@@ -57,9 +56,8 @@ function DeviceStatus({ status, now, stale }: { status: Status; now: number; sta
       <span className="text-muted-foreground" title={`开机于 ${clockTime(now - status.hardware.uptimeSeconds * 1000, now)}`}>已运行 {duration(status.hardware.uptimeSeconds)}</span>
       {stale && <span className="text-muted-foreground">上次更新 {clockTime(now, Date.now())}</span>}
       <div className="ml-auto flex items-center gap-3">
-        {hdr && <span className="rounded-md bg-muted px-2 py-1 text-muted-foreground">{hdr}</span>}
         <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-chart-1 outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-link outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
           {open ? "收起连接状态" : "展开连接状态"}<ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", open && "rotate-180")} />
         </button>
       </div>
@@ -68,7 +66,7 @@ function DeviceStatus({ status, now, stale }: { status: Status; now: number; sta
         <div id={panel} className="border-t p-4 sm:p-5">
           <div className="mb-3 flex items-center justify-between gap-3">
             <h2 className="text-sm font-semibold">设备连接</h2>
-            <a href="#/output" className="inline-flex items-center gap-1 rounded-sm text-chart-1 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">查看 HDMI 输出<ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
+            <a href="#/output" className="inline-flex items-center gap-1 rounded-sm text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">查看 HDMI 输出<ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
           </div>
           <DeviceConnections status={status} stale={stale} />
         </div>
@@ -105,7 +103,7 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
         <Button asChild className={cn("w-full", !running && "pointer-events-none opacity-50")}>
           <a href={kvmURL(app.port, app.id)} aria-disabled={!running}>打开 {app.name}<ArrowUpRight aria-hidden="true" /></a>
         </Button>
-        <a href="#/apps" className="self-center rounded-sm text-xs text-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">切换 KVM 界面</a>
+        <a href="#/apps" className="self-center rounded-sm text-xs text-link outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50">切换 KVM 界面</a>
       </div>
     </SettingsCard>
   );
@@ -191,7 +189,7 @@ function LinkFacts({ hw, power, media }: { hw: Hardware; power: Status["power"];
   const usbConfigured = hw.usb === "configured";
   const mediaKnown = media?.known;
   return (
-    <FactGrid cols={4} className="gap-4 [&>div]:p-4 [&>div]:shadow-none">
+    <FactGrid cols={4} className="grid-cols-2 gap-3 @md:gap-4 [&>div]:p-3 @md:[&>div]:p-4 [&>div]:shadow-none">
       <Fact card icon={MonitorPlay} label="HDMI 输入" href="#/video" destination="视频输入" value={h.signal ? <>{h.width}×<wbr />{h.height}</> : "无信号"}
         valueKey={h.signal ? `${h.width}×${h.height}` : "无信号"} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
       <Fact card icon={Plug} label="USB 键鼠" href="#/services" destination="底层服务" value={usbConfigured ? "已连接" : hw.usb || "未知"}
@@ -205,20 +203,7 @@ function LinkFacts({ hw, power, media }: { hw: Hardware; power: Status["power"];
   );
 }
 
-function QuickActions() {
-  return (
-    <SettingsCard title="快捷操作">
-      <div className="grid grid-cols-2 gap-2">
-        {[{ label: "挂载镜像", href: "#/media", icon: Disc3 }, { label: "文件管理", href: "#/disks", icon: FolderOpen },
-          { label: "视频设置", href: "#/video", icon: Video }, { label: "HDMI 输出", href: "#/output", icon: MonitorUp }].map(({ label, href, icon: Icon }) => (
-          <Button key={href} variant="outline" asChild className="h-11 min-w-0 gap-2 px-2 text-xs"><a href={href}><Icon aria-hidden="true" />{label}</a></Button>
-        ))}
-      </div>
-    </SettingsCard>
-  );
-}
-
-const linkButton = "self-start rounded-sm text-xs text-primary outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50";
+const linkButton = "self-start rounded-sm text-xs text-link outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50";
 
 function EventList({ events, now }: { events: BoardEvent[]; now: number }) {
   const [all, setAll] = useState(false);
@@ -263,9 +248,12 @@ function Addresses({ addrs }: { addrs: string[] }) {
 
 function NetworkList({ links }: { links: Link[] }) {
   if (!links.length) return <p className="text-sm text-muted-foreground">没有检测到网卡。</p>;
+  // Idle radios carry no address; one summary line instead of a row of dashes per interface.
+  const idleWifi = links.filter((l) => l.wireless && !l.up);
+  const shown = idleWifi.length > 1 ? links.filter((l) => !idleWifi.includes(l)) : links;
   return (
     <ul className="flex flex-col divide-y">
-      {links.map((l) => (
+      {shown.map((l) => (
         <li key={l.name} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-0.5 py-2 first:pt-0 last:pb-0">
           <StatusLabel tone={l.up ? "good" : "idle"} className="text-sm">
             {l.wireless ? `Wi-Fi ${l.name}` : l.name === "usb0" ? "USB 网卡" : `有线 ${l.name}`}
@@ -278,6 +266,12 @@ function NetworkList({ links }: { links: Link[] }) {
           </span>
         </li>
       ))}
+      {shown.length < links.length && (
+        <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-2 last:pb-0">
+          <StatusLabel tone="idle" className="text-sm">Wi-Fi {idleWifi.map((l) => l.name).join("、")}</StatusLabel>
+          <span className="text-right text-xs text-muted-foreground">未连接</span>
+        </li>
+      )}
     </ul>
   );
 }
@@ -309,13 +303,15 @@ function DeviceHealth({ status, stale }: { status: Status; stale: boolean }) {
   const tone: Tone = stale || incomplete ? "idle" : high ? "critical" : warm ? "warning" : "good";
   return (
     <SettingsCard title="设备健康" action={<StatusLabel tone={tone} className="text-xs">{stale ? "上次状态" : incomplete ? "部分指标未知" : high ? "需要关注" : warm ? "占用偏高" : "正常"}</StatusLabel>}>
-      <dl className="grid grid-cols-2 gap-x-5 gap-y-5 text-xs">
+      <div className="grid gap-5 @4xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] @4xl:gap-8">
+      <dl className="grid grid-cols-2 gap-x-5 gap-y-5 text-xs @2xl:grid-cols-4">
         <div><dt className="text-muted-foreground">SoC 温度</dt><dd className="mt-2 flex items-center gap-2 text-sm font-semibold tabular-nums"><StatusDot tone={tempTone(hw.tempC)} />{celsius(hw.tempC)}</dd></div>
         <div><dt className="text-muted-foreground">风扇</dt><dd className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold tabular-nums">{hw.fanPercent > 0 ? `${hw.fanPercent}%` : "停转"}<span className="text-xs font-normal text-muted-foreground">{hw.fanAuto ? "自动" : "手动"} · 占空比</span></dd></div>
         <div className="min-w-0"><dt className="text-muted-foreground">内存</dt><dd className="mt-2 text-xs font-medium tabular-nums">{memUsed === undefined ? "未知" : `${bytes((hw.memTotalKiB - hw.memAvailableKiB) * 1024)} / ${bytes(hw.memTotalKiB * 1024)}`}{memUsed !== undefined && <Meter label="内存使用率" fraction={memUsed} />}</dd></div>
         <div className="min-w-0"><dt className="text-muted-foreground">系统盘</dt><dd className="mt-2 text-xs font-medium tabular-nums">{diskUsed === undefined ? "未知" : `${bytes(disk.totalBytes - disk.freeBytes)} / ${bytes(disk.totalBytes)}`}{diskUsed !== undefined && <Meter label="系统盘使用率" fraction={diskUsed} />}</dd></div>
       </dl>
       <NetworkList links={status.system.links} />
+      </div>
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
         <a className={linkButton} href="#/cooling">散热设置</a><a className={linkButton} href="#/updates">查看组件版本</a>
       </div>
@@ -327,9 +323,9 @@ function OverviewSkeleton() {
   return (
     <div className="@container flex flex-col gap-4" aria-busy="true">
       <span className="sr-only">正在读取…</span><Skeleton className="h-12 rounded-lg" />
-      <div className="grid grid-cols-1 gap-4 @md:grid-cols-2 @4xl:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
+      <div className="grid grid-cols-2 gap-3 @md:gap-4 @4xl:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
       <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3"><Skeleton className="h-[410px] rounded-xl @4xl:col-span-2" /><Skeleton className="h-[410px] rounded-xl" /></div>
-      <div className="grid grid-cols-1 gap-4 @3xl:grid-cols-2"><Skeleton className="h-64 rounded-xl" /><Skeleton className="h-64 rounded-xl" /></div>
+      <Skeleton className="h-48 rounded-xl" />
     </div>
   );
 }
@@ -342,17 +338,17 @@ export function Overview() {
       {!status ? <OverviewSkeleton /> : <FadeIn className="flex flex-col gap-4">
         <DeviceStatus status={status} now={now} stale={stale} />
         <LinkFacts hw={status.hardware} power={status.power} media={status.media} />
-        <div className="grid grid-cols-1 items-start gap-4 @4xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3">
           <div className="min-w-0 @4xl:col-span-2"><ResourceTrends hw={status.hardware} history={status.history} now={now} /></div>
-          <div className="grid min-w-0 grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-1"><ActiveApp status={status} now={now} /><QuickActions /></div>
+          <div className="grid min-w-0 grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-1">
+            <ActiveApp status={status} now={now} />
+            <SettingsCard title="最近事件" description="信号、USB、服务与操作记录。">
+              <EventList events={status.events} now={now} />
+              <p className="text-xs text-muted-foreground">管理服务重启后事件记录重新开始。</p>
+            </SettingsCard>
+          </div>
         </div>
-        <div className="grid grid-cols-1 items-start gap-4 @3xl:grid-cols-2">
-          <SettingsCard title="最近事件" description="信号、USB、服务与操作记录。">
-            <EventList events={status.events} now={now} />
-            <p className="text-[11px] text-muted-foreground">管理服务重启后事件记录重新开始。</p>
-          </SettingsCard>
-          <DeviceHealth status={status} stale={stale} />
-        </div>
+        <DeviceHealth status={status} stale={stale} />
       </FadeIn>}
     </div>
   );

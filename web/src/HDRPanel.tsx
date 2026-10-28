@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Notice } from "@/components/Notice";
 import { DEFAULT_HDR_CURVE, type HDRCurve } from "./api";
 
 // Slider ranges. SDR white runs high to low so that "right" means brighter.
@@ -314,10 +315,13 @@ export function HDRPanel({
   const peakPos = Math.round(logPos(draft.peak, peakMin, PEAK_MAX) * 1000);
   const isDefault = curve.white === DEFAULT_HDR_CURVE.white && curve.peak === DEFAULT_HDR_CURVE.peak;
   const live = hdr && hdr !== "SDR";
+  // Say up front why the controls below have no visible effect yet.
+  const idle = !mappingEnabled ? "转换已关闭；SDR 兼容画面仍使用已保存曲线。" : live ? undefined : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。";
 
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 flex-col gap-5">
+        {idle && <Notice>{idle}</Notice>}
         <div className="grid gap-5 @md:grid-cols-2">
           <Slider
             label="桌面亮度"
@@ -346,9 +350,7 @@ export function HDRPanel({
         <CurveChart curve={draft} />
         <Ramp curve={draft} />
         <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
-          <span className="text-muted-foreground">
-            {!mappingEnabled ? "转换已关闭；SDR 兼容画面仍使用已保存曲线。" : live ? "拖动时网页画面实时变化，松开后保存。" : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。"}
-          </span>
+          <span className="text-muted-foreground">{idle ? "" : "拖动时网页画面实时变化，松开后保存。"}</span>
           <Button variant="outline" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
             恢复默认
           </Button>

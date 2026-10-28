@@ -64,12 +64,15 @@ function deviceInfo(agent: string) {
 }
 
 function addressInfo(address: string) {
-  if (/^(127\.|::1$|0:0:0:0:0:0:0:1$)/i.test(address)) return { label: "本机转发", tailscale: false };
+  if (/^(127\.|::1$|0:0:0:0:0:0:0:1$)/i.test(address)) return { label: "经板上代理", tailscale: false, proxied: true };
   const parts = address.split(".").map(Number);
   const tailscale =
     (parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) || /^fd7a:115c:a1e0:/i.test(address);
-  return { label: address, tailscale };
+  return { label: address, tailscale, proxied: false };
 }
+
+// Long session lists bury the row you are looking for; recent ones come first.
+const DEVICE_PREVIEW = 5;
 
 function lastActive(value: string) {
   const minutes = Math.floor((Date.now() - Date.parse(value)) / 60000);
@@ -116,6 +119,7 @@ export function AccountPanel() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [revoking, setRevoking] = useState<string[]>([]);
+  const [allDevices, setAllDevices] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState(false);
   const trigger = useRef<HTMLElement | null>(null);
@@ -231,6 +235,9 @@ export function AccountPanel() {
   }
 
   const others = account?.sessions.filter((device) => !device.current).length || 0;
+  const sessions = [...(account?.sessions || [])].sort(
+    (a, b) => Number(b.current) - Number(a.current) || Date.parse(b.lastActive) - Date.parse(a.lastActive),
+  );
   const title = mode === "others" ? "退出其他设备" : mode === "password" ? "修改密码" : "修改用户名";
   const inputs = [
     {
@@ -326,9 +333,7 @@ export function AccountPanel() {
               </Button>
             </div>
           ) : (
-            <FadeIn><AnimatedList as="div" role="rowgroup" className="[&>*:last-child>[role=row]]:border-b-0 [&>*:last-child>[role=row]]:pb-0" items={[...(account?.sessions || [])].sort(
-                (a, b) => Number(b.current) - Number(a.current) || Date.parse(b.lastActive) - Date.parse(a.lastActive),
-              )} getKey={(device) => device.id}>{(device) => {
+            <FadeIn><AnimatedList as="div" role="rowgroup" className="[&>*:last-child>[role=row]]:border-b-0 [&>*:last-child>[role=row]]:pb-0" items={allDevices ? sessions : sessions.slice(0, DEVICE_PREVIEW)} getKey={(device) => device.id}>{(device) => {
                 const info = deviceInfo(device.userAgent);
                 const address = addressInfo(device.address);
                 return (
@@ -340,7 +345,7 @@ export function AccountPanel() {
                     </span>
                     <div className="col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-2 md:contents">
                       <span className="min-w-0 break-all text-xs text-muted-foreground md:col-start-2 md:row-start-1" role="cell">
-                        <span className="font-mono break-all">{address.label}</span>
+                        <span className={address.proxied ? "" : "font-mono break-all"} title={address.proxied ? "请求经板子上的代理转发（如 KVM 网关），看不到原始地址" : undefined}>{address.label}</span>
                         {address.tailscale && <small> Tailscale</small>}
                         {rowErrors[device.id] && (
                           <span className="text-xs text-destructive" role="alert">
@@ -366,6 +371,11 @@ export function AccountPanel() {
                   </div>
                 );
               }}</AnimatedList></FadeIn>
+          )}
+          {!loading && !loadFailed && sessions.length > DEVICE_PREVIEW && (
+            <Button variant="link" size="inline" className="mt-3 text-xs" aria-expanded={allDevices} onClick={() => setAllDevices(!allDevices)}>
+              {allDevices ? "只显示最近的设备" : `显示其余 ${sessions.length - DEVICE_PREVIEW} 台设备`}
+            </Button>
           )}
         </div>
         <p className="text-xs text-muted-foreground">退出设备会结束该设备的管理面板和 KVM 会话。</p>

@@ -1,3 +1,5 @@
+import { NativeSelect } from "@/components/ui/native-select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Segmented, SegmentedOption } from "@/components/Segmented";
 import { Spinner } from "@/components/Spinner";
@@ -5,7 +7,7 @@ import { FadeIn } from "@/components/Motion";
 import { AnimatedList } from "@/components/AnimatedList";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { HardDrive, MoreHorizontal, Pencil, Plus, Server, Usb } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, Server } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EmptyState } from "@/components/EmptyState";
 import { Fact, FactGrid } from "@/components/FactGrid";
@@ -194,16 +196,19 @@ export function StoragePanel() {
   const storages = state?.storages ?? [];
   const missingTools = state && (!state.tools.smb || !state.tools.nfs);
   const selectedStorage = storages.find((s) => s.id === selectedID) ?? storages.find((s) => s.mounted) ?? storages[0];
+  // The mount unit only records that it failed; a saved-connection test returns the NAS's reason.
+  const testSaved = (s: Storage) => {
+    setConnectionTest(undefined);
+    void act(`正在测试「${s.name}」…`, async () => {
+      const result = await storageWrite<StorageTest>("/test", { id: s.id, type: s.type, server: s.server, share: s.share, domain: s.domain, username: s.username, version: s.version });
+      setConnectionTest({ id: s.id, result });
+    });
+  };
 
   return (
     <div className="flex flex-col gap-6">
     <PageHeading page="storage" action={!editor && storages.length > 0 && <Button disabled={locked || storages.length >= 8} onClick={() => openEditor()}><Plus />添加 NAS</Button>} />
     {stale && state && <Notice warning>无法刷新网络存储，显示的是上次读取的状态。连接恢复后再操作。</Notice>}
-    {state?.known && <dl className="grid gap-4 sm:grid-cols-3">
-      <Fact card icon={Server} label="已连接" value={`${storages.filter((s) => s.mounted).length} / ${storages.length}`} />
-      <Fact card icon={HardDrive} label="可用空间" value={selectedStorage?.mounted && selectedStorage.freeBytes != null && !selectedStorage.stale ? bytes(selectedStorage.freeBytes) : "—"} detail={selectedStorage?.name || "尚无连接"} />
-      <Fact card icon={Usb} label="虚拟 U 盘" value={!disk.state?.known ? "状态未知" : session ? "使用中" : "未使用"} detail={session?.storageName} />
-    </dl>}
     <NasDiskPanel disk={disk} locked={locked} />
     <section role="region" aria-label="网络存储" className="@container min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -275,7 +280,11 @@ export function StoragePanel() {
                     {s.mounted && s.writable === false && (
                       <span className="text-sm text-warning-foreground">板子没有写入权限，录制和 U 盘回写不可用。请在 NAS 上给该账户写入权限。</span>
                     )}
-                    {!s.mounted && s.error && <span className="text-sm text-destructive">{s.error}</span>}
+                    {!s.mounted && s.error && <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
+                      <span className="text-destructive">{s.error}</span>
+                      {connectionTest?.id !== s.id && <Button variant="link" size="inline" disabled={locked} onClick={() => testSaved(s)}>查看原因</Button>}
+                    </span>}
+                    {connectionTest?.id === s.id && <p role="status" className={`text-sm ${connectionTest.result.ok ? "text-success-foreground" : "text-destructive"}`}>{connectionTest.result.ok ? "连接测试成功，可以重新连接" : `连接测试失败：${connectionTest.result.error || "NAS 不可用"}`}</p>}
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {s.mounted ? (
@@ -359,7 +368,7 @@ export function StoragePanel() {
       {!disk.hasActivity && disk.state && !disk.state.known && <p className="text-sm text-warning-foreground">暂时无法读取 U 盘状态。</p>}
       {!disk.hasActivity && disk.error && <InlineError>{disk.error}</InlineError>}
     </div></section>
-    {selectedStorage && <SettingsCard title="连接信息" description={selectedStorage.name}>
+    {selectedStorage && <SettingsCard title={`连接信息 · ${selectedStorage.name}`}>
       <FactGrid cols={2}>
         <Fact label="协议" value={`${selectedStorage.type.toUpperCase()}${selectedStorage.version === "auto" ? " · 自动协商" : ` ${selectedStorage.version}`}`} />
         <Fact label="用户名" value={selectedStorage.type === "smb" ? selectedStorage.username || "访客" : "—"} />
@@ -369,17 +378,9 @@ export function StoragePanel() {
         <Fact label="访问权限" value={!selectedStorage.mounted || selectedStorage.writable == null ? "未知" : selectedStorage.writable ? "可读写" : "只读"} />
       </FactGrid>
       <div className="space-y-4"><div className="flex flex-wrap gap-3">
-        <Button variant="outline" disabled={locked} onClick={() => {
-          const s = selectedStorage;
-          setConnectionTest(undefined);
-          void act(`正在测试「${s.name}」…`, async () => {
-            const result = await storageWrite<StorageTest>("/test", { id: s.id, type: s.type, server: s.server, share: s.share, domain: s.domain, username: s.username, version: s.version });
-            setConnectionTest({ id: s.id, result });
-          });
-        }}>测试已保存连接</Button>
+        <Button variant="outline" disabled={locked} onClick={() => testSaved(selectedStorage)}>测试已保存连接</Button>
         {selectedStorage.mounted && <Button variant="outline" disabled={locked || session?.storage === selectedStorage.id} onClick={() => setConfirming({ kind: "unmount", storage: selectedStorage })}>断开连接…</Button>}
       </div>
-      {connectionTest?.id === selectedStorage.id && <p role="status" className={`text-sm ${connectionTest.result.ok ? "text-success-foreground" : "text-destructive"}`}>{connectionTest.result.ok ? "连接测试成功" : `连接测试失败：${connectionTest.result.error || "NAS 不可用"}`}</p>}
       <Notice>断开只移除连接，不会删除 NAS 上的文件。作为 U 盘使用时会创建目录快照，文件不会实时共享。</Notice></div>
     </SettingsCard>}
     </div>
@@ -505,8 +506,8 @@ function StorageEditor({
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
-          <input className="accent-primary" type="checkbox" checked={d.autoMount} onChange={(e) => set({ autoMount: e.target.checked })} />
+        <label className="flex items-start gap-2 text-sm">
+          <Checkbox className="mt-0.5" checked={d.autoMount} onCheckedChange={(value) => set({ autoMount: value === true })} />
           开机自动连接
         </label>
         <Button variant="link" size="inline" type="button" aria-expanded={editor.advanced} onClick={() => setEditor({ ...editor, advanced: !editor.advanced })}>
@@ -518,13 +519,13 @@ function StorageEditor({
         <div className="grid min-w-0 gap-4 @lg:grid-cols-2 ">
           <label className="flex min-w-0 flex-col gap-2 text-sm">
             协议版本
-            <select value={d.version} onChange={(e) => set({ version: e.target.value })}>
+            <NativeSelect className="w-full" value={d.version} onChange={(e) => set({ version: e.target.value })}>
               {VERSIONS[d.type].map((v) => (
                 <option key={v.value} value={v.value}>
                   {v.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
           {smb && (
             <label className="flex min-w-0 flex-col gap-2 text-sm">

@@ -1,3 +1,4 @@
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Segmented, SegmentedOption } from "@/components/Segmented";
 import { Spinner } from "@/components/Spinner";
@@ -283,11 +284,10 @@ export function WifiControl() {
                         onChange={(e) => setHiddenSSID(e.target.value)}
                       />
                     </label>
-                    <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
-                      <input className="accent-primary"
-                        type="checkbox"
+                    <label className="flex items-start gap-2 text-sm">
+                      <Checkbox className="mt-0.5"
                         checked={!joining.secured}
-                        onChange={(e) => setJoining({ ...joining, secured: !e.target.checked })}
+                        onCheckedChange={(value) => setJoining({ ...joining, secured: value !== true })}
                       />
                       开放网络（无密码）
                     </label>

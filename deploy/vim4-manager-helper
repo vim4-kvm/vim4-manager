@@ -2263,7 +2263,7 @@ def storage_status(config):
                                       'error' if active == 'failed' else 'unmounted')
     data = dict(config, path=str(path), mounted=mounted, state=state,
                 error='' if result in ('', 'success') else
-                ('连接超时，NAS 无响应' if result == 'timeout' else '连接失败，请在编辑中「测试连接」查看原因'),
+                ('连接超时，NAS 无响应' if result == 'timeout' else '连接失败'),
                 totalBytes=None, freeBytes=None, stale=False, writable=None, busy=False,
                 insecure=config['type'] == 'smb' and config['version'] == '1.0')
     try:

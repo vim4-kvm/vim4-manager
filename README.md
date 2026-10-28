@@ -21,7 +21,7 @@ rc7 仍可显示和切换，不显示正式版标记。可用性仍须通过清�
 切换需要重启；启动失败时仍需串口或 OOWOW 恢复，不提供自动失败回退。
 未安装双内核清单时不显示可切换项。板级依赖为 `vim4-runtime-api-1`。
 
-概览按「设备连接状态、HDMI/USB/PD/虚拟介质、资源趋势与 KVM 入口、事件与设备健康」分区。
+概览按「设备连接状态、HDMI/USB/PD/虚拟介质、资源趋势与当前 KVM、最近事件、设备健康」分区。
 资源趋势通过页签切换 CPU、GPU、内存、网络、温度、风扇和功耗，支持最近 5 或 15 分钟；
 开机时长位于顶部状态条，网络、系统盘与内存使用率归入设备健康。
 顶部「设备在线」可展开板卡连接图，HDMI 输出页复用同一视图。接口落点对应实际
@@ -29,7 +29,7 @@ HDMI IN、HDMI OUT、RJ45 与 USB-C；点选接口或状态卡可查看详情并
 USB-C 的供电与键鼠状态分别展示；有线网络仅匹配以太网卡，不将 Wi-Fi 或 USB 网卡
 标到 RJ45。板内线条表示逻辑路径。手机端显示板卡热点与状态卡，避免缩小文字和连线。
 读取失败保留上次状态并将连线置灰；没有读数时显示未知，不据设备在线推断接口已连接。
-右侧快捷操作进入现有挂载镜像、文件管理、视频设置和 HDMI 输出页面，不直接更改设备配置。
+概览不设快捷操作区，入口由状态卡和侧边栏提供；空闲的多个 Wi-Fi 网卡在设备健康中合为一行。
 管理接口未提供远程会话数、编码格式和码率汇总，因此不显示效果图中的模拟指标。
 
 GPU 使用率每 5 秒读取厂商 Mali 驱动 `/sys/class/mpgpu/utilization`，为驱动最近
@@ -136,6 +136,7 @@ One-KVM、PiKVM 的 ISO/IMG 目录及所有共享数据盘。
 数据盘页（`#/disks`）新建 FAT32 数据盘，在未挂载时上传、下载、新建文件夹、重命名和删除文件，
 修改卷标、只读检查文件系统、下载完整镜像，以及扩容、创建/恢复快照、格式化和删除（需输入盘名确认）。
 挂载到被控电脑时只能浏览和下载，列表可能落后于主机未写回的内容。
+文件列表默认隐藏以 `.` 开头的项目（多为 macOS 索引，如 `.fseventsd`、`._*`），列表下方可切换显示。
 浏览器回归：`node web/tests/disks.mjs`。
 默认只读，ISO 固定为只读光盘，JetKVM 固定只读。已有介质时拒绝替换；
 One-KVM 的 USB 网卡/HID 组合不被修改，端点不足时先在应用内调整功能。
@@ -248,7 +249,8 @@ One-KVM 等包声明依赖。文件夹虚拟 U 盘见下方「NAS 文件夹 U �
 | `POST /api/storage/mkdir` | `{id,path,name}` → `{path:新目录完整相对路径}`（以 `/` 开头） |
 
 存储对象含全部非敏感配置及 `mounted,state,error,path,totalBytes,freeBytes,stale,writable,busy,insecure`。
-`state` 为 mounted/unmounted/mounting/error；`error` 使用 systemd 最近失败的 Result 原因。
+`state` 为 mounted/unmounted/mounting/error；`error` 按 systemd 最近失败的 Result 区分超时与一般失败，
+不含 NAS 返回的具体原因；页面在失败行提供「查看原因」，用已保存配置调用 `/api/storage/test` 并就地显示结果。
 只在实际挂载后探测容量，子进程 2 秒超时则 `stale:true`、容量为 null。
 `writable` 为最近一次测试或挂载后以 khadas 身份创建、写入、删除隐藏文件的结果，未检测或超时为 null；
 运行时结果保存在 `/run/vim4-manager-nas/`，重启后清空。`busy` 尽力检查进程 fd/cwd/root/maps 和 USB LUN，

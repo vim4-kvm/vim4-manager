@@ -252,7 +252,7 @@ try {
           assert.equal(await detail("输出").textContent(), "已缩放，显示器不支持 3840×2160 23.98Hz");
           assert.equal(await fact("输出").locator("[data-tone=warning]").count(), 1);
         } else {
-          assert.equal(await detail("输出").textContent(), "HDR 已转为 SDR · 显示器不支持 HDR");
+          assert.match(await detail("输出").textContent(), /^\S.* · HDR 已转为 SDR · 显示器不支持 HDR$/);
         }
         await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${kind}.png`, fullPage: true });
@@ -409,7 +409,7 @@ try {
       assert(await hdr.evaluate(element => element.getBoundingClientRect().width === 32), "switch must not shrink");
       if (name === "hdr-no-support") assert.match(await fact("输出").textContent(), /HDR 已转为 SDR · 显示器不支持 HDR/);
       if (name === "hdr-output") assert.match(await fact("输出").textContent(), /HDR10 · BT.2020/);
-      if (name === "hdr-to-sdr") assert.equal(await detail("输出").textContent(), "HDR 已转为 SDR");
+      if (name === "hdr-to-sdr") assert.match(await detail("输出").textContent(), /^\S.* · HDR 已转为 SDR$/);
       if (["hdr-output", "hdr-to-sdr", "hdr-preset", "hdr-no-support", "hdr-sdr-input"].includes(name)) {
         await page.screenshot({ path: `${shots}/${name}-${device}.png`, fullPage: true });
       }

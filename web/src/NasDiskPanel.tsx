@@ -433,7 +433,7 @@ export function NasDiskSetup({
       </p>
       {occupiedMedia && (
         <p className="text-sm text-warning-foreground" role="status">
-          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a className="text-sm text-primary underline-offset-4 hover:underline" href="#/media">虚拟介质页</a>弹出。
+          虚拟介质已挂载「{mediaName(occupiedMedia)}」，先在<a className="text-sm text-link underline-offset-4 hover:underline" href="#/media">虚拟介质页</a>弹出。
         </p>
       )}
       {status && status.hardware.usb !== "configured" && (
@@ -530,7 +530,7 @@ function SessionCard({
       {s.state === "attached" && (
         <div className="flex flex-col gap-2 text-sm text-muted-foreground">
           <p>{rw ? "在电脑上安全弹出后，修改会写回 NAS。" : "在电脑上安全弹出后，即可结束这次 U 盘。"}</p>
-          <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-primary [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2"><summary>如何安全弹出</summary><p>{hostEject}</p></details>
+          <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-link [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2"><summary>如何安全弹出</summary><p>{hostEject}</p></details>
         </div>
       )}
 
@@ -632,7 +632,7 @@ function SessionCard({
 function Detail({ text }: { text?: string }) {
   if (!text) return null;
   return (
-    <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-primary [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2">
+    <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-link [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2">
       <summary>技术细节</summary>
       <code className="font-mono break-all">{text}</code>
     </details>
@@ -660,7 +660,7 @@ function LastResult({ last, locked, onEmptyTrash, onHide }: { last: NasDiskLast;
       </div>
       {last.result === "failed" && <Detail text={last.detail} />}
       {last.conflicts.length > 0 && (
-        <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-primary [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2" open>
+        <details className="text-xs [&_summary]:cursor-pointer [&_summary]:text-link [&_p]:mt-2 [&_code]:mt-2 [&_code]:block [&_li]:mt-2" open>
           <summary>冲突项（{last.conflicts.length}）</summary>
           <ul>
             {last.conflicts.map((c) => (

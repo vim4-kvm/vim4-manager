@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { request, type PassthroughState } from "@/api";
+import { MonitorOff } from "lucide-react";
 import { DeviceConnections } from "@/components/DeviceConnections";
+import { EmptyState } from "@/components/EmptyState";
 import { Fact, FactGrid } from "@/components/FactGrid";
 import { InlineError } from "@/components/InlineError";
 import { Collapse, FadeIn } from "@/components/Motion";
@@ -28,7 +30,7 @@ const labels: Record<PassthroughState["state"], string> = {
 };
 
 const descriptions = {
-  unsupported: <>当前内核没有透传功能，可在「<a href="#/updates" className="text-primary underline-offset-4 hover:underline">更新 → 内核</a>」中切换到支持透传的版本。</>,
+  unsupported: <>当前内核没有透传功能，可在「<a href="#/updates" className="text-link underline-offset-4 hover:underline">更新 → 内核</a>」中切换到支持透传的版本。</>,
   off: "开启后显示器显示被控电脑的画面；关闭时显示系统控制台。",
   running: "远程 KVM 不受影响。被控电脑切换分辨率时，显示器会短暂黑屏后跟随。",
   "no-signal": "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。",
@@ -164,7 +166,7 @@ export function PassthroughPanel() {
       ? `已缩放，显示器不支持 ${mode(input.width, input.height, input.refreshHz)}` : output.colorFormat;
     if (output.hdrToSdr) {
       const mapping = monitor && !monitor.hdr ? "HDR 已转为 SDR · 显示器不支持 HDR" : "HDR 已转为 SDR";
-      outputDetail = output.scaled ? `${outputDetail} · ${mapping}` : mapping;
+      outputDetail = `${outputDetail} · ${mapping}`;
     } else if (input && ["HDR10", "HLG"].includes(input.hdr)) {
       outputDetail = `${input.hdr} · BT.2020 · ${output.colorFormat.replace(/ limited$/, "")}`;
     }
@@ -231,19 +233,16 @@ export function PassthroughPanel() {
       <Notice>信号源切换分辨率时，本地显示器可能短暂黑屏。</Notice>
     </SettingsCard>
     <SettingsCard title="显示器信息">
-      <dl className="space-y-4 text-sm">{[
-        ["型号", monitor?.name || (monitor ? "未知型号" : "未连接")],
-        ["最大分辨率", monitor ? `${monitor.maxWidth} × ${monitor.maxHeight}` : "—"],
-        ["最高刷新率", monitor ? refreshLabel(monitor.maxRefreshHz) : "—"],
-        ["HDR", monitor ? monitor.hdr ? "支持" : "不支持" : "—"],
-        ["音频", monitor ? monitor.audio ? "支持" : "不支持" : "—"],
+      {monitor ? <dl className="space-y-4 text-sm">{[
+        ["型号", monitor.name || "未知型号"],
+        ["最大分辨率", `${monitor.maxWidth} × ${monitor.maxHeight}`],
+        ["最高刷新率", refreshLabel(monitor.maxRefreshHz)],
+        ["HDR", monitor.hdr ? "支持" : "不支持"],
+        ["音频", monitor.audio ? "支持" : "不支持"],
       ].map(([label, value], i) => <div className={`flex justify-between gap-6 ${i ? "border-t pt-4" : ""}`} key={label}><dt className="shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 break-words text-right font-medium">{value}</dd></div>)}</dl>
+        : <EmptyState icon={MonitorOff}>未连接显示器。接到板子的 HDMI OUT 口后，这里显示型号、分辨率与 HDR、音频支持。</EmptyState>}
     </SettingsCard>
     </div>}
-    {state.supported && <SettingsCard title="当前信号格式"><FactGrid cols={2}>
-      <Fact label="输入格式" value={input ? `${input.colorFormat} · ${input.hdr}` : "无信号"} />
-      <Fact label="输出格式" value={current === "running" && output ? `${output.colorFormat} · ${output.hdrToSdr ? "SDR" : input?.hdr || "未知"}` : "—"} />
-    </FactGrid></SettingsCard>}
     </section>
   </>;
 }
