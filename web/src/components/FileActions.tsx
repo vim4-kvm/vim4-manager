@@ -1,5 +1,6 @@
 import { Ellipsis } from "lucide-react";
 import { useRef } from "react";
+import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/Spinner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -10,6 +11,7 @@ type FileAction = { label: string; name: string; disabled?: boolean; destructive
 
 /** Desktop actions overlay metadata without changing tracks; touch uses a menu. */
 export function FileActions({ name, actions, expanded }: { name: string; actions: FileAction[]; expanded: boolean }) {
+  const t = useT();
   const trigger = useRef<HTMLButtonElement>(null);
   const pending = useRef<(() => void) | undefined>(undefined);
   if (!actions.length) return null;
@@ -21,7 +23,7 @@ export function FileActions({ name, actions, expanded }: { name: string; actions
     </span>
     <span className="absolute top-1.5 right-0 md:hidden pointer-coarse:block">
       <DropdownMenu>
-        <DropdownMenuTrigger asChild><Button ref={trigger} variant="ghost" size="icon" aria-label={`打开 ${name} 操作菜单`}><Ellipsis aria-hidden="true" /></Button></DropdownMenuTrigger>
+        <DropdownMenuTrigger asChild><Button ref={trigger} variant="ghost" size="icon" aria-label={t("common.openActions", { name })}><Ellipsis aria-hidden="true" /></Button></DropdownMenuTrigger>
         <DropdownMenuContent align="end" onCloseAutoFocus={(event) => {
           if (!pending.current) return;
           // A confirmation must remember the persistent trigger, not a removed menu item.

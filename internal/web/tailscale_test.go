@@ -18,6 +18,35 @@ import (
 	"github.com/vim4-kvm/vim4-manager/internal/board"
 )
 
+func TestNetworkHTTPErrorLocale(t *testing.T) {
+	handler := Handler(&board.Service{}, fstest.MapFS{})
+	for _, test := range []struct{ path, body, en, zh string }{
+		{"/api/wifi/connect", `{"ssid":""}`, "UTF-8 bytes", "字节"},
+		{"/api/tailscale", `{"action":"down"}`, "Confirm", "请确认"},
+		{"/api/tailscale/ping", `{"ip":"192.168.1.2"}`, "Tailscale IP", "Tailscale IP"},
+		{"/api/wifi/hotspot", `{}`, "integer channel", "channel 整数"},
+	} {
+		for _, locale := range []string{"en", "zh-CN"} {
+			r := httptest.NewRequest("POST", test.path, strings.NewReader(test.body))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Accept-Language", locale)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			var result map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			want := test.en
+			if locale == "zh-CN" {
+				want = test.zh
+			}
+			if w.Code != 400 || !strings.Contains(result["error"], want) {
+				t.Fatalf("%s %s: %d %s", test.path, locale, w.Code, w.Body.String())
+			}
+		}
+	}
+}
+
 func TestTailscaleGETAndLogin(t *testing.T) {
 	service := &board.Service{Run: func(ctx context.Context, name string, args ...string) (string, error) {
 		if name != "sudo" {

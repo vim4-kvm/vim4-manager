@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 )
 
@@ -41,22 +42,22 @@ func failureMessage(err error) string {
 		filePath = payload.Path
 	}
 	if filePath != "" {
-		return fmt.Sprintf("读取 NAS 上的 %s 失败：文件在 U 盘挂载期间被改动，或 NAS 暂时无法访问", filePath)
+		return (i18n.Message{Key: "nasDisk.readSource", Args: map[string]any{"p0": filePath}}).Render(i18n.English)
 	}
 	switch {
 	case errors.Is(err, syscall.ENOSPC), errors.Is(err, syscall.EDQUOT):
-		return "NAS 空间不足，无法完成回写；请释放空间后重试"
+		return (i18n.Message{Key: "nasDisk.full"}).Render(i18n.English)
 	case errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EROFS):
-		return "没有 NAS 写入权限或存储为只读，请检查权限后重试"
+		return (i18n.Message{Key: "nasDisk.permission"}).Render(i18n.English)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, syscall.ETIMEDOUT), errors.Is(err, syscall.EHOSTUNREACH), errors.Is(err, syscall.EHOSTDOWN), errors.Is(err, syscall.ENETUNREACH), errors.Is(err, syscall.ENOTCONN), errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.ECONNREFUSED), errors.Is(err, syscall.ESTALE):
-		return "NAS 无响应或连接已中断，请恢复连接后重试"
+		return (i18n.Message{Key: "nasDisk.unreachable"}).Render(i18n.English)
 	case errors.Is(err, syscall.EIO), errors.Is(err, io.ErrUnexpectedEOF):
-		return "读取 U 盘数据失败：NAS 文件可能已被改动或存储暂时无法访问，请检查后重试"
+		return (i18n.Message{Key: "nasDisk.readFailed"}).Render(i18n.English)
 	case errors.As(err, &consistency), strings.HasPrefix(err.Error(), "reader "):
-		return "U 盘文件系统解析失败，请重新挂载到电脑检查，或选择恢复可识别内容"
+		return (i18n.Message{Key: "nasDisk.parseFailed"}).Render(i18n.English)
 	case errors.Is(err, context.Canceled):
-		return "回写已取消，会话数据已保留"
+		return (i18n.Message{Key: "nasDisk.cancelled"}).Render(i18n.English)
 	default:
-		return "回写失败：" + err.Error()
+		return (i18n.Message{Key: "nasDisk.writebackFailed"}).Render(i18n.English) + err.Error()
 	}
 }

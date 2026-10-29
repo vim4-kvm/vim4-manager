@@ -55,7 +55,7 @@ class MediaManagementTest(unittest.TestCase):
 
     def test_existing_medium_is_never_replaced(self):
         (self.lun / 'file').write_text('/existing.img')
-        with self.assertRaisesRegex(ValueError, '不会替换'):
+        with self.assertRaisesRegex(ValueError, "won't be replaced"):
             helper.media_mount('nanokvm', 'shared/disk.img', False, True)
         self.assertEqual((self.gadget / 'UDC').read_text(), 'controller')
         self.assertEqual((self.lun / 'file').read_text(), '/existing.img')
@@ -69,7 +69,7 @@ class MediaManagementTest(unittest.TestCase):
         self.assertEqual((self.gadget / 'UDC').read_text(), 'controller')
 
     def test_onekvm_custom_network_over_budget_is_preserved(self):
-        with self.assertRaisesRegex(ValueError, '端点不足'):
+        with self.assertRaisesRegex(ValueError, "enough USB endpoints"):
             helper.media_mount('onekvm', 'shared/disk.img', False, True)
         self.assertEqual((self.lun / 'file').read_text(), '')
         self.assertEqual((self.gadget / 'UDC').read_text(), 'controller')
@@ -114,10 +114,10 @@ class MediaManagementTest(unittest.TestCase):
     def test_eject_rejects_changed_medium_and_host_lock_without_rebinding(self):
         (self.lun / 'file').write_text('/existing.img')
         with patch.object(helper, 'media_status', return_value={'inserted': True, 'token': 'new'}):
-            with self.assertRaisesRegex(ValueError, '已改变'):
+            with self.assertRaisesRegex(ValueError, "has changed"):
                 helper.media_eject('old')
             with patch.object(Path, 'write_text', side_effect=OSError(errno.EBUSY, 'locked')):
-                with self.assertRaisesRegex(ValueError, '仍锁定'):
+                with self.assertRaisesRegex(ValueError, 'still locks'):
                     helper.media_eject('new')
             self.assertEqual((self.lun / 'file').read_text(), '/existing.img')
             helper.media_eject('new')

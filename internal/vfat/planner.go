@@ -483,7 +483,7 @@ func sameFATTime(a, b time.Time, location *time.Location) bool {
 // the original name at rune boundaries to remain within 255 UTF-16 units.
 func ConflictName(name string, at time.Time) string {
 	base, ext := splitName(name)
-	suffix := " (冲突 " + at.UTC().Format("20060102-150405") + ")"
+	suffix := " (conflict " + at.UTC().Format("20060102-150405") + ")"
 	if ext != "" {
 		ext = "." + ext
 	}

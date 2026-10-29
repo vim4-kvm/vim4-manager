@@ -3,8 +3,9 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 type Kernel struct {
@@ -25,17 +26,17 @@ func (s *Service) Kernels(ctx context.Context) (KernelState, error) {
 	var state KernelState
 	output, err := s.Run(ctx, "sudo", "-n", Helper, "kernel-status")
 	if err != nil {
-		return state, fmt.Errorf("无法读取内核：%w", err)
+		return state, i18n.Wrap(err, "kernel.readFailed", map[string]any{"reason": err})
 	}
 	if err := json.Unmarshal([]byte(output), &state); err != nil {
-		return state, err
+		return state, i18n.Wrap(err, "kernel.invalidResponse", nil)
 	}
 	return state, nil
 }
 
 func (s *Service) SelectKernel(ctx context.Context, id string, reboot bool) error {
 	if id != "vendor" && id != "mainline" {
-		return fmt.Errorf("未知内核")
+		return i18n.New("kernel.unknown", nil)
 	}
-	return s.record(s.helper(ctx, "kernel-select", id, strconv.FormatBool(reboot)), "选择内核 %s，重启：%t", id, reboot)
+	return s.recordMessage(networkHelperError(s.helper(ctx, "kernel-select", id, strconv.FormatBool(reboot))), i18n.Message{Key: "events.kernelSelected", Args: map[string]any{"id": id, "reboot": reboot}})
 }

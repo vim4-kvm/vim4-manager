@@ -22,6 +22,7 @@ const status = {
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  await (await import("./auth-fixture.mjs")).pinLanguage(page);
   await page.route("**/api/**", (route) => route.fulfill({ status: 404, json: {} }));
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
   await (await import("./auth-fixture.mjs")).authenticated(page);
@@ -33,57 +34,64 @@ try {
     await charts.locator("svg").last().waitFor();
   };
   await reload();
-  await page.getByText(/已采样 3 分钟/).waitFor();
+  await page.getByText(/3 minutes sampled/).waitFor();
   const appDetail = page.locator("[data-app-detail]");
   assert.equal(await appDetail.locator("[data-version] > span").first().textContent(), "2.5.1+vim4.20261018.32");
   assert.equal(await appDetail.locator("[data-version]").getAttribute("title"), status.system.packages[0].version);
-  assert.equal(await appDetail.getByText("开发版", { exact: true }).count(), 1);
+  assert.equal(await appDetail.getByText("Development build", { exact: true }).count(), 1);
   assert.equal(await appDetail.locator("[data-host]").textContent(), `${new URL(page.url()).hostname}:8080`);
   assert.equal(await appDetail.locator("a").count(), 0);
-  assert.match(await charts.first().locator("[data-trend-detail]").textContent(), /· 最近 3 分钟 1% – 13%$/);
-  assert.match(await charts.nth(4).locator("[data-trend-detail]").textContent(), /^最近 3 分钟 /);
-  for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /最近 3 分钟/);
-  assert.equal(await page.locator("[data-chart=unsampled]").count(), 6);
-  assert.equal(await page.getByText("尚未采样", { exact: true }).count(), 6);
-  assert.deepEqual(await charts.locator("[data-trend-title]").allTextContents(), ["CPU", "内存", "网络", "CPU 动态功耗（估算）", "SoC 温度", "风扇"]);
-  const hdmi = fact("HDMI 输入");
-  assert.doesNotMatch(await hdmi.textContent(), /采集/);
-  const uptime = fact("开机时长");
-  for (const [label, href] of [["HDMI 输入", "#/video"], ["USB 键鼠", "#/services"], ["PD 协商", "#/services"]]) {
+  const metricNames = ['CPU','Memory','Network','Power','Temperature','Fan'];
+  const metricTitles = [];
+  for (const name of metricNames) {
+    await page.getByRole('tab',{name,exact:true}).click();
+    metricTitles.push(await charts.locator('[data-trend-title]').textContent());
+    assert.match(await charts.getByRole('img').getAttribute('aria-label'), /last 3 minutes/);
+    assert.equal(await page.locator('[data-chart=unsampled]').count(),1);
+    assert.equal(await page.getByText('No samples yet',{exact:true}).count(),1);
+  }
+  assert.deepEqual(metricTitles,['CPU usage','Memory usage','Network upload','CPU dynamic power (estimated)','SoC temperature','Fan duty']);
+  await page.getByRole('tab',{name:'CPU',exact:true}).click();
+  assert.equal(await charts.getByText('1%',{exact:true}).count(),1,'minimum readout');
+  assert.equal(await charts.getByText('13%',{exact:true}).count(),2,'current and peak readouts');
+  const hdmi = fact("HDMI input");
+  assert.doesNotMatch(await hdmi.textContent(), /Capture/);
+  const uptime = page.getByText(/^Uptime/);
+  for (const [label, href] of [["HDMI input", "#/video"], ["USB input", "#/services"], ["USB-C power", "#/services"]]) {
     assert.equal(await page.getByRole("link", { name: new RegExp(label) }).getAttribute("href"), href);
   }
   assert.equal(await uptime.evaluate((el) => el.matches("a") || !!el.querySelector("a")), false);
-  assert.match(await uptime.locator("dd").last().textContent(), /^开机于 (\d+\/\d+ )?\d{2}:\d{2}$/);
-  assert.doesNotMatch(await uptime.textContent(), /负载/);
-  assert.equal(await charts.nth(2).locator("[data-trend-value] small").textContent(), "发送");
-  assert.match(await charts.nth(2).locator("[data-legend]").textContent(), /接收 7 kbps/);
-  await page.getByText("暂无事件", { exact: true }).waitFor();
-  assert.ok((await page.getByRole("heading", { name: "最近事件", exact: true }).boundingBox()).y < 900);
+  assert.match(await uptime.getAttribute("title"), /^Started .*\d{2}:\d{2}/);
+  assert.doesNotMatch(await uptime.textContent(), /Load/);
+  await page.getByRole("tab",{name:"Network",exact:true}).click();
+  assert.equal(await charts.locator("[data-trend-title]").textContent(),"Network upload");
+  assert.match(await charts.locator("figcaption").textContent(), /Download 7 kbps/);
+  await page.getByText("No events yet", { exact: true }).waitFor();
+  assert.ok((await page.getByRole("heading", { name: "Recent events", exact: true }).boundingBox()).y < 900);
   await hdmi.click();
   await page.waitForURL("**/#/video");
-  await page.getByRole("heading", { name: "视频输入", exact: true }).first().waitFor();
+  await page.getByRole("heading", { name: "Video input", exact: true }).first().waitFor();
   status.system.packages = [{ name: "vim4-manager", version: "1.0.0" }];
   await reload();
   assert.equal(await appDetail.textContent(), `${new URL(page.url()).hostname}:8080`);
   for (const [cpu, upper] of [[13, "25%"], [40, "50%"], [90, "100%"]]) {
     status.history = history(15, cpu);
     await reload();
-    assert.equal(await charts.first().locator("[data-chart=tick]").nth(1).textContent(), upper);
+    assert.equal(await charts.first().locator('[data-chart=tick][text-anchor="end"][dominant-baseline="middle"]').last().textContent(), upper);
     assert.equal(await page.locator("[data-chart=unsampled]").count(), 0);
-    assert.equal(await page.getByText("尚未采样", { exact: true }).count(), 0);
+    assert.equal(await page.getByText("No samples yet", { exact: true }).count(), 0);
     assert.equal(await page.getByText(/已采样/).count(), 0);
-    assert.match(await charts.first().locator("[data-trend-detail]").textContent(), /· 15 分钟 /);
-    assert.match(await charts.nth(4).locator("[data-trend-detail]").textContent(), /^15 分钟 /);
-    for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /最近 15 分钟/);
+    assert.match(await charts.getByRole("img").getAttribute("aria-label"), /last 15 minutes/);
+    for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /last 15 minutes/);
   }
   status.hardware.hdmi.captureWidth = 1920;
   status.hardware.hdmi.captureHeight = 1080;
   status.system.packages = [{ name: "vim4-onekvm", version: "2.5.1+vim4.20261018.32.dev.4.gabcdef0.dirty" }];
-  status.events = Array.from({ length: 7 }, (_, i) => ({ t: now - i * 5000, tone: "good", text: `事件 ${i + 1}` }));
+  status.events = Array.from({ length: 7 }, (_, i) => ({ t: now - i * 5000, tone: "good", text: `Event ${i + 1}` }));
   await reload();
-  assert.match(await hdmi.textContent(), /采集 1920×1080/);
-  assert.equal(await page.locator("[data-event]").count(), 5);
-  await page.getByRole("button", { name: "显示全部 7 条" }).click();
+  assert.match(await hdmi.textContent(), /Capture 1920×1080/);
+  assert.equal(await page.locator("[data-event]").count(), 3);
+  await page.getByRole("button", { name: "Show all 7 events" }).click();
   assert.equal(await page.locator("[data-event]").count(), 7);
 
   // Keep pointer hover from competing with keyboard selection as charts scroll.
@@ -103,10 +111,28 @@ try {
           && el.contains(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2));
       }, await tooltip.elementHandle());
       await page.keyboard.press("ArrowRight");
-      assert.equal(await page.locator("[data-chart=crosshair]").count(), 6, "crosshairs remain linked");
+      assert.equal(await page.locator("[data-chart=crosshair]").count(), 1, "the active chart retains its crosshair");
     }
   }
-  console.log("PASS: overview history, axes, readouts, order, events, responsive layout and keyboard tooltips");
+  for (const locale of ["en", "zh-CN"]) {
+    await page.evaluate(locale => {
+      localStorage.setItem("vim4-manager-language", locale);
+      window.dispatchEvent(new StorageEvent("storage", { key: "vim4-manager-language", newValue: locale }));
+    }, locale);
+    await page.waitForFunction(locale => document.documentElement.lang === locale, locale);
+    const list = page.getByRole("tablist");
+    const rows = await list.getByRole("tab").evaluateAll(tabs => tabs.map(tab => tab.getBoundingClientRect().top));
+    assert(rows.every(y => Math.abs(y - rows[0]) < 1), "resource tabs stay on one row");
+    await list.getByRole("tab").last().evaluate(tab => tab.click());
+    await page.waitForFunction(() => {
+      const tab = document.querySelector('[role=tab][data-state=active]');
+      const list = tab?.closest('[role=tablist]');
+      if (!tab || !list) return false;
+      const a = tab.getBoundingClientRect(), b = list.getBoundingClientRect();
+      return a.left >= b.left - 1 && a.right <= b.right + 1;
+    });
+  }
+  console.log("PASS: overview history, axes, readouts, order, events, responsive layout, keyboard tooltips and scrolling tabs in both locales");
 } finally {
   await browser.close();
 }

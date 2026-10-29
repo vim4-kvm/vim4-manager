@@ -1,3 +1,4 @@
+import { t, useLocale } from "@/i18n";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Notice } from "@/components/Notice";
@@ -66,6 +67,7 @@ function useWidth<T extends HTMLElement>() {
 
 /** Output level (SDR code value, 0..100%) against HDR input nits. */
 function CurveChart({ curve }: { curve: HDRCurve }) {
+ useLocale();
   const [ref, width] = useWidth<HTMLDivElement>();
   const gradientId = useId();
   const [hover, setHover] = useState<number>();
@@ -91,19 +93,17 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
     setHover(fromLog(Math.min(1, Math.max(0, p + (e.key === "ArrowLeft" ? -0.02 : 0.02))), NITS_MIN, NITS_MAX));
   };
   const pct = (v: number) => `${Math.round(v * 100)}%`;
-  const summary = `映射曲线：${curve.white} 尼特映射为 SDR 白的 ${pct(srgb(mapNits(curve.white, curve)))}，${curve.peak} 尼特以上为满白`;
+  const summary = t("hdr.mappingCurveNitsMapsToSdr", { p0: String(curve.white), p1: String(pct(srgb(mapNits(curve.white, curve)))), p2: String(curve.peak) });
 
   return (
     <figure className="flex min-w-0 flex-col gap-3 [&_figcaption]:flex [&_figcaption]:flex-wrap [&_figcaption]:gap-4">
       <figcaption>
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="h-0.5 w-3.5 rounded-sm bg-chart-1" aria-hidden="true" />
-          当前曲线
-        </span>
+          {t("hdr.currentCurve")}</span>
         <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="h-0.5 w-3.5 rounded-sm bg-idle" aria-hidden="true" />
-          厂商默认
-        </span>
+          {t("hdr.vendorDefault")}</span>
       </figcaption>
       <div className="relative min-w-0 [&_svg]:block [&_svg]:overflow-visible [&_svg]:touch-pan-y [&_svg]:outline-none [&_svg:focus-visible]:ring-3 [&_svg:focus-visible]:ring-ring/50" ref={ref}>
         {width > 0 && (
@@ -141,11 +141,9 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
             <line className="stroke-input stroke-1 [stroke-dasharray:2_3]" x1={x(curve.white)} x2={x(curve.white)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
             <line className="stroke-input stroke-1 [stroke-dasharray:2_3]" x1={x(curve.peak)} x2={x(curve.peak)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
             <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.white) - 6} y={PAD_TOP + HEIGHT - 6} textAnchor="end">
-              桌面白
-            </text>
+              {t("hdr.desktopWhite")}</text>
             <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
-              高光上限
-            </text>
+              {t("hdr.highlightLimit")}</text>
             <path className="fill-none [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground" d={path(VENDOR)} />
             <path className="fill-none stroke-chart-1 [stroke-width:2] [stroke-linecap:round] [stroke-linejoin:round]" d={path(curve)} />
             <circle className="fill-chart-1 stroke-card stroke-3" cx={x(curve.white)} cy={y(srgb(mapNits(curve.white, curve)))} r={4} />
@@ -164,15 +162,15 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
           >
             <strong>{pct(srgb(mapNits(active, curve)))}</strong>
             <span>
-              {nitsLabel(active)} 尼特 · 厂商 {pct(srgb(mapNits(active, VENDOR)))}
+              {nitsLabel(active)} {t("hdr.vendorValue", { value: pct(srgb(mapNits(active, VENDOR))) })}
             </span>
           </div>
         )}
       </div>
       <div className="flex flex-wrap justify-between gap-2 text-xs text-muted-foreground">
-        <span>输入亮度（尼特，对数刻度）</span>
+        <span>{t("hdr.inputBrightnessNitsLogarithmic")}</span>
         <span>
-          桌面白 {curve.white} · 高光上限 {nitsLabel(curve.peak)}
+          {t("hdr.curveSummary", { white: curve.white, peak: nitsLabel(curve.peak) })}
         </span>
       </div>
     </figure>
@@ -184,6 +182,7 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
  * highlight range from white to the peak, which shares the top 5%.
  */
 function Ramp({ curve }: { curve: HDRCurve }) {
+ useLocale();
   const cell = (n: number) => {
     const v = Math.round(srgb(mapNits(n, curve)) * 255);
     return { n, color: `rgb(${v},${v},${v})` };
@@ -191,14 +190,18 @@ function Ramp({ curve }: { curve: HDRCurve }) {
   const body = Array.from({ length: 16 }, (_, i) => cell(curve.white * srgbToLinear(i / 15)));
   const highlights = Array.from({ length: 4 }, (_, i) => cell(fromLog((i + 1) / 4, curve.white, curve.peak)));
   const strip = (cells: { n: number; color: string }[]) =>
-    cells.map((c, i) => <span key={i} style={{ background: c.color }} title={`${nitsLabel(c.n)} 尼特`} />);
+    cells.map((c, i) => <span key={i} style={{ background: c.color }} title={t("hdr.nits", { p0: String(nitsLabel(c.n)) })} />);
   return (
-    <div className="grid grid-cols-[4fr_1fr] gap-x-0.5 gap-y-1.5 text-xs [&>span:nth-of-type(1)]:col-start-1 [&>span:nth-of-type(1)]:row-start-2 [&>span:nth-of-type(2)]:col-start-1 [&>span:nth-of-type(2)]:row-start-2 [&>span:nth-of-type(2)]:justify-self-end [&>span:nth-of-type(3)]:col-start-2 [&>span:nth-of-type(3)]:row-start-2 [&>span:nth-of-type(3)]:justify-self-end" role="img" aria-label={`映射后的灰阶：黑到桌面白 ${curve.white} 尼特，再到高光上限 ${curve.peak} 尼特`}>
+    <div className="flex flex-col gap-1.5 text-xs" role="img" aria-label={t("hdr.mappedGrayscaleBlackToDesktopWhite", { p0: String(curve.white), p1: String(curve.peak) })}>
+      <div className="grid grid-cols-[4fr_1fr] gap-0.5">
       <div className="grid h-6 auto-cols-fr grid-flow-col overflow-hidden rounded-l-md border border-input">{strip(body)}</div>
       <div className="grid h-6 auto-cols-fr grid-flow-col overflow-hidden rounded-r-md border border-input">{strip(highlights)}</div>
-      <span className="text-muted-foreground">黑</span>
-      <span className="text-muted-foreground">桌面白 {curve.white}</span>
-      <span className="text-muted-foreground">高光 {nitsLabel(curve.peak)}</span>
+      </div>
+      <div className="flex justify-between gap-3 text-muted-foreground">
+      <span>{t("hdr.black")}</span>
+      <span className="text-muted-foreground">{t("hdr.desktopWhiteValue", { nits: curve.white })}</span>
+      <span>{t("hdr.highlightsValue", { nits: nitsLabel(curve.peak) })}</span>
+      </div>
     </div>
   );
 }
@@ -223,6 +226,7 @@ function Slider({
   onInput: (position: number) => void;
   onCommit: () => void;
 }) {
+ useLocale();
   return (
     <label className="flex flex-col gap-1 text-sm">
       <span className="flex flex-wrap justify-between gap-3 [&_strong]:font-medium [&_strong]:tabular-nums">
@@ -266,6 +270,7 @@ export function HDRPanel({
   onPreview: (curve: HDRCurve) => Promise<unknown>;
   onSave: (curve: HDRCurve) => void;
 }) {
+ useLocale();
   const [draft, setDraft] = useState(curve);
   const editing = useRef(false);
   const pending = useRef<HDRCurve>(undefined);
@@ -316,7 +321,7 @@ export function HDRPanel({
   const isDefault = curve.white === DEFAULT_HDR_CURVE.white && curve.peak === DEFAULT_HDR_CURVE.peak;
   const live = hdr && hdr !== "SDR";
   // Say up front why the controls below have no visible effect yet.
-  const idle = !mappingEnabled ? "转换已关闭；SDR 兼容画面仍使用已保存曲线。" : live ? undefined : hdr === "SDR" ? "当前输入为 SDR，曲线在被控机开启 HDR 后生效。" : "当前无 HDMI 信号。";
+  const idle = !mappingEnabled ? t("hdr.conversionIsOffSdrCompatibilityVideo") : live ? undefined : hdr === "SDR" ? t("hdr.theInputIsSdrTheCurve") : t("hdr.noHdmiSignal");
 
   return (
     <div className="min-w-0">
@@ -324,11 +329,11 @@ export function HDRPanel({
         {idle && <Notice>{idle}</Notice>}
         <div className="grid gap-5 @md:grid-cols-2">
           <Slider
-            label="桌面亮度"
-            value={`SDR 白 ${draft.white} 尼特`}
-            detail="对齐主机界面白色。macOS 实测约 199，BT.2408 标准 203。"
+            label={t("hdr.desktopBrightness")}
+            value={t("hdr.sdrWhiteNits", { p0: String(draft.white) })}
+            detail={t("hdr.matchTheTargetComputerSInterface")}
             position={brightPos}
-            ends={["更暗", "更亮"]}
+            ends={[t("hdr.darker"), t("hdr.brighter")]}
             disabled={busy}
             onInput={(p) => {
               const white = Math.round(fromLog(1 - p / 1000, WHITE_MIN, WHITE_MAX));
@@ -337,11 +342,11 @@ export function HDRPanel({
             onCommit={commit}
           />
           <Slider
-            label="高光范围"
-            value={`保留到 ${nitsLabel(draft.peak)} 尼特`}
-            detail="更高保留更多高光层次，但整体高光更灰。HDR 视频多为 1000 尼特母版。"
+            label={t("hdr.highlightRange")}
+            value={t("hdr.preserveUpToNits", { p0: String(nitsLabel(draft.peak)) })}
+            detail={t("hdr.higherValuesPreserveMoreHighlightDetail")}
             position={peakPos}
-            ends={["更通透", "更多细节"]}
+            ends={[t("hdr.moreContrast"), t("hdr.moreDetail")]}
             disabled={busy}
             onInput={(p) => update({ white: draft.white, peak: Math.round(fromLog(p / 1000, peakMin, PEAK_MAX)) })}
             onCommit={commit}
@@ -350,10 +355,9 @@ export function HDRPanel({
         <CurveChart curve={draft} />
         <Ramp curve={draft} />
         <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
-          <span className="text-muted-foreground">{idle ? "" : "拖动时网页画面实时变化，松开后保存。"}</span>
+          <span className="text-muted-foreground">{idle ? "" : t("hdr.theVideoPreviewUpdatesAsYou")}</span>
           <Button variant="outline" disabled={busy || isDefault} onClick={() => onSave(DEFAULT_HDR_CURVE)}>
-            恢复默认
-          </Button>
+            {t("hdr.restoreDefaults")}</Button>
         </div>
       </div>
     </div>

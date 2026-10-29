@@ -12,6 +12,11 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 适配范围与截图见 [界面说明](docs/ui-refactor/shadcn-admin.md)，上游授权见
 [MIT 许可证](LICENSES/shadcn-admin.txt)。
 
+支持英语（`en`，默认）和简体中文（`zh-CN`），可在页头或登录页切换，立即生效。
+浏览器按已保存选择、浏览器语言（任意 `zh*` 为简体中文）、英语解析，并通过 `vim4_lang` cookie
+与网关共享偏好；服务端按 cookie、Accept-Language、英语解析。扩展语言需在前后端各加一份词库并登记 locale。
+术语、文案规范和扩展方法见 [本地化说明](docs/i18n.md)。
+
 匹配的 5.15 / 7.x 共用完整管理器、应用数据和 8080 网关，公共启动器按内核选择硬件接口。
 内核面板按已登记清单读取 release，支持 `7.3.0-vim4kvm-uhd1+` 并标记「正式版」；
 rc7 仍可显示和切换，不显示正式版标记。可用性仍须通过清单的完整产物校验。

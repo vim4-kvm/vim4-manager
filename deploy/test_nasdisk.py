@@ -62,13 +62,13 @@ class NASDiskTest(unittest.TestCase):
             session = helper.nasdisk_read('session.json')
             self.assertEqual(session['root'], str(self.mount))
             self.lun.write_text('/other.img')
-            with self.assertRaisesRegex(ValueError, '已有虚拟磁盘'):
+            with self.assertRaisesRegex(ValueError, "A virtual disk is already mounted"):
                 helper.nasdisk_command(['nasdisk-start'])
 
     def test_discard_requires_matching_confirmation(self):
         identifier = 'a' * 32
         with patch.object(helper, 'storage_read_request', return_value={'confirm': 'wrong'}):
-            with self.assertRaisesRegex(ValueError, '确认'):
+            with self.assertRaisesRegex(ValueError, "confirm"):
                 helper.nasdisk_command(['nasdisk-discard', identifier])
 
     def test_start_persists_explicit_or_local_timezone(self):
@@ -90,7 +90,7 @@ class NASDiskTest(unittest.TestCase):
                 request = dict(storage='nas', path='/', mode='rw', utcOffsetMinutes=offset)
                 with patch.object(helper, 'storage_read_request', return_value=request), patch.object(
                         helper, 'storage_run') as run:
-                    with self.assertRaisesRegex(ValueError, '时区偏移'):
+                    with self.assertRaisesRegex(ValueError, "time zone offset"):
                         helper.nasdisk_command(['nasdisk-start'])
                     run.assert_not_called()
                 self.assertFalse((helper.NASDISK_RUNTIME / 'session.json').exists())
@@ -198,14 +198,14 @@ class NASDiskTest(unittest.TestCase):
                 helper.nasdisk_trash_empty(request)
         request = dict(id=last['id'], confirm=last['id'])
         self.active.return_value = True
-        with self.assertRaisesRegex(ValueError, '运行中'):
+        with self.assertRaisesRegex(ValueError, "already running"):
             helper.nasdisk_trash_empty(request)
         self.active.return_value = False
         with patch.object(helper, 'storage_mounted', return_value=False), patch.object(helper, 'nasdisk_pending', return_value=[]):
             self.assertIsNone(helper.nasdisk_command(['nasdisk-status'])['last']['trash'])
-            with self.assertRaisesRegex(ValueError, '尚未挂载'):
+            with self.assertRaisesRegex(ValueError, "isn't mounted"):
                 helper.nasdisk_trash_empty(request)
-        with patch.object(helper, 'storage_bounded', side_effect=TimeoutError('超时')), patch.object(helper, 'nasdisk_pending', return_value=[]):
+        with patch.object(helper, 'storage_bounded', side_effect=TimeoutError("timed out")), patch.object(helper, 'nasdisk_pending', return_value=[]):
             self.assertIsNone(helper.nasdisk_command(['nasdisk-status'])['last']['trash'])
             with self.assertRaises(TimeoutError):
                 helper.nasdisk_trash_empty(request)

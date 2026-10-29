@@ -1,7 +1,6 @@
 package web
 
 import (
-	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 func readRequest(method string) bool {
@@ -24,7 +24,7 @@ func localWrites(next http.Handler) http.Handler {
 			if origin := r.Header.Get("Origin"); origin != "" {
 				u, err := url.Parse(origin)
 				if err != nil || (u.Scheme != "http" && u.Scheme != "https") || !strings.EqualFold(u.Host, r.Host) {
-					writeError(w, http.StatusForbidden, errors.New("不允许跨站修改"))
+					writeLocalizedError(w, r, http.StatusForbidden, i18n.New("access.crossSite", nil))
 					return
 				}
 			}
@@ -76,7 +76,7 @@ func CheckHost(service *board.Service, next http.Handler, extra []string) http.H
 			allowed = err == nil && state.DNSName != "" && strings.EqualFold(host, state.DNSName)
 		}
 		if !allowed {
-			writeError(w, http.StatusForbidden, errors.New("不允许的 Host，请使用板子 IP 或已配置的主机名"))
+			writeLocalizedError(w, r, http.StatusForbidden, i18n.New("access.host", nil))
 			return
 		}
 		next.ServeHTTP(w, r)

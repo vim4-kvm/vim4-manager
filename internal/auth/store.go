@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"github.com/vim4-kvm/vim4-manager/internal/statefile"
 )
 
@@ -280,7 +281,7 @@ func (s *Store) Revoke(id string, others bool) error {
 type LockedError struct{ RetryAfter int }
 
 func (e *LockedError) Error() string {
-	return "尝试次数过多"
+	return i18n.New("auth.locked", nil).Error()
 }
 
 func (s *Store) verify(ctx context.Context, ip netip.Addr, username, password string) (Credentials, error) {
@@ -335,7 +336,7 @@ func (s *Store) Login(ctx context.Context, ip netip.Addr, agent, username, passw
 
 func (s *Store) Setup(ctx context.Context, ip netip.Addr, agent, username, password string) (string, error) {
 	if !LAN(ip) {
-		return "", errors.New("请在局域网内完成首次设置")
+		return "", i18n.New("auth.lanRequired", nil)
 	}
 	if s.Configured() {
 		return "", ErrConfigured
@@ -406,7 +407,7 @@ func (s *Store) Change(ctx context.Context, ip netip.Addr, current *Session, pas
 	updated := c
 	if newUsername != "" {
 		if !usernamePattern.MatchString(newUsername) || newUsername == password {
-			return errors.New("用户名无效或与密码相同")
+			return i18n.New("auth.usernameInvalid", nil)
 		}
 		updated.Username = newUsername
 	} else {

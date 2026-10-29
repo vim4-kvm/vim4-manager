@@ -54,7 +54,7 @@ func TestControlCancelWhileAttaching(t *testing.T) {
 				if response["ok"] != true || ctx.Err() != context.Canceled {
 					t.Fatalf("cancel: %v context %v", response, ctx.Err())
 				}
-			} else if response["error"] != "请先在被控电脑安全弹出" || ctx.Err() != nil {
+			} else if response["error"] != "Safely eject the drive on the target computer before continuing." || ctx.Err() != nil {
 				t.Fatalf("active disk cancelled: %v", response)
 			}
 		})
@@ -119,7 +119,7 @@ func TestUnsafeVolumeRequiresDecisionAndCanBeRepaired(t *testing.T) {
 	if s.state() != "needs-decision" || s.status.Decision.CanForce {
 		t.Fatalf("decision %+v", s.status.Decision)
 	}
-	if !strings.Contains(s.status.Decision.Reason, "文件系统解析失败") || !strings.Contains(s.status.Detail, "inconsistent FAT32") {
+	if !strings.Contains(s.status.Decision.Reason, "Couldn't read the USB file system") || !strings.Contains(s.status.Detail, "inconsistent FAT32") {
 		t.Fatalf("unreadable parse decision: %+v detail=%s", s.status.Decision, s.status.Detail)
 	}
 	// Reattach enables the same overlay; simulate the host repairing the BPB.
@@ -298,7 +298,7 @@ func TestParseIOFailureHasReadableDecisionAndRawDetail(t *testing.T) {
 	if err := s.commit(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	if s.status.State != "needs-decision" || !strings.Contains(s.status.Decision.Reason, "读取 U 盘数据失败") || s.status.Detail != syscall.EIO.Error() {
+	if s.status.State != "needs-decision" || !strings.Contains(s.status.Decision.Reason, "Couldn't read USB drive data") || s.status.Detail != syscall.EIO.Error() {
 		t.Fatalf("status %+v", s.status)
 	}
 }
@@ -325,7 +325,7 @@ func TestWritebackReadFailureRetainsPathAndSession(t *testing.T) {
 	}
 	s.fail(err)
 	wantError, wantDetail := s.status.Error, s.status.Detail
-	if s.status.Error != "读取 NAS 上的 /file 失败：文件在 U 盘挂载期间被改动，或 NAS 暂时无法访问" || !strings.Contains(s.status.Detail, "input/output error") {
+	if s.status.Error != "Couldn't read /file on the NAS. The file may have changed while the drive was mounted, or the NAS may be unavailable." || !strings.Contains(s.status.Detail, "input/output error") {
 		t.Fatalf("status %+v", s.status)
 	}
 	if err = s.finish("failed", err); err != nil {
@@ -353,14 +353,14 @@ func TestSessionFailureMessagesAtStatusBoundary(t *testing.T) {
 		cause   error
 		message string
 	}{
-		{syscall.ENOSPC, "空间不足"},
-		{syscall.EDQUOT, "空间不足"},
-		{syscall.EACCES, "权限"},
-		{syscall.EROFS, "只读"},
-		{context.DeadlineExceeded, "NAS 无响应"},
-		{syscall.ETIMEDOUT, "NAS 无响应"},
-		{syscall.EHOSTDOWN, "NAS 无响应"},
-		{errors.New("unexpected overlay failure"), "回写失败：write journal: unexpected overlay failure"},
+		{syscall.ENOSPC, "insufficient space"},
+		{syscall.EDQUOT, "insufficient space"},
+		{syscall.EACCES, "permission"},
+		{syscall.EROFS, "read-only"},
+		{context.DeadlineExceeded, "NAS isn't responding"},
+		{syscall.ETIMEDOUT, "NAS isn't responding"},
+		{syscall.EHOSTDOWN, "NAS isn't responding"},
+		{errors.New("unexpected overlay failure"), "Couldn't write back: write journal: unexpected overlay failure"},
 	} {
 		s := &session{}
 		cause := fmt.Errorf("write journal: %w", test.cause)

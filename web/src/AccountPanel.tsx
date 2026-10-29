@@ -8,11 +8,14 @@ import { Avatar } from "@/components/AccountMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DetailsDialog } from "@/components/DetailsDialog";
 import { InlineError } from "@/components/InlineError";
+import { EmptyState } from "@/components/EmptyState";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingRow } from "@/components/SettingRow";
 import { SettingsCard } from "@/components/SettingsCard";
 import { PageHeading } from "@/components/PageHeading";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { t, useLocale } from "@/i18n";
+import { dateTime, relativeTime } from "@/i18n/format";
 import { request } from "./api";
 import { logout, useAccount } from "./auth";
 
@@ -31,12 +34,15 @@ interface Account {
 }
 
 type DialogMode = "password" | "username" | "others";
+type FieldMessage = "account.theCurrentPasswordIsIncorrect" | "account.enterYourCurrentPassword"
+  | "account.useLettersNumbersPeriodsUnderscoresOr" | "account.theUsernameMustDifferFromThe"
+  | "account.useCharactersForThePassword" | "account.thePasswordMustDifferFromThe" | "account.thePasswordsDonTMatch";
 const RESET_COMMAND = "sudo vim4-manager set-password";
-const KVM_AUTH_NOTE = "登录后可直接打开 KVM 界面（8080）；MCP、VNC 等接口使用各自的密钥。";
+const kvmAuthNote = () => t("account.onceSignedInYouCanOpen");
 
 function deviceInfo(agent: string) {
   const tool = agent.match(/curl|wget|python-requests|go-http-client|node-fetch|undici/i)?.[0];
-  if (tool) return { name: `命令行工具 · ${tool.toLowerCase()}`, icon: "terminal" };
+  if (tool) return { name: t("account.commandLineTool", { p0: String(tool.toLowerCase()) }), icon: "terminal" };
   const browser = /Edg\//.test(agent)
     ? "Edge"
     : /Firefox\//.test(agent)
@@ -58,13 +64,13 @@ function deviceInfo(agent: string) {
             ? "Linux"
             : "";
   return {
-    name: browser ? browser + (os ? ` · ${os}` : "") : "未知设备",
+    name: browser ? browser + (os ? ` · ${os}` : "") : t("account.unknownDevice"),
     icon: /iOS|Android/.test(os) ? "phone" : os ? "laptop" : "monitor",
   };
 }
 
 function addressInfo(address: string) {
-  if (/^(127\.|::1$|0:0:0:0:0:0:0:1$)/i.test(address)) return { label: "经板上代理", tailscale: false, proxied: true };
+  if (/^(127\.|::1$|0:0:0:0:0:0:0:1$)/i.test(address)) return { label: t("account.viaBoardProxy"), tailscale: false, proxied: true };
   const parts = address.split(".").map(Number);
   const tailscale =
     (parts.length === 4 && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) || /^fd7a:115c:a1e0:/i.test(address);
@@ -76,17 +82,14 @@ const DEVICE_PREVIEW = 5;
 
 function lastActive(value: string) {
   const minutes = Math.floor((Date.now() - Date.parse(value)) / 60000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时前`;
-  return `${Math.floor(minutes / 1440)} 天前`;
+  if (minutes < 1) return t("account.justNow");
+  if (minutes < 60) return relativeTime(-minutes, "minute");
+  if (minutes < 1440) return relativeTime(-Math.floor(minutes / 60), "hour");
+  return relativeTime(-Math.floor(minutes / 1440), "day");
 }
 
 function localDate(value: string, time = false) {
-  const date = new Date(value);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-  return time ? `${day} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` : day;
+  return dateTime(new Date(value), time ? { year: "numeric" } : { year: "numeric", hour: undefined, minute: undefined, second: undefined });
 }
 
 function passwordAge(value: string) {
@@ -101,10 +104,11 @@ function passwordAge(value: string) {
         86400000,
     ),
   );
-  return days === 0 ? "今天" : `${days} 天前`;
+  return days === 0 ? t("account.today") : relativeTime(-days, "day");
 }
 
 export function AccountPanel() {
+  const locale = useLocale();
   const { username: signedInName, setUsername } = useAccount();
   const [account, setAccount] = useState<Account>();
   const [loading, setLoading] = useState(true);
@@ -116,7 +120,7 @@ export function AccountPanel() {
   const [username, setName] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [fields, setFields] = useState<Record<string, string>>({});
+  const [fields, setFields] = useState<Partial<Record<string, FieldMessage>>>({});
   const [busy, setBusy] = useState(false);
   const [revoking, setRevoking] = useState<string[]>([]);
   const [allDevices, setAllDevices] = useState(false);
@@ -145,7 +149,7 @@ export function AccountPanel() {
     const controller = new AbortController();
     void refresh(controller.signal);
     return () => controller.abort();
-  }, []);
+  }, [locale]);
   useEffect(() => {
     if (!message) return;
     const timer = window.setTimeout(() => setMessage(""), 5000);
@@ -189,12 +193,12 @@ export function AccountPanel() {
       setMode(undefined);
       trigger.current?.focus();
       setMessage(
-        mode === "others" ? "其他设备已退出" : `${mode === "password" ? "密码" : "用户名"}已修改，其他设备已退出`,
+        mode === "others" ? t("account.otherDevicesSignedOut") : mode === "password" ? t("account.passwordChanged") : t("account.usernameChanged"),
       );
       await refresh();
     } catch (e) {
       const text = e instanceof Error ? e.message : String(e);
-      if (text === "当前密码错误") setFields({ currentPassword: text });
+      if (text === t("account.theCurrentPasswordIsIncorrect")) setFields({ currentPassword: "account.theCurrentPasswordIsIncorrect" });
       else setError(text);
     } finally {
       setBusy(false);
@@ -203,15 +207,15 @@ export function AccountPanel() {
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const next: Record<string, string> = {};
-    if (!currentPassword) next.currentPassword = "请输入当前密码";
+    const next: Partial<Record<string, FieldMessage>> = {};
+    if (!currentPassword) next.currentPassword = "account.enterYourCurrentPassword";
     if (mode === "username") {
-      if (!/^[A-Za-z0-9._-]{1,32}$/.test(username)) next.username = "用户名须为 1–32 个字母、数字、点、下划线或连字符";
-      else if (username === currentPassword) next.username = "用户名不能与密码相同";
+      if (!/^[A-Za-z0-9._-]{1,32}$/.test(username)) next.username = "account.useLettersNumbersPeriodsUnderscoresOr";
+      else if (username === currentPassword) next.username = "account.theUsernameMustDifferFromThe";
     } else {
-      if ([...password].length < 8 || [...password].length > 128) next.password = "密码须为 8–128 个字符";
-      else if (password === account?.username) next.password = "密码不能与用户名相同";
-      if (password !== confirm) next.confirm = "两次密码不一致";
+      if ([...password].length < 8 || [...password].length > 128) next.password = "account.useCharactersForThePassword";
+      else if (password === account?.username) next.password = "account.thePasswordMustDifferFromThe";
+      if (password !== confirm) next.confirm = "account.thePasswordsDonTMatch";
     }
     setFields(next);
     if (Object.keys(next).length) {
@@ -238,22 +242,22 @@ export function AccountPanel() {
   const sessions = [...(account?.sessions || [])].sort(
     (a, b) => Number(b.current) - Number(a.current) || Date.parse(b.lastActive) - Date.parse(a.lastActive),
   );
-  const title = mode === "others" ? "退出其他设备" : mode === "password" ? "修改密码" : "修改用户名";
+  const title = mode === "others" ? t("account.signOutOtherDevices") : mode === "password" ? t("account.changePassword") : t("account.changeUsername");
   const inputs = [
     {
       name: "currentPassword",
-      label: "当前密码",
+      label: t("account.currentPassword"),
       value: currentPassword,
       set: setCurrent,
       type: "password",
       complete: "current-password",
     },
     ...(mode === "username"
-      ? [{ name: "username", label: "新用户名", value: username, set: setName, type: "text", complete: "username" }]
+      ? [{ name: "username", label: t("account.newUsername"), value: username, set: setName, type: "text", complete: "username" }]
       : [
           {
             name: "password",
-            label: "新密码",
+            label: t("account.newPassword"),
             value: password,
             set: setPassword,
             type: "password",
@@ -261,7 +265,7 @@ export function AccountPanel() {
           },
           {
             name: "confirm",
-            label: "确认新密码",
+            label: t("account.confirmNewPassword"),
             value: confirm,
             set: setConfirm,
             type: "password",
@@ -276,21 +280,21 @@ export function AccountPanel() {
         <div data-account-success className="flex items-center gap-3 rounded-md border border-success/30 bg-card p-3 text-sm text-success-foreground [&_button]:ml-auto [&_button]:size-7 [&_button]:border-0" role="status">
           <Check className="size-4 shrink-0" aria-hidden="true" />
           <span>{message}</span>
-          <Button variant="outline" aria-label="关闭提示" onClick={() => setMessage("")}>
+          <Button variant="outline" aria-label={t("account.dismissMessage")} onClick={() => setMessage("")}>
             ×
           </Button>
         </div>
       )}
-      <SettingsCard title="管理员账户">
+      <SettingsCard title={t("account.administratorAccount")}>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
           <div className="flex min-w-0 items-center gap-5 py-3 lg:border-r lg:pr-6">
             <Avatar username={signedInName} className="size-20 bg-chart-1/10 text-3xl text-chart-1" />
-            <div className="min-w-0 space-y-1"><strong className="block break-all text-xl font-semibold">{signedInName}</strong><p className="text-sm text-muted-foreground">本机管理员</p></div>
+            <div className="min-w-0 space-y-1"><strong className="block break-all text-xl font-semibold">{signedInName}</strong><p className="text-sm text-muted-foreground">{t("account.deviceAdministrator")}</p></div>
           </div>
           <div className="@container min-w-0 divide-y [&>div]:py-4 [&>div:first-child]:pt-0 [&>div:last-child]:pb-0">
-            <SettingRow title="用户名" description={signedInName} control={<Button variant="outline" aria-label="修改用户名" onClick={() => open("username")}>修改用户名</Button>} />
-            <SettingRow title="密码" description={<><span className="block tracking-widest text-foreground">••••••••</span><span>{account ? `上次修改 ${localDate(account.passwordChanged)}（${passwordAge(account.passwordChanged)}）` : "—"}</span></>}
-              control={<Button variant="outline" aria-label="修改密码" disabled={!account} onClick={() => open("password")}>修改密码</Button>} />
+            <SettingRow title={t("login.username")} description={signedInName} control={<Button variant="outline" aria-label={t("account.changeUsername")} onClick={() => open("username")}>{t("account.changeUsername")}</Button>} />
+            <SettingRow title={t("login.password")} description={<><span className="block tracking-widest text-foreground">••••••••</span><span>{account ? t("account.lastChanged", { p0: String(localDate(account.passwordChanged)), p1: String(passwordAge(account.passwordChanged)) }) : "—"}</span></>}
+              control={<Button variant="outline" aria-label={t("account.changePassword")} disabled={!account} onClick={() => open("password")}>{t("account.changePassword")}</Button>} />
           </div>
         </div>
         {error && !mode && (
@@ -302,36 +306,36 @@ export function AccountPanel() {
       <SettingsCard data-account-devices><div className="flex min-w-0 flex-col gap-4">
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 [&>div]:min-w-0 [&>div]:flex-1 [&>div]:basis-64 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
           <div>
-            <h3>登录设备</h3>
-            <p>已登录管理面板的浏览器和工具。退出后需要重新输入密码。</p>
+            <h3>{t("account.signedInDevices")}</h3>
+            <p>{t("account.browsersAndToolsSignedInTo")}</p>
           </div>
           {account &&
             !loading &&
             !loadFailed &&
             (others ? (
               <Button variant="outline" disabled={busy || !!revoking.length} onClick={() => open("others")}>
-                退出其他设备
-              </Button>
+                {t("account.signOutOtherDevices")}</Button>
             ) : (
-              <span className="text-xs text-muted-foreground">仅本设备</span>
+              <span className="text-xs text-muted-foreground">{t("account.onlyThisDevice")}</span>
             ))}
         </div>
-        <div className="min-w-0" role="table" aria-label="登录设备" aria-busy={loading}>
+        <div className="min-w-0" role="table" aria-label={t("account.signedInDevices")} aria-busy={loading}>
           <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,180px)_100px_80px] items-center gap-3 rounded-md bg-muted/60 px-3 py-3 text-xs text-muted-foreground md:grid" role="row">
-            <span role="columnheader">设备</span>
-            <span role="columnheader">地址</span>
-            <span role="columnheader">最后活动</span>
-            <span role="columnheader" aria-label="操作" />
+            <span role="columnheader">{t("account.device")}</span>
+            <span role="columnheader">{t("account.address")}</span>
+            <span role="columnheader">{t("account.lastActive")}</span>
+            <span role="columnheader" aria-label={t("common.actions")} />
           </div>
           {loading ? (
-            <PanelSkeleton label="正在读取登录设备" />
+            <PanelSkeleton label={t("account.loadingSignedInDevices")} />
           ) : loadFailed ? (
             <div className="flex flex-wrap items-center gap-3 py-4 text-sm text-destructive" role="alert">
-              无法读取登录设备{" "}
+              {t("account.couldnTLoadSignedInDevices")}{" "}
               <Button variant="link" size="inline" onClick={() => void refresh()}>
-                重试
-              </Button>
+                {t("common.retry")}</Button>
             </div>
+          ) : sessions.length === 0 ? (
+            <EmptyState icon={Monitor}>{t("account.noDevices")}</EmptyState>
           ) : (
             <FadeIn><AnimatedList as="div" role="rowgroup" className="[&>*:last-child>[role=row]]:border-b-0 [&>*:last-child>[role=row]]:pb-0" items={allDevices ? sessions : sessions.slice(0, DEVICE_PREVIEW)} getKey={(device) => device.id}>{(device) => {
                 const info = deviceInfo(device.userAgent);
@@ -341,11 +345,11 @@ export function AccountPanel() {
                     <span className="col-start-1 row-start-1 flex min-w-0 flex-wrap items-center gap-2 [&>span]:break-all" role="cell">
                       {info.icon === "terminal" ? <Terminal className="size-4 shrink-0" /> : info.icon === "phone" ? <Smartphone className="size-4 shrink-0" /> : info.icon === "laptop" ? <Laptop className="size-4 shrink-0" /> : <Monitor className="size-4 shrink-0" />}
                       <span>{info.name}</span>
-                      {device.current && <Badge variant="outline" className="border-primary/30 text-primary">本设备</Badge>}
+                      {device.current && <Badge variant="outline" className="border-primary/30 text-primary">{t("account.thisDevice")}</Badge>}
                     </span>
                     <div className="col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-2 md:contents">
                       <span className="min-w-0 break-all text-xs text-muted-foreground md:col-start-2 md:row-start-1" role="cell">
-                        <span className={address.proxied ? "" : "font-mono break-all"} title={address.proxied ? "请求经板子上的代理转发（如 KVM 网关），看不到原始地址" : undefined}>{address.label}</span>
+                        <span className={address.proxied ? "" : "font-mono break-all"} title={address.proxied ? t("account.forwardedByAProxyOnThe") : undefined}>{address.label}</span>
                         {address.tailscale && <small> Tailscale</small>}
                         {rowErrors[device.id] && (
                           <span className="text-xs text-destructive" role="alert">
@@ -363,10 +367,10 @@ export function AccountPanel() {
                           disabled={revoking.includes(device.id) || busy}
                           onClick={() => void revoke(device.id)}
                         >
-                          {revoking.includes(device.id) ? "退出中…" : "退出"}
+                          {revoking.includes(device.id) ? t("account.signingOut") : t("account.signOut")}
                         </Button>
                       )}
-                      {device.current && <span className="text-xs text-muted-foreground">当前会话</span>}
+                      {device.current && <span className="text-xs text-muted-foreground">{t("account.currentSession")}</span>}
                     </span>
                   </div>
                 );
@@ -374,40 +378,39 @@ export function AccountPanel() {
           )}
           {!loading && !loadFailed && sessions.length > DEVICE_PREVIEW && (
             <Button variant="link" size="inline" className="mt-3 text-xs" aria-expanded={allDevices} onClick={() => setAllDevices(!allDevices)}>
-              {allDevices ? "只显示最近的设备" : `显示其余 ${sessions.length - DEVICE_PREVIEW} 台设备`}
+              {allDevices ? t("account.showRecentDevicesOnly") : t("account.showMoreDevices", { count: sessions.length - DEVICE_PREVIEW })}
             </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">退出设备会结束该设备的管理面板和 KVM 会话。</p>
+        <p className="text-xs text-muted-foreground">{t("account.signingOutADeviceEndsIts")}</p>
         <div className="flex justify-end border-t pt-4">
           <Button variant="outline" disabled={busy} onClick={async () => {
             setBusy(true);
             setError("");
-            try { await logout(); } catch { setError("退出失败，请重试"); setBusy(false); }
-          }}>{busy && !mode ? "正在退出…" : "退出登录"}</Button>
+            try { await logout(); } catch { setError(t("account.couldnTSignOutTryAgain")); setBusy(false); }
+          }}>{busy && !mode ? t("account.signingOut") : t("account.signOutThisDevice")}</Button>
         </div>
       </div></SettingsCard>
       <div data-account-notes className="space-y-2 text-xs text-muted-foreground [&_code]:break-all [&_code]:font-mono">
         <p>
-          忘记密码时，SSH 登录板子运行 <code>{RESET_COMMAND}</code>，所有设备会同时退出。
-          <Button variant="link" size="inline"
+          {t("account.resetHelp", { command: RESET_COMMAND })} <Button variant="link" size="inline"
             className="ml-1 text-xs"
             onClick={async () => {
               try {
                 await navigator.clipboard.writeText(RESET_COMMAND);
                 setCopied(true);
               } catch {
-                setError("无法复制命令，请手动复制");
+                setError(t("account.couldnTCopyTheCommandCopy"));
               }
             }}
           >
-            {copied ? "已复制" : "复制命令"}
+            {copied ? t("common.copied") : t("account.copyCommand")}
           </Button>
         </p>
-        <p>{KVM_AUTH_NOTE}</p>
+        <p>{kvmAuthNote()}</p>
       </div>
-      {mode === "others" && <ConfirmDialog open title={title} description={<>其他 {others} 个设备将退出，正在使用的 KVM 连接会断开。</>}
-        confirm={busy ? "正在退出…" : "确认退出"} busy={busy} closeOnConfirm={false}
+      {mode === "others" && <ConfirmDialog open title={title} description={t("account.signOutOthersHelp", { count: others })}
+        confirm={busy ? t("account.signingOut") : t("account.signOutDevices")} busy={busy} closeOnConfirm={false}
         onOpenChange={(open) => { if (!open) close(); }} onConfirm={() => void save()}>
         {error && <InlineError>{error}</InlineError>}
       </ConfirmDialog>}
@@ -428,11 +431,11 @@ export function AccountPanel() {
                       aria-describedby={`${input.name}-error`}
                       onChange={(event) => {
                         input.set(event.target.value);
-                        setFields((value) => ({ ...value, [input.name]: "" }));
+                        setFields((value) => ({ ...value, [input.name]: undefined }));
                       }}
                     />
                     <span id={`${input.name}-error`} className="min-h-4 text-xs text-destructive">
-                      {fields[input.name]}
+                      {fields[input.name] && t(fields[input.name]!)}
                     </span>
                   </div>
                 ))}
@@ -443,10 +446,9 @@ export function AccountPanel() {
                 )}
                 <div className="flex flex-wrap items-center justify-end gap-2 pt-2">
                   <Button variant="outline" type="button" disabled={busy} onClick={close}>
-                    取消
-                  </Button>
+                    {t("common.cancel")}</Button>
                   <Button variant="default" disabled={busy}>
-                    {busy ? "正在保存…" : "保存"}
+                    {busy ? t("common.saving") : t("common.save")}
                   </Button>
                 </div>
               </form>

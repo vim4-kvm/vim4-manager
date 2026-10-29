@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 	"golang.org/x/sys/unix"
 )
@@ -292,7 +293,7 @@ func (s *Source) Scan(ctx context.Context, progress func(int)) (vfat.Tree, error
 func WritableReserve(available int64) (int64, error) {
 	reserve := min(available-(2<<30), int64(64<<30))
 	if reserve < 256<<20 {
-		return 0, fmt.Errorf("NAS 可用空间不足：保留 2 GiB 后至少需要 256 MiB")
+		return 0, i18n.New("nasDisk.space", nil)
 	}
 	return reserve, nil
 }

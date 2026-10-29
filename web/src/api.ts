@@ -1,4 +1,5 @@
 import { redirectLogin } from "./auth";
+import { t } from "./i18n";
 
 export interface PassthroughState {
   supported: boolean;
@@ -190,7 +191,7 @@ export async function request<T>(path: string, body?: unknown, signal?: AbortSig
   });
   const data = await response.json().catch(() => ({}));
   if (response.status === 401) redirectLogin();
-  if (!response.ok) throw new Error(data.error ?? `请求失败（${response.status}）`);
+  if (!response.ok) throw new Error(data.error ?? t("api.requestFailed", { status: response.status }));
   return data as T;
 }
 
@@ -259,7 +260,7 @@ export function uploadDiskFile(disk: string, path: string, file: File, overwrite
   onProgress: (sent: number) => void, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
-      reject(new DOMException("已取消上传", "AbortError"));
+      reject(new DOMException(t("api.uploadCancelled"), "AbortError"));
       return;
     }
     const xhr = new XMLHttpRequest();
@@ -270,12 +271,12 @@ export function uploadDiskFile(disk: string, path: string, file: File, overwrite
     xhr.onload = () => {
       if (xhr.status === 401) redirectLogin();
       if (xhr.status >= 200 && xhr.status < 300) return resolve();
-      let message = `上传失败（${xhr.status}）`;
+      let message = t("api.uploadFailed", { status: xhr.status });
       try { message = JSON.parse(xhr.responseText).error ?? message; } catch { /* non-JSON proxy error */ }
       reject(new Error(message));
     };
-    xhr.onerror = () => reject(new Error("上传中断，请检查网络连接"));
-    xhr.onabort = () => reject(new DOMException("已取消上传", "AbortError"));
+    xhr.onerror = () => reject(new Error(t("api.uploadInterrupted")));
+    xhr.onabort = () => reject(new DOMException(t("api.uploadCancelled"), "AbortError"));
     signal.addEventListener("abort", () => xhr.abort(), { once: true });
     xhr.send(file);
   });

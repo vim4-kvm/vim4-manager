@@ -5,6 +5,7 @@ import { AppShell } from "./shell/AppShell";
 import { pageFromHash, type PageId } from "./shell/pages";
 import { pageComponent } from "./shell/routes";
 import { useStatusPolling } from "./stores/status";
+import { useT } from "./i18n";
 
 function usePage(): PageId {
   const [page, setPage] = useState(pageFromHash);
@@ -17,11 +18,12 @@ function usePage(): PageId {
 }
 
 export function App() {
+  const t = useT();
   useStatusPolling();
   const page = usePage();
   const Page = pageComponent(page);
   return <AppShell page={page}>
-    <Suspense fallback={<SettingsCard><PanelSkeleton label="正在读取…" /></SettingsCard>}>
+    <Suspense fallback={<SettingsCard><PanelSkeleton label={t("common.loading")} /></SettingsCard>}>
       <Page />
     </Suspense>
   </AppShell>;

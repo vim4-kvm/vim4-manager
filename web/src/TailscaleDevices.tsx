@@ -1,3 +1,5 @@
+import { t, useLocale } from "@/i18n";
+import { number, relativeTime } from "@/i18n/format";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/Spinner";
 import { Network } from "lucide-react";
@@ -38,26 +40,29 @@ function lastSeen(value: string) {
   if (!value) return "";
   const minutes = (Date.now() - Date.parse(value)) / 60000;
   if (!Number.isFinite(minutes)) return "";
-  if (minutes < 60) return `${Math.max(1, Math.round(minutes))} 分钟前在线`;
-  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} 小时前在线`;
-  return `${Math.round(minutes / 1440)} 天前在线`;
+  const relative = minutes < 60 ? relativeTime(-Math.max(1, Math.round(minutes)), "minute")
+    : minutes < 48 * 60 ? relativeTime(-Math.round(minutes / 60), "hour") : relativeTime(-Math.round(minutes / 1440), "day");
+  return t("tailscaleDevices.lastSeen", { time: relative });
 }
 
 function pingSummary(result: PingResult) {
-  if (!result.reachable) return { tone: "critical", text: `无响应（${result.sent} 次全部超时）` };
+  if (!result.reachable) return { tone: "critical", text: t("tailscaleDevices.noResponseAllProbesTimedOut", { count: result.sent }) };
   const ms = result.latencyMs;
   const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
-  const latency = `${avg < 10 ? avg.toFixed(1) : Math.round(avg)} ms`;
-  const loss = result.lost ? `，丢失 ${result.lost}/${result.sent}` : "";
-  if (result.path === "direct") return { tone: "good", text: `直连，${latency}${loss}` };
-  if (result.path === "peer-relay") return { tone: "warning", text: `经节点中继，${latency}${loss}` };
+  const latency = number(avg, { minimumFractionDigits: avg < 10 ? 1 : 0, maximumFractionDigits: avg < 10 ? 1 : 0 });
+  const params = { latency, lost: result.lost, sent: result.sent, via: result.via };
+  if (result.path === "direct") return { tone: "good", text: result.lost
+    ? t("tailscaleDevices.directLoss", params) : t("tailscaleDevices.directPing", { latency }) };
+  if (result.path === "peer-relay") return { tone: "warning", text: result.lost
+    ? t("tailscaleDevices.peerLoss", params) : t("tailscaleDevices.peerPing", { latency }) };
   return {
     tone: "warning",
-    text: `经 DERP 中继${result.via ? ` ${result.via}` : ""}，${latency}${loss}。中继会明显增加 KVM 延迟`,
+    text: result.lost ? t("tailscaleDevices.derpLoss", params) : t("tailscaleDevices.derpPing", params),
   };
 }
 
 function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: boolean }) {
+  useLocale();
   const [ping, setPing] = useState<PingState>();
   const ip = device.ips.find((a) => !a.includes(":")) ?? device.ips[0];
   async function test() {
@@ -77,17 +82,16 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
         <div className="flex min-w-0 flex-wrap items-center gap-2 [&_strong]:break-all">
           <strong>{device.hostName}</strong>
           {device.os && <Badge variant="secondary">{device.os}</Badge>}
-          {device.exitNode && <Badge variant="outline">出口节点</Badge>}
+          {device.exitNode && <Badge variant="outline">{t("tailscaleDevices.exitNode")}</Badge>}
         </div>
         <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
           {ip && <span className="font-mono break-all">{ip}</span>}
-          <span className="text-muted-foreground">{device.online ? "在线" : lastSeen(device.lastSeen) || "离线"}</span>
+          <span className="text-muted-foreground">{device.online ? t("tailscaleDevices.online") : lastSeen(device.lastSeen) || t("tailscaleDevices.offline")}</span>
         </div>
         {ping?.pending && (
           <p className="text-xs text-muted-foreground" role="status">
             <Spinner />
-            正在测试 4 次…
-          </p>
+            {t("tailscaleDevices.sendingProbes")}</p>
         )}
         {summary && (
           <p className={`text-xs ${summary.tone === "critical" ? "text-destructive" : summary.tone === "warning" ? "text-warning-foreground" : "text-success-foreground"}`} role="status">
@@ -101,17 +105,16 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
         )}
       </div>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        {ip && <CopyButton text={ip} label={`${device.hostName} 的地址`} />}
+        {ip && <CopyButton text={ip} label={t("tailscaleDevices.address", { p0: String(device.hostName) })} />}
         {ip && (
           <Button variant="outline"
             type="button"
 
-            aria-label={`测试到 ${device.hostName} 的连接`}
+            aria-label={t("tailscaleDevices.testConnectionTo", { p0: String(device.hostName) })}
             disabled={ping?.pending || !writable}
             onClick={() => void test()}
           >
-            测试连接
-          </Button>
+            {t("tailscaleDevices.testConnection")}</Button>
         )}
       </div>
     </div>
@@ -119,25 +122,25 @@ function DeviceRow({ device, writable }: { device: TailscaleDevice; writable: bo
 }
 
 export function TailscaleDevices({ devices, writable }: { devices: TailscaleDevice[]; writable: boolean }) {
+  useLocale();
   const [showOffline, setShowOffline] = useState(false);
   const online = devices.filter((d) => d.online);
   const offline = devices.filter((d) => !d.online);
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3 [&_h4]:font-medium">
-        <h4>tailnet 中的其他设备</h4>
+        <h4>{t("tailscaleDevices.otherTailnetDevices")}</h4>
         <span className="text-muted-foreground tabular-nums">
-          {online.length} 台在线 / 共 {devices.length} 台
-        </span>
+          {t("tailscaleDevices.onlineCount", { online: online.length, total: devices.length })}</span>
       </div>
       {devices.length === 0 ? (
-        <EmptyState icon={Network}>tailnet 中还没有其他设备。</EmptyState>
+        <EmptyState icon={Network}>{t("tailscaleDevices.noOtherDevicesInThisTailnet")}</EmptyState>
       ) : (
         <>
           {online.length > 0 ? (
-            <AnimatedList className="flex min-w-0 flex-col divide-y" label="在线设备" items={online} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
+            <AnimatedList className="flex min-w-0 flex-col divide-y" label={t("tailscale.onlineDevices")} items={online} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
           ) : (
-            <EmptyState icon={Network}>没有其他在线设备。</EmptyState>
+            <EmptyState icon={Network}>{t("tailscaleDevices.noOtherDevicesOnline")}</EmptyState>
           )}
           {offline.length > 0 && (
             <Button variant="link" size="inline"
@@ -146,11 +149,11 @@ export function TailscaleDevices({ devices, writable }: { devices: TailscaleDevi
               aria-expanded={showOffline}
               onClick={() => setShowOffline(!showOffline)}
             >
-              {showOffline ? "收起离线设备" : `显示 ${offline.length} 台离线设备`}
+              {showOffline ? t("tailscaleDevices.hideOfflineDevices") : t("tailscaleDevices.showOfflineCount", { count: offline.length })}
             </Button>
           )}
           {showOffline && (
-            <AnimatedList className="flex min-w-0 flex-col divide-y" label="离线设备" items={offline} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
+            <AnimatedList className="flex min-w-0 flex-col divide-y" label={t("tailscaleDevices.offlineDevices")} items={offline} getKey={(d) => d.id}>{(d) => <DeviceRow device={d} writable={writable} />}</AnimatedList>
           )}
         </>
       )}

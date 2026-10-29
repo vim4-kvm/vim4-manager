@@ -388,7 +388,7 @@ func TestKVMBindRetryKeepsManagerAvailable(t *testing.T) {
 	for len(events.List()) == 0 && time.Now().Before(deadline) {
 		time.Sleep(time.Millisecond)
 	}
-	if rows := events.List(); len(rows) != 1 || rows[0].Text != "KVM 网关等待 8080 端口释放" {
+	if rows := events.List(); len(rows) != 1 || rows[0].Text != "KVM gateway is waiting for port 8080" {
 		t.Fatal(rows)
 	}
 	res, err := http.Get(manager.URL + "/__vim4/api/auth/state")
@@ -424,7 +424,7 @@ func TestKVMBindRetryKeepsManagerAvailable(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("gateway did not stop")
 	}
-	if rows := events.List(); len(rows) != 2 || rows[0].Text != "KVM 网关已启动" {
+	if rows := events.List(); len(rows) != 2 || rows[0].Text != "KVM gateway started" {
 		t.Fatal(rows)
 	}
 }

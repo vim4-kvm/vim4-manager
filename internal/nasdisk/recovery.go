@@ -1,11 +1,11 @@
 package nasdisk
 
 import (
-	"fmt"
 	"path"
 	"sort"
 	"strings"
 
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 )
 
@@ -14,7 +14,7 @@ import (
 // directory. Existing files are guarded and copied to trash by the executor.
 func RecoveryPlan(tree vfat.Tree, layout *vfat.Layout, result *vfat.Result) (*vfat.Plan, error) {
 	if result == nil || result.Geometry != layout.Geometry {
-		return nil, fmt.Errorf("没有可恢复的文件系统")
+		return nil, i18n.New("nasDisk.noFilesystem", nil)
 	}
 	original := map[string]vfat.Snapshot{}
 	var walk func([]vfat.Node, string)
@@ -56,7 +56,7 @@ func RecoveryPlan(tree vfat.Tree, layout *vfat.Layout, result *vfat.Result) (*vf
 		old, exists := original[node.Path]
 		if node.Dir {
 			if exists && !old.Dir {
-				return nil, fmt.Errorf("恢复目录与原文件冲突：%s", node.Path)
+				return nil, i18n.New("nasDisk.directoryConflict", map[string]any{"p0": node.Path})
 			}
 			if !exists {
 				plan.Steps = append(plan.Steps, vfat.Step{Op: vfat.Mkdir, Path: node.Path, Mtime: node.Mtime})
@@ -65,7 +65,7 @@ func RecoveryPlan(tree vfat.Tree, layout *vfat.Layout, result *vfat.Result) (*vf
 			continue
 		}
 		if exists && old.Dir {
-			return nil, fmt.Errorf("恢复文件与原目录冲突：%s", node.Path)
+			return nil, i18n.New("nasDisk.fileConflict", map[string]any{"p0": node.Path})
 		}
 		step := vfat.Step{Op: vfat.Write, Path: node.Path, Mtime: node.Mtime, File: &node}
 		if exists {

@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { Checkbox } from "@/components/ui/checkbox";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Segmented, SegmentedOption } from "@/components/Segmented";
@@ -28,6 +29,7 @@ export function WifiHotspot({
   locked: boolean;
   act: (label: string, run: () => Promise<unknown>) => Promise<boolean>;
 }) {
+  const t = useT();
   const [reveal, setReveal] = useState(false);
   const [editing, setEditing] = useState(false);
   const [ssid, setSSID] = useState("");
@@ -48,7 +50,7 @@ export function WifiHotspot({
   }
 
   async function save() {
-    const ok = await act("正在应用热点设置…", () =>
+    const ok = await act(t("hotspot.applying"), () =>
       wifiWrite("/hotspot", { ssid, password, channel, autostart: hotspot.autostart }),
     );
     if (ok) setEditing(false);
@@ -57,48 +59,48 @@ export function WifiHotspot({
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <FactGrid cols={1}>
-        <Fact label="网络名称" value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
+        <Fact label={t("hotspot.ssid")} value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
             <span className="flex min-w-0 flex-wrap items-center gap-2 [overflow-wrap:anywhere]">
               <StatusDot tone={hotspot.active ? "good" : "idle"} />
               <strong>{hotspot.ssid}</strong>
-              <span className="text-muted-foreground">{hotspot.active ? "正在广播" : "未启动"}</span>
-              {hotspot.active && <IconButton icon={QrCode} label="扫码连接热点" onClick={() => setSharing(true)} />}
+              <span className="text-muted-foreground">{hotspot.active ? t("hotspot.broadcasting") : t("hotspot.notStarted")}</span>
+              {hotspot.active && <IconButton icon={QrCode} label={t("hotspot.scanJoin")} onClick={() => setSharing(true)} />}
             </span>
           </div>} />
-        <Fact label="密码" value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
+        <Fact label={t("login.password")} value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
             <span className="flex min-w-0 flex-wrap items-center gap-2">
               <code className="font-mono break-all">{reveal ? hotspot.password : "•".repeat(Math.max(8, hotspot.password.length))}</code>
-              <IconButton icon={reveal ? EyeOff : Eye} label={reveal ? "隐藏密码" : "显示密码"} onClick={() => setReveal(!reveal)} />
-              <CopyButton text={hotspot.password} label="热点密码" />
+              <IconButton icon={reveal ? EyeOff : Eye} label={reveal ? t("login.hidePassword") : t("login.showPassword")} onClick={() => setReveal(!reveal)} />
+              <CopyButton text={hotspot.password} label={t("hotspot.password")} />
             </span>
           </div>} />
         {hotspot.active && ip && (
-          <Fact label="访问地址" value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
+          <Fact label={t("hotspot.address")} value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
               <ul className="flex flex-col gap-2 [&_li]:flex [&_li]:flex-wrap [&_li]:items-center [&_li]:gap-x-4 [&_li]:gap-y-1">
                 {[
-                  { label: "管理面板", url: `http://${ip}` },
-                  { label: "KVM 界面", url: `http://${ip}:8080` },
+                  { label: t("nav.manager"), url: `http://${ip}` },
+                  { label: t("nav.apps"), url: `http://${ip}:8080` },
                 ].map(({ label, url }) => (
                   <li key={url}>
                     <span className="min-w-16 text-xs text-muted-foreground">{label}</span>
                     <span className="flex min-w-0 flex-wrap items-center gap-1 text-sm">
                       <span className="font-mono break-all">{url}</span>
-                      <CopyButton text={url} label={`${label}地址`} />
+                      <CopyButton text={url} label={t("hotspot.addressLabel", { label })} />
                     </span>
                   </li>
                 ))}
               </ul>
-              <span className="text-muted-foreground">连入热点的设备用这些地址访问；它们也能经板子的有线网络上网。</span>
+              <span className="text-muted-foreground">{t("hotspot.addressesHelp")}</span>
             </div>} />
         )}
-        <Fact label="开机启动" value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
+        <Fact label={t("hotspot.startup")} value={<div className="flex min-w-0 flex-col gap-2 text-sm font-normal">
             <label className="flex items-start gap-2 text-sm">
               <Checkbox className="mt-0.5"
-                aria-label="开机直接进入热点模式"
+                aria-label={t("hotspot.autoStart")}
                 checked={hotspot.autostart}
                 disabled={locked}
                 onCheckedChange={(value) =>
-                  void act("正在保存…", () =>
+                  void act(t("common.saving"), () =>
                     wifiWrite("/hotspot", {
                       ssid: hotspot.ssid,
                       password: "",
@@ -108,8 +110,7 @@ export function WifiHotspot({
                   )
                 }
               />
-              开机直接进入热点模式
-            </label>
+              {t("hotspot.autoStart")}</label>
           </div>} />
       </FactGrid>
 
@@ -122,66 +123,60 @@ export function WifiHotspot({
           }}
         >
           <label className="flex min-w-0 flex-col gap-2 text-sm">
-            网络名称
-            <Input value={ssid} spellCheck={false} autoComplete="off" aria-invalid={!ssidValid} onChange={(e) => setSSID(e.target.value)} />
-            {!ssidValid && <span className="text-xs text-muted-foreground">1–32 字节，不含控制字符</span>}
+            {t("hotspot.ssid")}<Input value={ssid} spellCheck={false} autoComplete="off" aria-invalid={!ssidValid} onChange={(e) => setSSID(e.target.value)} />
+            {!ssidValid && <span className="text-xs text-muted-foreground">{t("hotspot.ssidRules")}</span>}
           </label>
           <label className="flex min-w-0 flex-col gap-2 text-sm">
-            新密码
-            <PasswordInput
+            {t("hotspot.newPassword")}<PasswordInput
               value={password}
-              placeholder="留空保留当前密码"
+              placeholder={t("hotspot.keepPassword")}
               autoComplete="new-password"
               aria-invalid={!passwordValid}
               onChange={(e) => setPassword(e.target.value)}
             />
-            {!passwordValid && <span className="text-xs text-muted-foreground">8–63 位字母、数字或符号</span>}
+            {!passwordValid && <span className="text-xs text-muted-foreground">{t("hotspot.passwordRules")}</span>}
           </label>
           <label className="flex min-w-0 flex-col gap-2 text-sm">
-            信道
-            <NativeSelect className="w-full" value={channel} onChange={(e) => setChannel(Number(e.target.value))}>
-              <option value={0}>自动</option>
+            {t("hotspot.channel")}<NativeSelect className="w-full" value={channel} onChange={(e) => setChannel(Number(e.target.value))}>
+              <option value={0}>{t("hotspot.automatic")}</option>
               {Array.from({ length: 11 }, (_, i) => i + 1).map((c) => (
                 <option key={c} value={c}>
-                  {c}（2.4 GHz）
+                  {t("hotspot.channelBand", { channel: c })}
                 </option>
               ))}
             </NativeSelect>
           </label>
           <p className="text-xs text-muted-foreground col-span-full">
-            {hotspot.active ? "保存后热点会重启，已连入的设备需要用新设置重新连接。" : "板子的无线网卡只支持 2.4 GHz 热点。"}
+            {hotspot.active ? t("hotspot.restartHelp") : t("hotspot.bandHelp")}
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button variant="outline" type="button" onClick={() => setEditing(false)}>
-              取消
-            </Button>
+              {t("common.cancel")}</Button>
             <Button variant="default" type="submit" disabled={locked || !ssidValid || !passwordValid}>
-              保存
-            </Button>
+              {t("common.save")}</Button>
           </div>
         </form>
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" disabled={locked} onClick={edit}>
-            修改热点设置
-          </Button>
+            {t("hotspot.edit")}</Button>
         </div>
       )}
 
       {hotspot.active && (
         <div className="flex min-w-0 flex-col gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3 [&_h4]:font-medium">
-            <h4>已连入的设备</h4>
-            <span className="text-muted-foreground">{hotspot.clients.length} 台</span>
+            <h4>{t("hotspot.clients")}</h4>
+            <span className="text-muted-foreground">{t("hotspot.clientCount", { count: hotspot.clients.length })}</span>
           </div>
           {hotspot.clients.length === 0 ? (
-            <EmptyState icon={Wifi}>还没有设备连入。</EmptyState>
+            <EmptyState icon={Wifi}>{t("hotspot.empty")}</EmptyState>
           ) : (
-            <AnimatedList className="flex min-w-0 flex-col divide-y" label="已连入的设备" items={hotspot.clients} getKey={(c) => c.mac}>{(c) => (
+            <AnimatedList className="flex min-w-0 flex-col divide-y" label={t("hotspot.clients")} items={hotspot.clients} getKey={(c) => c.mac}>{(c) => (
                 <div className="flex min-w-0 flex-wrap items-center gap-3 py-3">
                   <StatusDot tone="good" />
-                  <strong>{c.hostname || "未知设备"}</strong>
-                  <span className="font-mono break-all text-muted-foreground">{c.ip || "等待分配地址"}</span>
+                  <strong>{c.hostname || t("hotspot.unknownDevice")}</strong>
+                  <span className="font-mono break-all text-muted-foreground">{c.ip || t("hotspot.waitingAddress")}</span>
                   <span className="font-mono break-all text-muted-foreground">{c.mac}</span>
                 </div>
               )}</AnimatedList>
@@ -194,24 +189,25 @@ export function WifiHotspot({
 }
 
 function HotspotQR({ hotspot, ip, onClose }: { hotspot: Hotspot; ip: string; onClose: () => void }) {
+  const t = useT();
   const [step, setStep] = useState<"join" | "panel" | "kvm">("join");
   const targets = {
-    join: { title: "连接热点", text: wifiQRText(hotspot.ssid, hotspot.password),
-      hint: "用手机相机扫描，按提示加入网络。", detail: hotspot.ssid },
-    panel: { title: "管理面板", text: `http://${ip}`,
-      hint: "连上热点后扫描，在浏览器中打开。", detail: `http://${ip}` },
-    kvm: { title: "KVM 界面", text: `http://${ip}:8080`,
-      hint: "连上热点后扫描，在浏览器中打开。", detail: `http://${ip}:8080` },
+    join: { title: t("hotspot.join"), text: wifiQRText(hotspot.ssid, hotspot.password),
+      hint: t("hotspot.scanHelp"), detail: hotspot.ssid },
+    panel: { title: t("nav.manager"), text: `http://${ip}`,
+      hint: t("hotspot.openHelp"), detail: `http://${ip}` },
+    kvm: { title: t("nav.apps"), text: `http://${ip}:8080`,
+      hint: t("hotspot.openHelp"), detail: `http://${ip}:8080` },
   };
   const target = targets[step];
   return (
-    <DetailsDialog open title="扫码连接" onOpenChange={(open) => { if (!open) onClose(); }}>
-      <Segmented label="二维码内容">
+    <DetailsDialog open title={t("hotspot.scan")} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Segmented label={t("hotspot.qrContents")}>
         {(["join", "panel", "kvm"] as const).map((id, i) => (
           <SegmentedOption key={id} className="items-center text-center" title={`${i === 0 ? "① " : "② "}${targets[id].title}`} pressed={step === id} onClick={() => setStep(id)} />
         ))}
       </Segmented>
-      <QRCode text={target.text} label={`${target.title}二维码`} />
+      <QRCode text={target.text} label={t("hotspot.qrLabel", { title: target.title })} />
       <p className="text-center text-sm font-mono break-all">{target.detail}</p>
       <p className="text-muted-foreground text-center text-sm">{target.hint}</p>
     </DetailsDialog>

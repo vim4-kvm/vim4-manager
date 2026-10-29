@@ -17,6 +17,7 @@ const status = {
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, reducedMotion: "reduce", timezoneId: "Pacific/Honolulu" });
+  await (await import("./auth-fixture.mjs")).pinLanguage(page);
   const screenshots = process.env.SCREENSHOTS || "/tmp/codex-ui/pdcard";
   await mkdir(screenshots, { recursive: true });
   const errors = [];
@@ -25,9 +26,10 @@ try {
   await authenticated(page);
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
   await page.getByText("5 V / 3 A", { exact: true }).waitFor();
-  await page.getByText(/供电额度 15 W/).waitFor();
-  const chart = page.locator("figure").filter({ hasText: "CPU 动态功耗（估算）" });
-  await chart.getByText("0.00 W", { exact: true }).waitFor();
+  await page.getByText(/15 W budget/).waitFor();
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  const chart = page.locator("figure").filter({ hasText: "CPU dynamic power (estimated)" });
+  await chart.locator("[data-trend-value]").getByText("0.00 W", { exact: true }).waitFor();
   const line = chart.locator("[data-chart=line]");
   await line.waitFor();
   assert.equal(((await line.getAttribute("d")) || "").split("M").length - 1, 2, "missing interval splits the curve");
@@ -36,17 +38,19 @@ try {
   await chart.locator("[data-chart=tooltip]").getByText("0.00 W", { exact: true }).waitFor();
   status.history.push({ ...status.history.at(-1), t: now + 5000, cpuPowerW: null });
   await page.reload();
-  await chart.getByText("—", { exact: true }).waitFor();
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await chart.locator("[data-trend-value]").getByText("—", { exact: true }).waitFor();
   assert.equal(await chart.locator("[data-chart=dot]").count(), 0, "unavailable current sample does not show a stale last dot");
-  assert.match(await chart.getByRole("img").getAttribute("aria-label"), /当前\s*暂无数据/);
+  assert.match(await chart.getByRole("img").getAttribute("aria-label"), /current\s*No data/);
   status.hardware.kernel = "7.3.0-rc7-vim4kvm-uhd1+";
   status.power.bootContract = null;
   status.history = status.history.map(sample => ({ ...sample, cpuPowerW: null, cpuPowerAvailable: false }));
   await page.reload();
-  await page.getByText("已检测到 USB-C 电压", { exact: true }).waitFor();
-  await chart.getByText("暂无法估算", { exact: true }).waitFor();
-  assert.equal(await chart.getByText("正在采样…", { exact: true }).count(), 0);
-  assert.equal(await chart.getByText("尚未采样", { exact: true }).count(), 0);
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await page.getByText("USB-C voltage detected", { exact: true }).waitFor();
+  await chart.getByText("Estimate unavailable", { exact: true }).waitFor();
+  assert.equal(await chart.getByText("Sampling…", { exact: true }).count(), 0);
+  assert.equal(await chart.getByText("No samples yet", { exact: true }).count(), 0);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   status.power.firmwarePD = {
@@ -62,13 +66,14 @@ try {
     ],
   };
   await page.reload();
-  await page.getByText("PD 合同 · 5V 1.5A", { exact: true }).waitFor();
-  await page.getByText("供电额度 7.5 W · 启动固件协商", { exact: true }).waitFor();
-  await page.getByText("来源能力 · 4 项", { exact: true }).click();
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await page.getByText("PD · 5V 1.5A", { exact: true }).waitFor();
+  await page.getByText("7.5 W budget · Firmware", { exact: true }).waitFor();
+  await page.getByText("Source capabilities · 4 entries", { exact: true }).click();
   await page.getByText("Fixed · 5V 3A", { exact: true }).waitFor();
   await page.getByText("PPS · 3.3–11V 3A", { exact: true }).waitFor();
   await page.getByText("0x3e01912c", { exact: true }).waitFor();
-  await page.getByText("工作请求 1A · 最大请求 1.5A", { exact: true }).waitFor();
+  await page.getByText("Operating request 1 A · Maximum request 1.5 A", { exact: true }).waitFor();
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
   await page.screenshot({ path: `${screenshots}/r2-firmware-390.png`, fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -78,20 +83,22 @@ try {
   status.hardware.kernel = "5.15.137-vim4kvm";
   status.power.bootContract = { voltageV: 5, currentA: 3 };
   await page.reload();
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
   await page.getByText("5 V / 3 A", { exact: true }).waitFor();
-  await page.getByText("供电额度 15 W · Linux 初始化", { exact: true }).waitFor();
-  await page.getByText("来源能力 · 4 项", { exact: true }).click();
-  await page.getByText("启动固件 · 5V 1.5A", { exact: true }).waitFor();
+  await page.getByText("15 W budget · Linux", { exact: true }).waitFor();
+  await page.getByText("Source capabilities · 4 entries", { exact: true }).click();
+  await page.getByText("Boot firmware · 5 V 1.5 A", { exact: true }).waitFor();
   status.power.bootContract = null;
   Object.assign(status.power.firmwarePD, { psReady: false, contract: null, typecFallback: true, hardReset: true, timedOut: true, rp: "default" });
   await page.reload();
-  await page.getByText("Type-C · 无确认的 PD 合同", { exact: true }).waitFor();
-  await page.getByText("启动固件 · Rp 默认电流", { exact: true }).waitFor();
-  await page.getByText("来源能力 · 4 项", { exact: true }).click();
-  await page.getByText("发生硬复位 · 初始化超时", { exact: true }).waitFor();
-  assert.equal(await page.getByText(/PD 合同 · 5V/).count(), 0);
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await page.getByText("Type-C · No confirmed PD contract", { exact: true }).waitFor();
+  await page.getByText("Boot firmware · Rp Default current", { exact: true }).waitFor();
+  await page.getByText("Source capabilities · 4 entries", { exact: true }).click();
+  await page.getByText("Hard reset · Initialization timed out", { exact: true }).waitFor();
+  assert.equal(await page.getByText(/PD · 5V/).count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  const tile = page.locator('div:has(> dt)').filter({ has: page.locator('dt', { hasText: /^PD 协商$/ }) });
+  const tile = page.locator('div:has(> dt)').filter({ has: page.locator('dt', { hasText: /^USB-C power$/ }) });
   const boardYear = new Date().getUTCFullYear();
   status.power.firmwarePD.sourceCapabilities = [];
   Object.assign(status.power.firmwarePD, { rp: "3A", hardReset: false });
@@ -108,8 +115,8 @@ try {
       assert(metrics.clientWidth > 0 && metrics.scrollWidth <= metrics.clientWidth,
         `${name} at ${width}px must show its full main value: ${JSON.stringify(metrics)}`);
       assert.notEqual(metrics.textOverflow, 'ellipsis');
-      await chart.getByText('暂无法估算', { exact: true }).waitFor();
-      assert.equal(await chart.getByText('尚未采样', { exact: true }).count(), 0);
+      await chart.getByText("Estimate unavailable", { exact: true }).waitFor();
+      assert.equal(await chart.getByText("No samples yet", { exact: true }).count(), 0);
       assert.equal(await chart.locator('[data-chart=empty]').count(), 1);
       await page.screenshot({ path: `${screenshots}/r2-${name}-${width}.png`, fullPage: true });
       if (name === 's4') await chart.screenshot({ path: `${screenshots}/r2-power-empty-${width}.png` });
@@ -117,49 +124,53 @@ try {
   }
   async function checkWarm(name, value, detail, secondLine) {
     await page.reload();
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
     await tile.getByText(value, { exact: true }).waitFor();
     assert.equal(await tile.locator('dd[title]').getAttribute('title'), detail);
     assert.equal(await tile.locator('dd').first().innerText(), value);
-    await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
+    await tile.getByText("Source capabilities · Not received this boot", { exact: true }).click();
     assert.deepEqual(await tile.locator('[data-pd-capabilities] p').allTextContents(), [
-      '等待来源能力超时（热重启时供电端不重发）', secondLine,
-      '启动协商记录；不代表实时电流或功耗',
+      "Timed out waiting for source capabilities; the source may not resend them after a warm restart.", secondLine,
+      "Boot negotiation record; does not measure live current or power",
     ]);
     assert.equal(await tile.locator('ul').count(), 0);
     assert.equal(await tile.locator('[data-tone]').count(), 0);
     await captureWidths(name);
   }
-  await checkWarm('s3', '5V 3A · 沿用', '本次未重新协商 · 上次 01-02 03:04',
-    '上次合同 · 5V 3A · USB 数据 · Linux 初始化 · 01-02 03:04');
+  await checkWarm('s3', "5 V 3 A · Retained", "Not renegotiated · Previous Jan 2, 03:04",
+    "Previous contract · 5 V 3 A · USB data · Linux · Jan 2, 03:04");
   // Earlier year, firmware origin and no USB comm use board time despite browser zone.
   Object.assign(status.power.lastContract, { establishedAt: `${boardYear - 1}-12-31T23:59:00+08:00`,
     origin: 'firmware', usbComm: false });
-  await checkWarm('s3-previous-year', '5V 3A · 沿用', `本次未重新协商 · 上次 ${boardYear - 1}-12-31 23:59`,
-    `上次合同 · 5V 3A · 启动固件协商 · ${boardYear - 1}-12-31 23:59`);
+  await checkWarm('s3-previous-year', "5 V 3 A · Retained", `Not renegotiated · Previous Dec 31, ${boardYear - 1}, 23:59`,
+    `Previous contract · 5 V 3 A · Firmware · Dec 31, ${boardYear - 1}, 23:59`);
   delete status.power.lastContract;
-  await checkWarm('s4', '仅 Type-C', '本次未重新协商 · Rp 3A', '冷插拔 USB-C 后可读取完整协商');
+  await checkWarm('s4', "Type-C only", "Not renegotiated · Rp 3A", "Reconnect USB-C power to read the full negotiation");
   Object.assign(status.power.firmwarePD, { hardReset: true, requestFailed: true, ioError: true });
   await page.reload();
-  await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
-  await tile.getByText('发生硬复位 · 请求失败/延后 · 读取异常', { exact: true }).waitFor();
-  assert.equal(await tile.getByText(/初始化超时|未完成 PD 合同/).count(), 0);
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await tile.getByText("Source capabilities · Not received this boot", { exact: true }).click();
+  await tile.getByText("Hard reset · Request failed or deferred · Read failed", { exact: true }).waitFor();
+  assert.equal(await tile.getByText(/Initialization timed out|PD contract incomplete/).count(), 0);
   Object.assign(status.power.firmwarePD, { timedOut: false, hardReset: false, requestFailed: false, ioError: false });
   await page.reload();
-  await tile.getByText('Type-C · 无确认的 PD 合同', { exact: true }).waitFor();
-  await tile.getByText('来源能力 · 本次未收到', { exact: true }).click();
-  await tile.getByText('启动固件 · 未完成 PD 合同', { exact: true }).waitFor();
-  assert.equal(await tile.getByText('冷插拔 USB-C 后可读取完整协商', { exact: true }).count(), 0);
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await tile.getByText("Type-C · No confirmed PD contract", { exact: true }).waitFor();
+  await tile.getByText("Source capabilities · Not received this boot", { exact: true }).click();
+  await tile.getByText("Boot firmware · PD contract incomplete", { exact: true }).waitFor();
+  assert.equal(await tile.getByText("Reconnect USB-C power to read the full negotiation", { exact: true }).count(), 0);
   await captureWidths('s5-empty-pdo');
   // Empty charts all use the same component; none should layer two placeholders.
   status.history = [];
   await page.reload();
-  await chart.getByText('正在采样…', { exact: true }).waitFor();
+  await page.getByRole("tab", {name:"Power",exact:true}).click();
+  await chart.getByText("Sampling…", { exact: true }).waitFor();
   const emptyCharts = await page.locator('[data-trends] figure').all();
-  assert.equal(emptyCharts.length, 6);
+  assert.equal(emptyCharts.length, 1, "the active metric uses the shared empty chart");
   for (const figure of emptyCharts) {
     assert.equal(await figure.locator('[data-chart=empty]').count(), 1);
-    assert.equal(await figure.getByText('尚未采样', { exact: true }).count(), 0);
-    await figure.getByText('正在采样…', { exact: true }).waitFor();
+    assert.equal(await figure.getByText("No samples yet", { exact: true }).count(), 0);
+    await figure.getByText("Sampling…", { exact: true }).waitFor();
   }
   for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });

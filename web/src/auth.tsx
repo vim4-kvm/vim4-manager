@@ -4,6 +4,7 @@ import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { useEffect, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useSessionStore } from "./stores/session";
+import { t, useLocale } from "./i18n";
 
 export interface AuthState {
   configured: boolean;
@@ -35,11 +36,12 @@ export async function logout() {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  if (!response.ok && response.status !== 401) throw new Error("退出失败，请重试");
+  if (!response.ok && response.status !== 401) throw new Error(t("account.signOutFailed"));
   redirectLogin();
 }
 
 export function AuthGate({ children }: { children: ReactNode }) {
+  useLocale();
   const username = useSessionStore((s) => s.username);
   const setUsername = useSessionStore((s) => s.setUsername);
   const [error, setError] = useState(false);
@@ -66,13 +68,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (error) {
     return (
       <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6">
-        <InlineError>无法连接板子，请检查网络后重试</InlineError>
+        <InlineError>{t("common.connectionFailed")}</InlineError>
         <Button variant="outline" onClick={() => location.reload()}>
-          重试
+          {t("common.retry")}
         </Button>
       </div>
     );
   }
-  if (username === undefined) return <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6"><PanelSkeleton label="正在连接…" /></div>;
+  if (username === undefined) return <div className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6"><PanelSkeleton label={t("common.connecting")} /></div>;
   return children;
 }

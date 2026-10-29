@@ -2,8 +2,9 @@ package nasdisk
 
 import (
 	"context"
-	"fmt"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 const mountTimeout = 15 * time.Second
@@ -38,7 +39,7 @@ func waitForMount(ctx context.Context, mount func() (func() error, error), clean
 	case <-ctx.Done():
 		cleanup()
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("无法创建 U 盘镜像（FUSE 无响应）")
+			return nil, i18n.New("nasDisk.fuseUnavailable", nil)
 		}
 		return nil, ctx.Err()
 	}

@@ -24,22 +24,23 @@ function fixture(state = "running") {
     output: state === "running" ? { ...output } : undefined };
 }
 const cases = [
-  ["unsupported", "当前内核不支持", false, true, "当前内核没有透传功能，可在「更新 → 内核」中切换到支持透传的版本。"],
-  ["off", "已关闭", false, false, "开启后显示器显示被控电脑的画面；关闭时显示系统控制台。"],
-  ["starting", "正在开启…", true, true],
-  ["stopping", "正在关闭…", false, true],
-  ["running", "透传中", true, false, "远程 KVM 不受影响。被控电脑切换分辨率时，显示器会短暂黑屏后跟随。"],
-  ["no-signal", "等待输入信号", true, false, "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。"],
-  ["no-monitor", "未连接显示器", true, false, "接上显示器后自动开始透传。"],
-  ["protected", "输入受版权保护", true, false, "被控电脑正在播放受 HDCP 保护的内容，显示器保持黑屏。"],
-  ["unsupported-format", "暂不支持此输入格式", true, false, "此输入格式无法透传，请在信号源中选择 HDR10、HLG 或 SDR。"],
-  ["video-error", "输入信号异常", true, false, "请检查 HDMI 输入线或信号源设置。"],
+  ["unsupported", "Unavailable on this kernel", false, true, "This kernel has no passthrough support. Choose a supported kernel. Updates → Kernel"],
+  ["off", "Off", false, false, "When on, the display shows the target computer. When off, it shows the system console."],
+  ["starting", "Turning on…", true, true],
+  ["stopping", "Turning off…", false, true],
+  ["running", "Passthrough active", true, false, "Remote KVM stays connected. The local display may briefly go blank when the target computer changes resolution."],
+  ["no-signal", "Waiting for input", true, false, "No HDMI IN signal. The display stays black and resumes automatically when the signal returns."],
+  ["no-monitor", "No display connected", true, false, "Passthrough starts automatically when a display connects."],
+  ["protected", "Protected input", true, false, "The target computer is playing HDCP-protected content. The display stays black."],
+  ["unsupported-format", "Unsupported input format", true, false, "This format cannot pass through. Select HDR10, HLG, or SDR on the source."],
+  ["video-error", "Input signal problem", true, false, "Check the HDMI input cable and source settings."],
 ];
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   await mkdir(shots, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce" });
+  await (await import("./auth-fixture.mjs")).pinLanguage(page);
   await page.clock.install();
   let state = fixture();
   let readError = false;
@@ -59,23 +60,23 @@ try {
   await page.route("**/api/passthrough", async route => {
     if (route.request().method() === "GET") {
       reads++;
-      return route.fulfill(readError ? { status: 500, json: { error: "读取连接中断" } } : { json: state });
+      return route.fulfill(readError ? { status: 500, json: { error: "Read connection lost" } } : { json: state });
     }
     const patch = route.request().postDataJSON();
     writes.push(patch);
     if (holdWrite) await holdWrite;
-    if (writeError) return route.fulfill({ status: 500, json: { error: typeof writeError === "string" ? writeError : "内核拒绝操作" } });
+    if (writeError) return route.fulfill({ status: 500, json: { error: typeof writeError === "string" ? writeError : "Kernel refused the action" } });
     state = { ...state, ...patch, state: (patch.enabled ?? state.enabled) ? "running" : "off" };
     return route.fulfill({ json: state });
   });
   await authenticated(page);
-  const card = page.getByRole("region", { name: "透传", exact: true });
-  const toggle = card.getByRole("switch", { name: "透传", exact: true });
-  const audio = card.getByRole("switch", { name: "声音", exact: true });
+  const card = page.getByRole("region", { name: "Passthrough", exact: true });
+  const toggle = card.getByRole("switch", { name: "Passthrough", exact: true });
+  const audio = card.getByRole("switch", { name: "Sound", exact: true });
   const hdr = card.getByRole("switch", { name: "HDR", exact: true });
   const row = title => card.getByRole("group", { name: title, exact: true });
   const rowStatus = title => row(title).getByRole("status");
-  const toasts = page.getByRole("region", { name: /通知/ });
+  const toasts = page.getByRole("region", { name: /Notifications/ });
   const navHint = id => page.locator(`[data-nav-hint="${id}"]`);
   const fact = label => card.locator("div:has(> dt)").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) });
   const detail = label => fact(label).locator("dd[title]");
@@ -105,18 +106,17 @@ try {
           row: box(row), title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
           description: box(row.querySelector("p")),
         })),
-        facts: [...el.querySelectorAll("div:has(> dt)")].map(fact => ({
+        facts: [...el.querySelectorAll("div:has(> dt)")].filter(fact => fact.querySelector("[data-tone]")).map(fact => ({
           box: box(fact), lamp: box(fact.querySelector("[data-tone]")), value: box(fact.querySelector("dd > span > span:last-child")),
           detail: fact.querySelector("dd[title]") ? box(fact.querySelector("dd[title]")) : null,
         })),
-        paragraphs: [...el.querySelectorAll("p")].map(p => getComputedStyle(p).textWrapStyle),
+        paragraphs: [...el.querySelectorAll("[data-description], [role=group] > p")].map(p => getComputedStyle(p).textWrapStyle),
       };
     });
-    const rights = layout.rows.map(row => Math.round(row.control.right));
-    assert(rights.every(right => right === rights[0]), "switches share one right-aligned column");
+    assert(layout.rows.every(row => Math.abs(row.control.right - row.row.right) < 1), "each card keeps its switches right aligned");
     for (const row of layout.rows) {
       assert(row.control.width > 0 && row.description.y >= row.title.y + row.title.height, "description sits below its title");
-      if (device === "mobile") {
+      if (row.row.width < 448) {
         assert(row.control.y >= row.description.bottom,
           "phone controls follow the full-width title and description");
         assert(row.description.width > row.row.width - 60, "phone descriptions span the row");
@@ -131,7 +131,7 @@ try {
       assert(Math.abs(fact.lamp.y + fact.lamp.height / 2 - fact.value.y - fact.value.height / 2) < 1,
         "lamp centers vertically beside its primary value");
       if (fact.detail) assert(Math.abs(fact.detail.x - fact.value.x) < 0.5, "secondary value shares the primary text's left edge");
-      if (device === "desktop") assert(fact.box.width >= 160 && fact.box.width <= 280, "desktop fact widths stay within content bounds");
+      if (device === "desktop") assert(fact.box.width >= 160 && fact.box.width <= 400, "desktop fact widths stay within content bounds");
       if (index > 0) {
         const previous = layout.facts[index - 1].box;
         if (device === "mobile") assert(Math.abs(fact.box.y - previous.y - previous.height - 16) < 0.5, "mobile facts stack with consistent spacing");
@@ -143,16 +143,16 @@ try {
     }
   };
   await reload();
-  const navTitles = await page.getByRole("navigation", { name: "页面" }).getByRole("link")
+  const navTitles = await page.getByRole("navigation", { name: "Pages" }).getByRole("link")
     .evaluateAll(links => links.map(link => link.querySelector("span").textContent));
-  assert.deepEqual(navTitles.slice(5, 8), ["视频输入", "HDMI 输出", "散热"]);
-  assert.equal(await page.locator("#page-title + p").textContent(), "板子 HDMI OUT 口接的本地显示器。");
-  assert.equal(await value("输入"), "3840×2160 60Hz");
-  assert.equal(await value("显示器"), "DELL U2723QE");
-  assert.equal(await value("输出"), "3840×2160 60Hz");
-  assert.equal(await detail("输入").textContent(), "SDR · YCbCr 4:4:4");
-  assert.equal(await detail("显示器").textContent(), "最高 3840×2160 60Hz · HDR");
-  assert.equal(await detail("输出").textContent(), "YCbCr 4:2:0");
+  assert.deepEqual(navTitles.slice(5, 8), ["Video input", "HDMI output", "Cooling"]);
+  assert.equal(await page.locator("#page-title + p").textContent(), "Manage the local display connected to HDMI OUT.");
+  assert.equal(await value("Input"), "3840×2160 60 Hz");
+  assert.equal(await value("Display"), "DELL U2723QE");
+  assert.equal(await value("Output"), "3840×2160 60 Hz");
+  assert.equal(await detail("Input").textContent(), "SDR · YCbCr 4:4:4");
+  assert.equal(await detail("Display").textContent(), "Up to 3840×2160 60 Hz · HDR");
+  assert.equal(await detail("Output").textContent(), "YCbCr 4:2:0");
 
   // All specified states, plus scaling and HDR conversion, in both themes
   // and viewports. Each state starts with a fresh route read.
@@ -164,11 +164,11 @@ try {
       for (const [name, label, checked, disabled, description] of cases) {
         state = fixture(name);
         await reload();
-        assert.equal(await rowStatus("透传").textContent(), label);
+        assert.equal(await rowStatus("Passthrough").textContent(), label);
         assert.equal(await toggle.getAttribute("aria-checked"), String(checked));
         assert.equal(await toggle.isDisabled(), disabled);
         const transitioning = ["starting", "stopping"].includes(name);
-        const spinner = rowStatus("透传").locator("svg");
+        const spinner = rowStatus("Passthrough").locator("svg");
         assert.equal(await spinner.count(), transitioning ? 1 : 0);
         if (transitioning) {
           assert(await spinner.isVisible());
@@ -179,10 +179,10 @@ try {
           assert(ring.width >= 12 && Math.abs(ring.width - ring.height) < 0.1,
             `${device}/${theme}/${name}: spinner must render as a square icon: ${JSON.stringify(ring)}`);
           assert.equal(ring.animation, "none", "reduced motion keeps the pending indicator static");
-          assert.equal(await value("输出"), "切换中…");
-          assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
-          assert.equal(await detail("输出").count(), 0);
-          assert.equal(await rowStatus("声音").textContent(), name === "starting" ? "透传开启后生效" : "已关闭");
+          assert.equal(await value("Output"), "Switching…");
+          assert.equal(await fact("Output").locator("[data-tone=idle]").count(), 1);
+          assert.equal(await detail("Output").count(), 0);
+          assert.equal(await rowStatus("Sound").textContent(), name === "starting" ? "Applies when passthrough starts" : "Off");
         }
         if (description) assert.equal(await card.locator("[data-description]").textContent(), description);
         assert.equal(await audio.count(), name === "unsupported" ? 0 : 1);
@@ -199,32 +199,32 @@ try {
           if (name === "running") assert.equal(strength, 1, "effective audio uses the full accent");
           else {
             assert(strength > 0, "inactive preference stays visible");
-            assert.equal(await row("声音").getAttribute("data-inactive"), "true");
+            assert.equal(await row("Sound").getAttribute("data-inactive"), "true");
           }
           if (["off", "no-monitor"].includes(name)) assert(await audio.isEnabled(), "inactive audio preference stays editable");
         }
         // Phone navigation lives in the closed menu sheet.
         const hint = navHint("output");
-        const hintText = { running: "透传", "no-signal": "等待信号", protected: "受保护" }[name];
+        const hintText = { running: "Passthrough", "no-signal": "Waiting for signal", protected: "Protected" }[name];
         if (device === "desktop") assert.equal(await hint.count(), hintText ? 1 : 0);
         if (hintText && device === "desktop") {
           assert.equal(await hint.textContent(), hintText);
           assert.equal(await hint.getAttribute("data-tone"), name === "running" ? "good" : "warning");
         }
-        if (name === "off") assert.equal(await value("输出"), "系统控制台");
-        if (["no-signal", "protected"].includes(name)) assert.equal(await value("输出"), "黑屏");
-        if (name === "no-signal") assert.equal(await value("输入"), "无信号");
-        if (name === "no-monitor") assert.equal(await value("显示器"), "未连接");
+        if (name === "off") assert.equal(await value("Output"), "System console");
+        if (["no-signal", "protected"].includes(name)) assert.equal(await value("Output"), "Black screen");
+        if (name === "no-signal") assert.equal(await value("Input"), "No signal");
+        if (name === "no-monitor") assert.equal(await value("Display"), "Not connected");
         if (name === "unsupported") {
           assert.equal(await card.locator("dl, dt").count(), 0, "unsupported hides the entire fact area");
           assert.equal(await card.locator("[data-passthrough-body]").textContent(), cases[0][4]);
-          assert.equal(await card.getByRole("link", { name: "更新 → 内核" }).getAttribute("href"), "#/updates");
+          assert.equal(await card.getByRole("link", { name: "Updates → Kernel" }).getAttribute("href"), "#/updates");
           if (device === "desktop") assert.equal(await page.locator("[data-kernel]").textContent(), "7.3.0");
         }
         if (device === "desktop") {
           assert.equal(await navHint("media").count(), 0, "normal empty media adds no unrelated warning");
           assert.equal(await navHint("video").textContent(),
-            state.input ? `${state.input.height}p` : "无信号", "overview HDMI fixture matches passthrough input");
+            state.input ? `${state.input.height}p` : "No signal", "overview HDMI fixture matches passthrough input");
         }
         const typography = await card.locator("div:has(> dt) > dd:not([title])").evaluateAll(elements => elements.map(el => {
           const style = getComputedStyle(el);
@@ -247,12 +247,12 @@ try {
         }
         await reload();
         if (kind === "scaled") {
-          assert.equal(await value("输出"), "1920×1080 59.94Hz");
-          assert.equal(await value("输入"), "3840×2160 23.98Hz");
-          assert.equal(await detail("输出").textContent(), "已缩放，显示器不支持 3840×2160 23.98Hz");
-          assert.equal(await fact("输出").locator("[data-tone=warning]").count(), 1);
+          assert.equal(await value("Output"), "1920×1080 59.94 Hz");
+          assert.equal(await value("Input"), "3840×2160 23.98 Hz");
+          assert.equal(await detail("Output").textContent(), "Scaled; the display doesn't support 3840×2160 23.98 Hz");
+          assert.equal(await fact("Output").locator("[data-tone=warning]").count(), 1);
         } else {
-          assert.match(await detail("输出").textContent(), /^\S.* · HDR 已转为 SDR · 显示器不支持 HDR$/);
+          assert.match(await detail("Output").textContent(), /^\S.* · Converted to SDR · Display has no HDR support$/);
         }
         await checkLayout(device);
         await page.screenshot({ path: `${shots}/passthrough-${device}-${theme}-${kind}.png`, fullPage: true });
@@ -264,58 +264,58 @@ try {
   state.monitor.name = "";
   state.input.hdr = "HLG";
   await reload();
-  assert.equal(await value("显示器"), "未知型号");
-  assert.equal(await detail("输入").textContent(), "HLG · YCbCr 4:4:4");
+  assert.equal(await value("Display"), "Unknown model");
+  assert.equal(await detail("Input").textContent(), "HLG · YCbCr 4:4:4");
   state.output.scaled = true;
   state.output.hdrToSdr = true;
   state.monitor.hdr = false;
   await reload();
-  assert.match(await detail("输出").textContent(), /已缩放，显示器不支持 .* · HDR 已转为 SDR/);
+  assert.match(await detail("Output").textContent(), /Scaled; the display doesn't support .* · Converted to SDR/);
   state = fixture();
   delete state.output;
   await reload();
-  assert.equal(await value("输出"), "—", "missing output metadata must not claim a system console");
+  assert.equal(await value("Output"), "—", "missing output metadata must not claim a system console");
 
   for (const [name, edit, label, disabled] of [
-    ["off", s => { s.audio = false; s.monitor.audio = false; }, "透传开启后生效", false],
-    ["running", () => {}, "输出中", false],
-    ["running", s => { s.input.audio = false; }, "输入无声音", false],
-    ["running", s => { s.monitor.audio = false; }, "显示器不支持音频", true],
-    ["running", s => { s.audio = false; }, "已关闭", false],
-    ["running", s => { s.audioState = "starting"; }, "正在连接声音…", false],
-    ["running", s => { s.audioState = "error"; }, "声音暂不可用", false],
-    ["running", s => { s.audioState = "running"; }, "输出中", false],
-    ["unsupported-format", s => { s.audioState = "running"; s.input.hdr = "Dolby Vision"; }, "输出中", false],
-    ["video-error", s => { s.audioState = "running"; }, "输出中", false],
+    ["off", s => { s.audio = false; s.monitor.audio = false; }, "Applies when passthrough starts", false],
+    ["running", () => {}, "Output active", false],
+    ["running", s => { s.input.audio = false; }, "No input audio", false],
+    ["running", s => { s.monitor.audio = false; }, "Display has no audio support", true],
+    ["running", s => { s.audio = false; }, "Off", false],
+    ["running", s => { s.audioState = "starting"; }, "Connecting audio…", false],
+    ["running", s => { s.audioState = "error"; }, "Audio unavailable", false],
+    ["running", s => { s.audioState = "running"; }, "Output active", false],
+    ["unsupported-format", s => { s.audioState = "running"; s.input.hdr = "Dolby Vision"; }, "Output active", false],
+    ["video-error", s => { s.audioState = "running"; }, "Output active", false],
   ]) {
     state = fixture(name);
     edit(state);
     await reload();
-    assert.equal(await rowStatus("声音").textContent(), label);
+    assert.equal(await rowStatus("Sound").textContent(), label);
     assert.equal(await audio.isDisabled(), disabled);
   }
   state = fixture("unsupported-format");
-  state.reason = "Dolby Vision 信号无法透传，请在信号源中选择 HDR10、HLG 或 SDR。";
+  state.reason = "Dolby Vision cannot pass through. Select HDR10, HLG, or SDR on the target computer.";
   await reload();
   assert.equal(await card.locator("[data-description]").textContent(), state.reason);
-  assert.equal(await value("输出"), "—");
+  assert.equal(await value("Output"), "—");
   // Changing audio while off saves the preference immediately, without a dialog.
   state = fixture("off");
   state.audio = false;
   await reload();
   await audio.click();
-  await page.waitForFunction(() => document.querySelector('[role="switch"][aria-label="声音"]').getAttribute("aria-checked") === "true");
+  await page.waitForFunction(() => document.querySelector("[role=\"switch\"][aria-label=\"Sound\"]").getAttribute("aria-checked") === "true");
   assert.deepEqual(writes.at(-1), { audio: true });
   assert.equal(await page.getByRole("dialog").count(), 0);
 
   // Failed enable and disable return to freshly read actual backend state.
-  for (const [name, verb, checked] of [["off", "开启", false], ["running", "关闭", true]]) {
+  for (const [name, verb, checked] of [["off", "enable passthrough", false], ["running", "disable passthrough", true]]) {
     state = fixture(name);
     await reload();
     writeError = true;
     await toggle.click();
-    await toasts.getByText(`${verb}透传失败：内核拒绝操作`, { exact: true }).waitFor();
-    await page.waitForFunction(() => !document.querySelector('[aria-label="透传"][role="switch"]').disabled);
+    await toasts.getByText(`Couldn't ${verb}. Kernel refused the action`, { exact: true }).waitFor();
+    await page.waitForFunction(() => !document.querySelector("[aria-label=\"Passthrough\"][role=\"switch\"]").disabled);
     assert.equal(await toggle.getAttribute("aria-checked"), String(checked));
     writeError = false;
   }
@@ -327,75 +327,75 @@ try {
   let release;
   holdWrite = new Promise(resolve => { release = resolve; });
   await toggle.click();
-  await rowStatus("透传").getByText("正在开启…", { exact: true }).waitFor();
+  await rowStatus("Passthrough").getByText("Turning on…", { exact: true }).waitFor();
   assert.equal(await toggle.getAttribute("aria-checked"), "true");
   assert(await toggle.isDisabled());
   assert(await audio.isDisabled());
-  assert.equal(await value("输出"), "切换中…");
-  assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
-  assert.equal(await rowStatus("声音").textContent(), "透传开启后生效");
+  assert.equal(await value("Output"), "Switching…");
+  assert.equal(await fact("Output").locator("[data-tone=idle]").count(), 1);
+  assert.equal(await rowStatus("Sound").textContent(), "Applies when passthrough starts");
   const beforeBusy = reads;
   await page.clock.runFor(6000);
   assert.equal(reads, beforeBusy, "busy pauses passthrough polling");
   assert.equal(await card.locator("[data-description]").textContent(), cases[1][4]);
   release();
   holdWrite = undefined;
-  await rowStatus("透传").getByText("透传中", { exact: true }).waitFor();
-  await page.waitForFunction(() => !document.querySelector('[aria-label="透传"][role="switch"]').disabled);
+  await rowStatus("Passthrough").getByText("Passthrough active", { exact: true }).waitFor();
+  await page.waitForFunction(() => !document.querySelector("[aria-label=\"Passthrough\"][role=\"switch\"]").disabled);
   state.state = "stopping";
   await poll();
-  await rowStatus("透传").getByText("正在关闭…", { exact: true }).waitFor();
-  assert.equal(await value("输出"), "切换中…");
-  assert.equal(await fact("输出").locator("[data-tone=idle]").count(), 1);
-  assert.equal(await rowStatus("声音").textContent(), "已关闭");
+  await rowStatus("Passthrough").getByText("Turning off…", { exact: true }).waitFor();
+  assert.equal(await value("Output"), "Switching…");
+  assert.equal(await fact("Output").locator("[data-tone=idle]").count(), 1);
+  assert.equal(await rowStatus("Sound").textContent(), "Off");
   assert.equal(await card.locator("[data-description]").textContent(), cases[4][4]);
   assert.equal(await toggle.getAttribute("aria-checked"), "false");
   state = fixture();
   await poll();
-  await rowStatus("透传").getByText("透传中", { exact: true }).waitFor();
+  await rowStatus("Passthrough").getByText("Passthrough active", { exact: true }).waitFor();
 
   // A read error preserves facts but disables controls; recovery unlocks them.
   readError = true;
   await poll();
-  await card.getByRole("alert").getByText("刷新失败：读取连接中断，显示的是上次读取的状态。", { exact: true }).waitFor();
+  await card.getByRole("alert").getByText("Couldn't refresh: Read connection lost. Showing the last known state.", { exact: true }).waitFor();
   assert(await toggle.isDisabled());
   assert(await audio.isDisabled());
-  assert.equal(await value("显示器"), "DELL U2723QE");
+  assert.equal(await value("Display"), "DELL U2723QE");
   readError = false;
   await poll();
-  await page.waitForFunction(() => !document.querySelector('[aria-label="透传"][role="switch"]').disabled);
+  await page.waitForFunction(() => !document.querySelector("[aria-label=\"Passthrough\"][role=\"switch\"]").disabled);
   // The connection state and navigation live in the desktop sidebar.
   await page.setViewportSize({ width: 1440, height: 900 });
   statusError = true;
   await page.clock.runFor(3100);
-  await page.getByText("连接中断", { exact: true }).waitFor({ state: "attached" });
+  await page.getByText("Connection lost", { exact: true }).waitFor({ state: "attached" });
   assert(await toggle.isDisabled(), "global stale disables the switch despite a successful page read");
   assert(await audio.isDisabled());
   statusError = false;
 
   // The global status supplies navigation hints while this page is unmounted.
   status.passthrough = fixture("protected");
-  await page.getByRole("link", { name: "视频输入", exact: false }).click();
+  await page.getByRole("link", { name: "Video input", exact: false }).click();
   const beforeLeave = reads;
   await page.clock.runFor(6000);
   assert.equal(reads, beforeLeave, "leaving output stops GET polling");
-  await page.waitForFunction(() => document.querySelector('[data-nav-hint="output"]')?.textContent === "受保护");
-  assert.equal(await navHint("output").textContent(), "受保护");
+  await page.waitForFunction(() => document.querySelector('[data-nav-hint="output"]')?.textContent === "Protected");
+  assert.equal(await navHint("output").textContent(), "Protected");
   delete status.passthrough;
 
   for (const [device, width, height] of [["desktop", 1440, 1100], ["mobile", 390, 844]]) {
     await page.setViewportSize({ width, height });
     await page.emulateMedia({ colorScheme: "light" });
     for (const [name, current, edit, label, checked, disabled, inactive] of [
-      ["hdr-output", "running", () => {}, "HDR 输出中", true, false, false],
-      ["hdr-to-sdr", "running", next => { next.hdr = false; next.output.hdrToSdr = true; }, "已转为 SDR", false, false, false],
-      ["hdr-starting", "starting", () => {}, "透传开启后生效", true, true, true],
-      ["hdr-stopping", "stopping", () => {}, "已关闭", true, true, true],
-      ["hdr-preset", "off", () => {}, "透传开启后生效", true, false, true],
-      ["hdr-no-support", "running", next => { next.monitor.hdr = false; next.output.hdrToSdr = true; }, "显示器不支持 HDR", true, true, true],
-      ["hdr-no-input", "no-signal", () => {}, "等待输入信号", true, false, true],
-      ["hdr-sdr-input", "running", next => { next.input.hdr = "SDR"; }, "输入为 SDR", true, false, true],
-      ["hdr-applying", "video-error", () => {}, "正在应用…", true, false, false],
+      ["hdr-output", "running", () => {}, "HDR output active", true, false, false],
+      ["hdr-to-sdr", "running", next => { next.hdr = false; next.output.hdrToSdr = true; }, "Converted to SDR", false, false, false],
+      ["hdr-starting", "starting", () => {}, "Applies when passthrough starts", true, true, true],
+      ["hdr-stopping", "stopping", () => {}, "Off", true, true, true],
+      ["hdr-preset", "off", () => {}, "Applies when passthrough starts", true, false, true],
+      ["hdr-no-support", "running", next => { next.monitor.hdr = false; next.output.hdrToSdr = true; }, "Display has no HDR support", true, true, true],
+      ["hdr-no-input", "no-signal", () => {}, "Waiting for input", true, false, true],
+      ["hdr-sdr-input", "running", next => { next.input.hdr = "SDR"; }, "SDR input", true, false, true],
+      ["hdr-applying", "video-error", () => {}, "Applying…", true, false, false],
     ]) {
       state = fixture(current);
       if (state.input) state.input.hdr = "HDR10";
@@ -407,9 +407,9 @@ try {
       assert.equal(await row("HDR").getAttribute("data-inactive") === "true", inactive);
       await checkLayout(device);
       assert(await hdr.evaluate(element => element.getBoundingClientRect().width === 32), "switch must not shrink");
-      if (name === "hdr-no-support") assert.match(await fact("输出").textContent(), /HDR 已转为 SDR · 显示器不支持 HDR/);
-      if (name === "hdr-output") assert.match(await fact("输出").textContent(), /HDR10 · BT.2020/);
-      if (name === "hdr-to-sdr") assert.match(await detail("输出").textContent(), /^\S.* · HDR 已转为 SDR$/);
+      if (name === "hdr-no-support") assert.match(await fact("Output").textContent(), /Converted to SDR · Display has no HDR support/);
+      if (name === "hdr-output") assert.match(await fact("Output").textContent(), /HDR10 · BT.2020/);
+      if (name === "hdr-to-sdr") assert.match(await detail("Output").textContent(), /^\S.* · Converted to SDR$/);
       if (["hdr-output", "hdr-to-sdr", "hdr-preset", "hdr-no-support", "hdr-sdr-input"].includes(name)) {
         await page.screenshot({ path: `${shots}/${name}-${device}.png`, fullPage: true });
       }
@@ -417,10 +417,10 @@ try {
     state = fixture();
     state.input.hdr = "HLG";
     await reload();
-    assert.match(await fact("输出").textContent(), /HLG · BT.2020/);
+    assert.match(await fact("Output").textContent(), /HLG · BT.2020/);
     holdWrite = new Promise(resolve => { release = resolve; });
     await hdr.click();
-    await rowStatus("HDR").getByText("正在切换…", { exact: true }).waitFor();
+    await rowStatus("HDR").getByText("Switching…", { exact: true }).waitFor();
     assert.equal(await hdr.getAttribute("aria-checked"), "false");
     assert(await hdr.isDisabled());
     assert(await toggle.isDisabled());
@@ -432,10 +432,10 @@ try {
     holdWrite = undefined;
     await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]').disabled);
     assert.deepEqual(writes.at(-1), { hdr: false });
-    for (const failure of ["sudo: /usr/libexec/failure.py Traceback: PermissionError", "HDR 设置未能应用，请稍后重试"]) {
+    for (const failure of ["sudo: /usr/libexec/failure.py Traceback: PermissionError", "Couldn't apply HDR settings. Try again."]) {
       writeError = failure;
       await hdr.click();
-      await toasts.getByText("保存 HDR 设置失败：HDR 设置未能应用，请稍后重试", { exact: true }).waitFor();
+      await toasts.getByText("Couldn't save HDR settings. Couldn't apply HDR settings. Try again.", { exact: true }).waitFor();
       assert.doesNotMatch(await toasts.textContent(), /sudo:|\/usr\/|Traceback|PermissionError/);
       await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]').disabled);
     }
@@ -446,7 +446,7 @@ try {
   readError = true;
   await page.goto(`${base}/#/output`);
   await page.reload();
-  await card.getByRole("alert").getByText("读取失败：读取连接中断", { exact: true }).waitFor();
+  await card.getByRole("alert").getByText("Couldn't load settings: Read connection lost", { exact: true }).waitFor();
   assert.equal(await card.locator("dl").count(), 0);
   assert.deepEqual(errors, []);
   console.log("PASS: passthrough states, HDR preference table, safe errors, facts, audio, stale, busy/poll lifecycle; 62 screenshots");

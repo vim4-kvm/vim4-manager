@@ -82,10 +82,10 @@ class StorageTest(unittest.TestCase):
                 self.assertNotIn('secret', text)
 
     def test_mount_cifs_errors_are_translated(self):
-        for text, message in (('mount error(113): could not connect to 10.0.0.9', '主机不可达'),
-                              ('mount error(13): Permission denied', '权限被拒'),
-                              ('mount error(2): No such file or directory', '共享不存在'),
-                              ('mount error(95): Operation not supported', '协议版本不匹配')):
+        for text, message in (('mount error(113): could not connect to 10.0.0.9', "Server unreachable"),
+                              ('mount error(13): Permission denied', "Permission denied"),
+                              ('mount error(2): No such file or directory', "Share not found"),
+                              ('mount error(95): Operation not supported', "Protocol version mismatch")):
             with self.subTest(text=text):
                 self.assertEqual(helper.storage_error(text), message)
 
@@ -98,7 +98,7 @@ class StorageTest(unittest.TestCase):
 
     def test_failed_unit_reports_readable_error(self):
         config = helper.storage_validate(request(id='nas'))
-        for result, text in (('exit-code', '连接失败'), ('timeout', '超时')):
+        for result, text in (('exit-code', "Couldn't connect"), ('timeout', "timed out")):
             with self.subTest(result=result), patch.object(
                     helper, 'storage_run', side_effect=lambda args, timeout=35: (
                         'x.mount' if args[0] == 'systemd-escape' else f'ActiveState=failed\nResult={result}')):
@@ -127,7 +127,7 @@ class StorageTest(unittest.TestCase):
             helper.storage_save(request(id=identifier, type='nfs', share='/export'))
         for _ in range(7):
             helper.storage_save(request())
-        with self.assertRaisesRegex(ValueError, '8'):
+        with self.assertRaisesRegex(ValueError, "eight"):
             helper.storage_save(request())
         helper.storage_save(request(id=identifier))
         self.assertNotIn('secret', str(self.commands))
@@ -147,7 +147,7 @@ class StorageTest(unittest.TestCase):
         saved = helper.storage_save(request())
         identifier = saved['id']
         self.busy.return_value = True
-        with self.assertRaisesRegex(ValueError, 'USB'):
+        with self.assertRaisesRegex(ValueError, "virtual media"):
             helper.storage_unmount(saved)
         self.assertFalse(any(cmd[:2] == ['systemctl', 'stop'] for cmd in self.commands))
         with patch.object(helper.sys, 'stdin', io.StringIO('{"confirm":"wrong"}')), self.assertRaises(ValueError):
@@ -187,7 +187,7 @@ class StorageTest(unittest.TestCase):
             result = helper.storage_test(request())
         self.assertTrue(result['ok'])
         self.assertFalse(result['writable'])
-        self.assertIn('权限被拒', result['error'])
+        self.assertIn("write access", result['error'])
         self.assertEqual(list(helper.NAS_TEST.iterdir()), [])
         self.assertNotIn('secret', str(self.commands))
         self.assertTrue(any(cmd[0] == 'umount' for cmd in self.commands))
@@ -196,7 +196,7 @@ class StorageTest(unittest.TestCase):
         with patch.object(helper, 'storage_bounded', side_effect=TimeoutError('timeout')):
             result = helper.storage_test(request())
         self.assertFalse(result['ok'])
-        self.assertIn('超时', result['error'])
+        self.assertIn("Timed out", result['error'])
         self.assertEqual(list(helper.NAS_TEST.iterdir()), [])
 
     def test_failed_cleanup_preserves_mount_contents(self):
@@ -204,7 +204,7 @@ class StorageTest(unittest.TestCase):
             if args[0] == 'mount':
                 (Path(args[-1]) / 'NAS-data').write_text('keep')
             if args[0] == 'umount':
-                raise ValueError('网络存储操作超时')
+                raise ValueError("The network storage operation timed out.")
             return ''
         self.run.side_effect = run
         self.mounted.return_value = True
@@ -278,13 +278,13 @@ class StorageTest(unittest.TestCase):
         def timeout_restart(args, timeout=35):
             self.assertLessEqual(timeout, 3)
             if args[:2] == ['systemctl', 'restart']:
-                raise ValueError('网络存储操作超时')
+                raise ValueError("The network storage operation timed out.")
             return run(args, timeout)
         self.run.side_effect = timeout_restart
-        self.assertIn('超时', helper.storage_migrate()[0])
+        self.assertIn("timed out", helper.storage_migrate()[0])
         self.commands.clear()
         with patch.object(helper.time, 'monotonic', side_effect=[0, 21]):
-            self.assertIn('总预算', helper.storage_migrate()[0])
+            self.assertIn("time limit", helper.storage_migrate()[0])
         self.assertEqual(self.commands, [])
 
     def test_mkdir_validation_collision_and_no_symlink_traversal(self):
@@ -296,7 +296,7 @@ class StorageTest(unittest.TestCase):
         data = dict(id=config['id'], path='/parent', name='新 文件夹')
         self.assertEqual(helper.storage_mkdir(data), {'path': '/parent/新 文件夹'})
         self.assertTrue((root / 'parent/新 文件夹').is_dir())
-        with self.assertRaisesRegex(ValueError, '已有同名文件夹'):
+        with self.assertRaisesRegex(ValueError, "A folder with this name already exists."):
             helper.storage_mkdir(data)
         for name in ('', '.', '..', ' a', 'a ', '.vim4-nasdisk', '中' * 86, 'a/b', 'a\\b', 'a\x7f', 'a\n', 'a"', 'a*', 'a?', 'a<', 'a>', 'a|', 'a:', 'a%'):
             with self.subTest(name=name), self.assertRaises(ValueError):
@@ -306,9 +306,9 @@ class StorageTest(unittest.TestCase):
                 helper.storage_mkdir(dict(data, path=path, name='escape'))
         self.assertFalse((self.root / 'escape').exists())
         self.mounted.return_value = False
-        with self.assertRaisesRegex(ValueError, '尚未挂载'):
+        with self.assertRaisesRegex(ValueError, "isn't mounted"):
             helper.storage_mkdir(dict(data, name='another'))
-        with patch.object(helper, 'storage_bounded', side_effect=TimeoutError('超时')):
+        with patch.object(helper, 'storage_bounded', side_effect=TimeoutError("timed out")):
             with self.assertRaises(TimeoutError):
                 helper.storage_mkdir(data)
 
@@ -317,7 +317,7 @@ class StorageTest(unittest.TestCase):
         process.communicate.side_effect = subprocess.TimeoutExpired('mount', 1)
         # Exercise the original function while other tests use the command stub.
         with patch.object(helper.subprocess, 'Popen', return_value=process), patch.object(helper.os, 'killpg') as kill:
-            with self.assertRaisesRegex(ValueError, '超时'):
+            with self.assertRaisesRegex(ValueError, "timed out"):
                 self.real_run(['mount'], .01)
             kill.assert_called_once_with(process.pid, helper.signal.SIGKILL)
         self.assertEqual(process.communicate.call_count, 2)

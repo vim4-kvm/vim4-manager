@@ -3,6 +3,8 @@ import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "
 import { ChevronRight, LucideProvider, Menu, PanelLeft } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
+import { LanguageSwitch } from "@/components/LanguageSwitch";
+import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,25 +17,27 @@ import { AppSidebar } from "./AppSidebar";
 import { pageMeta, type PageId } from "./pages";
 
 function TopBar({ page }: { page: PageId }) {
+  const t = useT();
   const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
   const meta = pageMeta(page);
   return (
     <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur-sm md:px-6">
-      <Button variant="ghost" size="icon" className="size-9" aria-label={isMobile ? "打开菜单" : open ? "收起侧栏" : "展开侧栏"}
+      <Button variant="ghost" size="icon" className="size-9" aria-label={isMobile ? t("nav.openMenu") : open ? t("nav.collapseSidebar") : t("nav.expandSidebar")}
         aria-expanded={isMobile ? openMobile : open} onClick={toggleSidebar}>
         {isMobile ? <Menu /> : <PanelLeft />}
       </Button>
       <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
-      <nav aria-label="当前位置" className="min-w-0 flex-1 text-sm">
+      <nav aria-label={t("nav.location")} className="min-w-0 flex-1 text-sm">
         <ol className="flex min-w-0 items-center gap-2">
           <li className="hidden items-center gap-2 text-muted-foreground sm:flex">
-            <span>{meta.group}</span>
+            <span>{t(`nav.${meta.group}`)}</span>
             <ChevronRight aria-hidden="true" className="size-3.5" />
           </li>
           <li aria-current="page" className="truncate font-medium">{meta.title}</li>
         </ol>
       </nav>
       <div className="flex shrink-0 items-center gap-1">
+        <LanguageSwitch />
         <ThemeSwitch />
         <AccountMenu compact />
       </div>
@@ -52,6 +56,7 @@ function PageTransition({ page, children }: { page: PageId; children: ReactNode 
 
 /** Sidebar, mobile Sheet and top bar, page header, transitions and toasts. */
 export function AppShell({ page, children }: { page: PageId; children: ReactNode }) {
+  const t = useT();
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -73,9 +78,9 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
             </main>
           </div>
         </SidebarProvider>
-        <Toaster position="bottom-right" closeButton containerAriaLabel="通知"
+        <Toaster position="bottom-right" closeButton containerAriaLabel={t("common.notifications")}
           toastOptions={{
-            closeButtonAriaLabel: "关闭",
+            closeButtonAriaLabel: t("common.close"),
             classNames: {
               toast: "cn-toast",
               error: "[&_[data-icon]]:text-destructive",

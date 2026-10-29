@@ -3,9 +3,10 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // Media describes the shared USB LUN, independent of the selected application.
@@ -42,21 +43,21 @@ func (s *Service) MediaImages(ctx context.Context) ([]MediaImage, error) {
 	defer cancel()
 	data, err := s.Run(ctx, "sudo", "-n", Helper, "media-list")
 	if err != nil {
-		return nil, fmt.Errorf("读取镜像列表失败：%w", err)
+		return nil, i18n.Wrap(err, "media.readFailed", map[string]any{"p0": storageHelperError(err)})
 	}
 	images := []MediaImage{}
 	if err := json.Unmarshal([]byte(data), &images); err != nil {
-		return nil, fmt.Errorf("镜像列表无效：%w", err)
+		return nil, i18n.Wrap(err, "media.invalidList", map[string]any{"p0": err})
 	}
 	return images, nil
 }
 
 func (s *Service) MountMedia(ctx context.Context, app, image string, cdrom, readonly bool) error {
-	return s.helper(ctx, "media-mount", app, image, strconv.FormatBool(cdrom), strconv.FormatBool(readonly))
+	return storageHelperError(s.helper(ctx, "media-mount", app, image, strconv.FormatBool(cdrom), strconv.FormatBool(readonly)))
 }
 
 func (s *Service) EjectMedia(ctx context.Context, token string) error {
-	return s.helper(ctx, "media-eject", token)
+	return storageHelperError(s.helper(ctx, "media-eject", token))
 }
 
 func (s *Service) media(ctx context.Context) Media {

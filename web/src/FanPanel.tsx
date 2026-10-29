@@ -4,14 +4,16 @@ import { Button } from "@/components/ui/button";
 import { useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { useWidth } from "./components/TrendChart";
 import type { FanTriggers } from "./api";
+import { t, useT } from "./i18n";
+import { number } from "./i18n/format";
 
 // Mirrors kvim4/kvim4n device tree thresholds.
 export const DEFAULT_FAN: FanTriggers = { low: 60, mid: 80, high: 100 };
 
 const PRESETS: { name: string; detail: string; triggers: FanTriggers }[] = [
-  { name: "安静", detail: "50 °C 前停转", triggers: { low: 65, mid: 85, high: 100 } },
-  { name: "均衡", detail: "出厂阈值", triggers: DEFAULT_FAN },
-  { name: "凉爽", detail: "更早提速", triggers: { low: 50, mid: 70, high: 90 } },
+  { get name() { return t("cooling.quiet"); }, get detail() { return t("cooling.quietHelp"); }, triggers: { low: 65, mid: 85, high: 100 } },
+  { get name() { return t("cooling.balanced"); }, get detail() { return t("cooling.balancedHelp"); }, triggers: DEFAULT_FAN },
+  { get name() { return t("cooling.cool"); }, get detail() { return t("cooling.coolHelp"); }, triggers: { low: 50, mid: 70, high: 90 } },
 ];
 
 // Limits match internal/board/fan.go and vim4-manager-helper.
@@ -22,9 +24,9 @@ const LIMITS = {
 } satisfies Record<keyof FanTriggers, (t: FanTriggers) => number[]>;
 
 const HANDLES: { key: keyof FanTriggers; label: string; duty: number }[] = [
-  { key: "low", label: "起转温度", duty: 35 },
-  { key: "mid", label: "中速温度", duty: 70 },
-  { key: "high", label: "全速温度", duty: 100 },
+  { key: "low", get label() { return t("cooling.start"); }, duty: 35 },
+  { key: "mid", get label() { return t("cooling.mid"); }, duty: 70 },
+  { key: "high", get label() { return t("cooling.high"); }, duty: 100 },
 ];
 
 // The SoC thermal zone's first passive trip point, where CPU throttling begins.
@@ -43,9 +45,13 @@ const same = (a: FanTriggers, b: FanTriggers) => a.low === b.low && a.mid === b.
 function problem(t: FanTriggers): string | undefined {
   for (const { key, label } of HANDLES) {
     const [lo, hi] = LIMITS[key](t);
-    if (!Number.isInteger(t[key]) || t[key] < lo || t[key] > hi) return `${label}需在 ${lo}–${hi} °C 之间`;
+    if (!Number.isInteger(t[key]) || t[key] < lo || t[key] > hi) return invalidTemperature(label, lo, hi);
   }
   return undefined;
+}
+
+function invalidTemperature(label: string, min: number, max: number) {
+  return t("cooling.invalid", { label, min: number(min), max: number(max) });
 }
 
 /** Vertices of mcu_fan_auto_speed_percent in drivers/misc/khadas-mcu.c. */
@@ -87,6 +93,7 @@ function CurveEditor({
   disabled: boolean;
   onChange: (next: FanTriggers) => void;
 }) {
+  const t = useT();
   const [ref, width] = useWidth<HTMLDivElement>();
   const gradientId = useId();
   const [hover, setHover] = useState<number>();
@@ -133,17 +140,17 @@ function CurveEditor({
       <div className="flex flex-wrap gap-4 text-xs text-muted-foreground" aria-hidden={!dirty}>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-0.5 w-3.5 rounded-sm bg-primary" />
-          {dirty ? "调整后" : "当前曲线"}
+          {dirty ? t("cooling.adjusted") : t("cooling.currentCurve")}
         </span>
         {dirty && (
           <span className="inline-flex items-center gap-1.5">
             <span className="h-0.5 w-3.5 rounded-sm bg-idle border-t border-dashed border-idle" />
-            正在生效
+            {t("cooling.active")}
           </span>
         )}
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-primary" />
-          当前 {tempC.toFixed(1)} °C · {percent}%
+          {t("cooling.current", { temperature: number(tempC, { minimumFractionDigits: 1, maximumFractionDigits: 1 }), percent: number(percent) })}
         </span>
       </div>
       <div className="relative min-w-0 [&_svg]:block [&_svg]:overflow-visible" ref={ref}>
@@ -152,7 +159,7 @@ function CurveEditor({
             width={width}
             height={PAD_TOP + HEIGHT + AXIS}
             role="group"
-            aria-label="风扇曲线：拖动或用方向键调整三个温度点"
+            aria-label={t("cooling.editor")}
             onPointerMove={move}
             onPointerUp={() => (dragging.current = undefined)}
             onPointerCancel={() => (dragging.current = undefined)}
@@ -181,7 +188,7 @@ function CurveEditor({
             ))}
             <rect className="fill-destructive-fill/10" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
             <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
-              {THROTTLE_C}° 起 CPU 降频
+              {t("cooling.throttle", { temperature: number(THROTTLE_C) })}
             </text>
             {dirty && <path className="fill-none [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
             <path className="fill-none stroke-chart-1 [stroke-width:2] [stroke-linecap:round] [stroke-linejoin:round]" d={path(draft)} />
@@ -207,7 +214,7 @@ function CurveEditor({
                   aria-valuemin={lo}
                   aria-valuemax={hi}
                   aria-valuenow={draft[k]}
-                  aria-valuetext={`${draft[k]} °C，占空比 ${duty}%`}
+                  aria-valuetext={t("cooling.slider", { temperature: number(draft[k]), duty: number(duty) })}
                   aria-disabled={disabled}
                   onKeyDown={key(k)}
                   onPointerDown={(e) => {
@@ -238,7 +245,7 @@ function CurveEditor({
               transform: x(hover) > PAD_LEFT + plotW / 2 ? "translateX(calc(-100% - 8px))" : "translateX(8px)",
             }}
           >
-            <strong>{hoverDuty > 0 ? `${hoverDuty}%` : "停转"}</strong>
+            <strong>{hoverDuty > 0 ? `${number(hoverDuty)}%` : t("cooling.stopped")}</strong>
             <span>{hover} °C</span>
           </div>
         )}
@@ -262,6 +269,7 @@ export function FanPanel({
   busy: boolean;
   onApply: (triggers: FanTriggers) => Promise<void>;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState<FanTriggers>();
   const shown = draft ?? saved;
   const dirty = !same(shown, saved);
@@ -277,11 +285,11 @@ export function FanPanel({
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 flex-col gap-5">
-        <Segmented label="预设曲线">
+        <Segmented label={t("cooling.presets")}>
           {PRESETS.map((p) => (
             <SegmentedOption key={p.name} title={p.name} detail={p.detail} pressed={preset === p} disabled={busy} onClick={() => setDraft(p.triggers)} />
           ))}
-          {!preset && <SegmentedStatic title="自定义" detail="拖动曲线" />}
+          {!preset && <SegmentedStatic title={t("cooling.custom")} detail={t("cooling.drag")} />}
         </Segmented>
 
         <CurveEditor
@@ -307,7 +315,7 @@ export function FanPanel({
                 />
                 <span>°C</span>
               </span>
-              <span className="text-xs text-muted-foreground">占空比 {duty}%</span>
+              <span className="text-xs text-muted-foreground">{t("cooling.duty", { duty: number(duty) })}</span>
             </label>
           ))}
         </div>
@@ -319,23 +327,23 @@ export function FanPanel({
             </span>
           ) : (
             <>
-              低于 {start} °C 停转，{start} °C 起以 5% 起转；到 {shown.high} °C 全速。驱动每 30 秒调整一次，每次最多变化 5%。
+              {t("cooling.explanation", { start: number(start), high: number(shown.high) })}
             </>
           )}
         </p>
 
         <div className="mt-auto flex flex-wrap items-center justify-end gap-2">
-          {!auto && <span className="mr-auto text-sm text-muted-foreground">当前为手动模式，应用后改为自动调速。</span>}
+          {!auto && <span className="mr-auto text-sm text-muted-foreground">{t("cooling.manualHelp")}</span>}
           <Button variant="outline"
             type="button"
             disabled={busy || same(shown, DEFAULT_FAN)}
             onClick={() => setDraft(DEFAULT_FAN)}
           >
-            恢复出厂
+            {t("cooling.restore")}
           </Button>
           {dirty && (
             <Button variant="outline" type="button" disabled={busy} onClick={() => setDraft(undefined)}>
-              撤销
+              {t("cooling.undo")}
             </Button>
           )}
           <Button variant="default"
@@ -343,7 +351,7 @@ export function FanPanel({
             disabled={busy || !!invalid || (!dirty && auto)}
             onClick={() => void apply()}
           >
-            {auto ? "应用曲线" : "应用并启用自动"}
+            {auto ? t("cooling.apply") : t("cooling.applyAuto")}
           </Button>
         </div>
       </div>

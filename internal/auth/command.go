@@ -29,26 +29,26 @@ func PasswordCommand(args []string, input *os.File, output io.Writer) error {
 	}
 	var password string
 	if term.IsTerminal(int(input.Fd())) {
-		fmt.Fprint(output, "密码：")
+		fmt.Fprint(output, "Password: ")
 		first, e := term.ReadPassword(int(input.Fd()))
 		fmt.Fprintln(output)
 		if e != nil {
 			return e
 		}
-		fmt.Fprint(output, "确认密码：")
+		fmt.Fprint(output, "Confirm password: ")
 		second, e := term.ReadPassword(int(input.Fd()))
 		fmt.Fprintln(output)
 		if e != nil {
 			return e
 		}
 		if string(first) != string(second) {
-			return errors.New("两次密码不一致")
+			return errors.New("passwords don't match")
 		}
 		password = string(first)
 	} else {
 		scanner := bufio.NewScanner(input)
 		if !scanner.Scan() {
-			return errors.New("无法读取密码")
+			return errors.New("couldn't read password")
 		}
 		password = scanner.Text()
 	}
@@ -78,6 +78,6 @@ func PasswordCommand(args []string, input *os.File, output io.Writer) error {
 			}
 		}
 	}
-	fmt.Fprintln(output, "密码已更新，所有设备已退出。")
+	fmt.Fprintln(output, "Password updated. All devices have been signed out.")
 	return nil
 }

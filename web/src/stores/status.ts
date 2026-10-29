@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { getStatus, type Status } from "@/api";
 import { usePassthroughStore } from "./passthrough";
+import { useLocale } from "@/i18n";
 
 const POLL_MS = 3000;
 
@@ -32,10 +33,11 @@ export const useStatusStore = create<StatusStore>()((set) => ({
 
 /** Polls overview status for the lifetime of the app shell. */
 export function useStatusPolling() {
+  const locale = useLocale();
   useEffect(() => {
     const { refresh } = useStatusStore.getState();
     void refresh();
     const timer = window.setInterval(refresh, POLL_MS);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [locale]);
 }

@@ -82,22 +82,22 @@ class EDIDTest(unittest.TestCase):
 
     def test_load_failure_restores_both_configurations(self):
         self.load.side_effect = [OSError('failed'), None]
-        with self.assertRaisesRegex(ValueError, '已恢复原配置'):
+        with self.assertRaisesRegex(ValueError, 'previous settings were restored'):
             helper.select_edid('test')
         self.assertEqual(self.config.read_bytes(), self.original_config)
         self.assertEqual(self.load.call_args.args, ('VIM4-4K60', self.old))
 
     def test_failed_recovery_is_not_reported_as_success(self):
         self.load.side_effect = OSError('failed')
-        with self.assertRaisesRegex(ValueError, '恢复原配置失败'):
+        with self.assertRaisesRegex(ValueError, 'restore the previous settings'):
             helper.select_edid('test')
 
     def test_unknown_id_and_malformed_config_do_not_stop_service(self):
         self.run.return_value.returncode = 0
-        with self.assertRaisesRegex(ValueError, '未知'):
+        with self.assertRaisesRegex(ValueError, 'registered'):
             helper.select_edid('../../test')
         self.config.write_text('[]')
-        with self.assertRaisesRegex(ValueError, 'JSON 对象'):
+        with self.assertRaisesRegex(ValueError, 'JSON object'):
             helper.select_edid('test')
         self.services.assert_not_called()
         self.load.assert_not_called()
@@ -105,14 +105,14 @@ class EDIDTest(unittest.TestCase):
     def test_new_config_is_removed_on_rollback(self):
         self.config.unlink()
         self.load.side_effect = [OSError('failed'), None]
-        with self.assertRaisesRegex(ValueError, '已恢复原配置'):
+        with self.assertRaisesRegex(ValueError, 'previous settings were restored'):
             helper.select_edid('test')
         self.assertFalse(self.config.exists())
 
     def test_restart_failure_restores_and_restarts_original(self):
         self.run.return_value.returncode = 0
         self.services.side_effect = [None, OSError('start failed'), None, None]
-        with patch.object(helper, 'check_pikvm_media'), self.assertRaisesRegex(ValueError, '已恢复原配置'):
+        with patch.object(helper, 'check_pikvm_media'), self.assertRaisesRegex(ValueError, 'previous settings were restored'):
             helper.select_edid('test')
         self.assertEqual(self.config.read_bytes(), self.original_config)
         self.assertEqual([c.args[0] for c in self.services.call_args_list], ['stop', 'start', 'stop', 'start'])

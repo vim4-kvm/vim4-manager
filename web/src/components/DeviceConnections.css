@@ -51,7 +51,8 @@
   position: absolute;
   z-index: 2;
   display: grid;
-  width: 28px;
+  /* Include the full protocol label in the hotspot's horizontal bounds. */
+  width: 72px;
   height: 28px;
   transform: translate(-50%, -50%);
   place-items: center;

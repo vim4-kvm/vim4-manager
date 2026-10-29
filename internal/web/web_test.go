@@ -41,8 +41,9 @@ func TestCrossSiteFormPostIsRejected(t *testing.T) {
 
 func TestFrontendIsServed(t *testing.T) {
 	handler := Handler(&board.Service{}, fstest.MapFS{
-		"index.html":      {Data: []byte("<main>")},
-		"assets/app-1.js": {Data: []byte("js")},
+		"index.html":       {Data: []byte("<main>")},
+		"assets/app-1.js":  {Data: []byte("js")},
+		"assets/brand.svg": {Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M0 0h32v32H0z"/></svg>`)},
 	})
 	for path, cache := range map[string]string{"/": "no-cache", "/assets/app-1.js": "immutable"} {
 		response := httptest.NewRecorder()
@@ -50,6 +51,11 @@ func TestFrontendIsServed(t *testing.T) {
 		if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Cache-Control"), cache) {
 			t.Errorf("%s: %d %q", path, response.Code, response.Header().Get("Cache-Control"))
 		}
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/assets/brand.svg", nil))
+	if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "image/svg+xml") {
+		t.Fatalf("SVG asset: %d %s", response.Code, response.Header().Get("Content-Type"))
 	}
 }
 

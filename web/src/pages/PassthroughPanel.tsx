@@ -1,3 +1,4 @@
+import { number } from "@/i18n/format";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { request, type PassthroughState } from "@/api";
 import { MonitorOff } from "lucide-react";
@@ -15,33 +16,34 @@ import { Switch } from "@/components/ui/switch";
 import { useActionStore } from "@/stores/action";
 import { usePassthroughStore } from "@/stores/passthrough";
 import { useStatusStore } from "@/stores/status";
+import { t, useLocale } from "@/i18n";
 
 const labels: Record<PassthroughState["state"], string> = {
-  unsupported: "当前内核不支持",
-  off: "已关闭",
-  starting: "正在开启…",
-  stopping: "正在关闭…",
-  running: "透传中",
-  "no-signal": "等待输入信号",
-  "no-monitor": "未连接显示器",
-  protected: "输入受版权保护",
-  "unsupported-format": "暂不支持此输入格式",
-  "video-error": "输入信号异常",
+  get unsupported() { return t("output.unavailableOnThisKernel"); },
+  get off() { return t("output.off"); },
+  get starting() { return t("connections.turningOn"); },
+  get stopping() { return t("connections.turningOff"); },
+  get running() { return t("connections.passthroughActive"); },
+  get "no-signal"() { return t("connections.waitingForInput"); },
+  get "no-monitor"() { return t("connections.noDisplayConnected"); },
+  get protected() { return t("connections.protectedInput"); },
+  get "unsupported-format"() { return t("output.unsupportedInputFormat"); },
+  get "video-error"() { return t("connections.inputSignalProblem"); },
 };
 
 const descriptions = {
-  unsupported: <>当前内核没有透传功能，可在「<a href="#/updates" className="text-link underline-offset-4 hover:underline">更新 → 内核</a>」中切换到支持透传的版本。</>,
-  off: "开启后显示器显示被控电脑的画面；关闭时显示系统控制台。",
-  running: "远程 KVM 不受影响。被控电脑切换分辨率时，显示器会短暂黑屏后跟随。",
-  "no-signal": "HDMI IN 没有信号，显示器保持黑屏，信号恢复后自动继续。",
-  "no-monitor": "接上显示器后自动开始透传。",
-  protected: "被控电脑正在播放受 HDCP 保护的内容，显示器保持黑屏。",
-  "unsupported-format": "此输入格式无法透传，请在信号源中选择 HDR10、HLG 或 SDR。",
-  "video-error": "请检查 HDMI 输入线或信号源设置。",
+  get unsupported() { return <>{t("output.unsupportedHelp")} <a href="#/updates" className="text-link underline-offset-4 hover:underline">{t("output.updatesKernel")}</a></>; },
+  get off() { return t("output.whenOnTheDisplayShowsThe"); },
+  get running() { return t("output.remoteKvmStaysConnectedTheLocal"); },
+  get "no-signal"() { return t("output.noHdmiInSignalTheDisplay"); },
+  get "no-monitor"() { return t("output.passthroughStartsAutomaticallyWhenADisplay"); },
+  get protected() { return t("output.theTargetComputerIsPlayingHdcp"); },
+  get "unsupported-format"() { return t("output.thisFormatCannotPassThroughSelect"); },
+  get "video-error"() { return t("output.checkTheHdmiInputCableAnd"); },
 };
 
 function refreshLabel(hz: number) {
-  return `${Number(hz.toFixed(2))}Hz`;
+  return `${number(hz, {maximumFractionDigits:2})} Hz`;
 }
 
 function mode(width: number, height: number, hz: number) {
@@ -50,9 +52,10 @@ function mode(width: number, height: number, hz: number) {
 
 /** Same shape as the loaded card; the reading text stays for screen readers. */
 function PassthroughSkeleton() {
+ useLocale();
   return (
     <div className="flex flex-col gap-4" aria-busy="true">
-      <span className="sr-only">正在读取透传状态…</span>
+      <span className="sr-only">{t("output.loadingPassthroughStatus")}</span>
       <div className="flex items-center justify-between gap-6">
         <Skeleton className="h-5 w-16" />
         <Skeleton className="h-5 w-32" />
@@ -66,6 +69,8 @@ function PassthroughSkeleton() {
 }
 
 export function PassthroughPanel() {
+ useLocale();
+  const locale = useLocale();
   const status = useStatusStore((s) => s.status);
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
@@ -113,7 +118,7 @@ export function PassthroughPanel() {
     };
     void refresh();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [busy, pending, accept]);
+  }, [busy, pending, accept, locale]);
 
   async function change(body: { enabled?: boolean; audio?: boolean; hdr?: boolean }) {
     if (actionPending.current) return;
@@ -121,20 +126,20 @@ export function PassthroughPanel() {
     const transition = body.hdr !== undefined ? "hdr" : body.enabled === undefined ? "audio" : body.enabled ? "starting" : "stopping";
     if (body.hdr !== undefined) setHdrTarget(body.hdr);
     setPending(transition);
-    const verb = transition === "hdr" ? "保存 HDR 设置" : body.enabled === undefined ? "保存声音设置" : body.enabled ? "开启透传" : "关闭透传";
-    await run(transition === "hdr" ? "正在切换 HDR…" : transition === "audio" ? "正在保存声音设置…" : labels[transition], async () => {
+    const errorKey = transition === "hdr" ? "output.saveHdrFailed" : body.enabled === undefined ? "output.saveAudioFailed" : body.enabled ? "output.enableFailed" : "output.disableFailed";
+    await run(transition === "hdr" ? t("output.switchingHdr") : transition === "audio" ? t("output.savingAudioSettings") : labels[transition], async () => {
       try {
         const next = await request<PassthroughState>("/api/passthrough", body, AbortSignal.timeout(20000));
         if (mounted.current) accept(next);
       } catch (e) {
         let reason = e instanceof Error ? e.message : String(e);
         if (transition === "hdr" && !/^[\u3400-\u9fff\s，。；、！…（）·]+$/.test(reason.replaceAll("HDR", ""))) {
-          reason = "HDR 设置未能应用，请稍后重试";
+          reason = t("output.couldnTApplyHdrSettingsTry");
         }
-        throw new Error(`${verb}失败：${reason}`);
+        throw new Error(t(errorKey, { reason }));
       }
-    }, transition === "hdr" ? body.hdr ? "HDR 透传已开启" : "已改为 HDR 转 SDR 输出"
-      : body.enabled === undefined ? "声音设置已保存" : body.enabled ? "透传已开启" : "透传已关闭");
+    }, transition === "hdr" ? body.hdr ? t("output.hdrPassthroughEnabled") : t("output.outputConvertedToSdr")
+      : body.enabled === undefined ? t("output.audioSettingsSaved") : body.enabled ? t("output.passthroughEnabled") : t("connections.passthroughOff"));
     // A failed or lost response may still have changed the kernel. Keep the
     // old facts and lock controls until a fresh GET establishes actual state.
     if (mounted.current) {
@@ -144,8 +149,8 @@ export function PassthroughPanel() {
     actionPending.current = false;
   }
 
-  if (!state) return <><PageHeading page="output" /><SettingsCard label="透传">
-    {error ? <InlineError>读取失败：{error}</InlineError> : <PassthroughSkeleton />}
+  if (!state) return <><PageHeading page="output" /><SettingsCard label={t("output.passthrough")}>
+    {error ? <InlineError>{t("output.loadFailed", { reason: error })}</InlineError> : <PassthroughSkeleton />}
   </SettingsCard></>;
 
   const current = pending === "starting" || pending === "stopping" ? pending : state.state;
@@ -155,92 +160,92 @@ export function PassthroughPanel() {
   const input = state.input;
   const monitor = state.monitor;
   const output = state.output;
-  let outputValue = state.state === "off" || state.state === "unsupported" ? "系统控制台" : "—";
+  let outputValue = state.state === "off" || state.state === "unsupported" ? t("output.systemConsole") : "—";
   let outputDetail: string | undefined;
   let outputTone: "good" | "warning" | "idle" = "idle";
-  if (state.state === "no-signal" || state.state === "protected") outputValue = "黑屏";
+  if (state.state === "no-signal" || state.state === "protected") outputValue = t("output.blackScreen");
   if (state.state === "running" && output) {
     outputValue = mode(output.width, output.height, output.refreshHz);
     outputTone = output.scaled ? "warning" : "good";
     outputDetail = output.scaled && input
-      ? `已缩放，显示器不支持 ${mode(input.width, input.height, input.refreshHz)}` : output.colorFormat;
+      ? t("output.scaledTheDisplayDoesnTSupport", { p0: String(mode(input.width, input.height, input.refreshHz)) }) : output.colorFormat;
     if (output.hdrToSdr) {
-      const mapping = monitor && !monitor.hdr ? "HDR 已转为 SDR · 显示器不支持 HDR" : "HDR 已转为 SDR";
+      const mapping = monitor && !monitor.hdr ? t("output.convertedToSdrDisplayHasNo") : t("output.convertedToSdr");
       outputDetail = `${outputDetail} · ${mapping}`;
     } else if (input && ["HDR10", "HLG"].includes(input.hdr)) {
       outputDetail = `${input.hdr} · BT.2020 · ${output.colorFormat.replace(/ limited$/, "")}`;
     }
   }
   if (transitioning) {
-    outputValue = "切换中…";
+    outputValue = t("output.switching");
     outputDetail = undefined;
     outputTone = "idle";
   }
   const audioUnsupported = !!monitor && !monitor.audio;
   const hdr = state.hdr ?? true;
   const hdrUnsupported = !!monitor && !monitor.hdr;
-  const hdrLabel = pending === "hdr" ? "正在切换…"
-    : current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
-    : !state.enabled ? "透传开启后生效" : hdrUnsupported ? "显示器不支持 HDR"
-    : !input ? "等待输入信号" : input.hdr === "SDR" ? "输入为 SDR"
-    : hdr && current === "running" && output && !output.hdrToSdr ? "HDR 输出中"
-    : !hdr && current === "running" && output?.hdrToSdr ? "已转为 SDR" : "正在应用…";
+  const hdrLabel = pending === "hdr" ? t("output.switching317")
+    : current === "starting" ? t("output.appliesWhenPassthroughStarts") : current === "stopping" ? t("output.off")
+    : !state.enabled ? t("output.appliesWhenPassthroughStarts") : hdrUnsupported ? t("output.displayHasNoHdrSupport")
+    : !input ? t("connections.waitingForInput") : input.hdr === "SDR" ? t("video.sdrInput")
+    : hdr && current === "running" && output && !output.hdrToSdr ? t("output.hdrOutputActive")
+    : !hdr && current === "running" && output?.hdrToSdr ? t("output.convertedToSdr321") : t("output.applying");
   const hdrInactive = pending !== "hdr" && (transitioning || !state.enabled || hdrUnsupported || !input || input.hdr === "SDR");
   const audioEffective = state.enabled && state.audio && !!input?.audio && !!monitor?.audio
     && (state.audioState ? state.audioState === "running" : current === "running");
-  const audioLabel = current === "starting" ? "透传开启后生效" : current === "stopping" ? "已关闭"
-    : !state.enabled ? "透传开启后生效" : audioUnsupported ? "显示器不支持音频"
-    : !state.audio ? "已关闭" : !input?.audio ? "输入无声音"
-    : ["error", "unavailable"].includes(state.audioState || "") ? "声音暂不可用"
-    : state.audioState && state.audioState !== "running" ? "正在连接声音…" : "输出中";
+  const audioLabel = current === "starting" ? t("output.appliesWhenPassthroughStarts") : current === "stopping" ? t("output.off")
+    : !state.enabled ? t("output.appliesWhenPassthroughStarts") : audioUnsupported ? t("output.displayHasNoAudioSupport")
+    : !state.audio ? t("output.off") : !input?.audio ? t("output.noInputAudio")
+    : ["error", "unavailable"].includes(state.audioState || "") ? t("output.audioUnavailable")
+    : state.audioState && state.audioState !== "running" ? t("output.connectingAudio") : t("output.outputActive");
 
   return <>
     <PageHeading page="output" />
-    <section role="region" aria-label="透传" className="flex min-w-0 flex-col gap-5">
-    <SettingsCard title="信号路径" description="查看 HDMI、USB-C 与网络连接，点击接口查看详情。">
-    <FadeIn><SettingRow title="透传" description="把 HDMI IN 的画面原样送到本地显示器，远程 KVM 照常使用。"
+    <section role="region" aria-label={t("output.passthrough")} className="flex min-w-0 flex-col gap-5">
+    <SettingsCard title={t("output.signalPath")} description={t("output.viewHdmiUsbCAndNetwork")}>
+    <FadeIn><SettingRow title={t("output.passthrough")} description={t("output.sendHdmiInVideoToThe")}
       status={labels[current]} pending={transitioning}
-      control={<Switch aria-label="透传" checked={enabled} disabled={locked}
+      control={<Switch aria-label={t("output.passthrough")} checked={enabled} disabled={locked}
         onCheckedChange={() => void change({ enabled: !state.enabled })} />} /></FadeIn>
     <FadeIn><DeviceConnections status={status} passthrough={{ ...state, state: current }} stale={stale || readStale} /></FadeIn>
     <FadeIn className="flex flex-col gap-4" data-passthrough-body>
       <Collapse open={state.supported}>
         <FactGrid>
-          <Fact label="输入" value={input ? mode(input.width, input.height, input.refreshHz) : "无信号"}
+          <Fact label={t("output.input")} value={input ? mode(input.width, input.height, input.refreshHz) : t("overview.noSignal")}
             detail={input ? `${input.hdr} · ${input.colorFormat}` : undefined} tone={input ? "good" : "idle"} />
-          <Fact label="显示器" value={monitor ? monitor.name || "未知型号" : "未连接"}
-            detail={monitor ? `最高 ${mode(monitor.maxWidth, monitor.maxHeight, monitor.maxRefreshHz)}${monitor.hdr ? " · HDR" : ""}` : undefined}
+          <Fact label={t("output.display")} value={monitor ? monitor.name || t("output.unknownModel") : t("overview.notConnected")}
+            detail={monitor ? t("output.upTo", { p0: String(mode(monitor.maxWidth, monitor.maxHeight, monitor.maxRefreshHz)), p1: String(monitor.hdr ? " · HDR" : "") }) : undefined}
             tone={monitor ? "good" : "idle"} />
-          <Fact label="输出" value={outputValue} detail={outputDetail} tone={outputTone} />
+          <Fact label={t("output.output")} value={outputValue} detail={outputDetail} tone={outputTone} />
         </FactGrid>
       </Collapse>
       <p data-description className="text-sm text-pretty text-muted-foreground">{description}</p>
       <Collapse open={!!error}>
-        <InlineError>刷新失败：{error}，显示的是上次读取的状态。</InlineError>
+        <InlineError>{t("output.refreshFailed", { reason: error || "" })}</InlineError>
       </Collapse>
     </FadeIn>
     </SettingsCard>
     {state.supported && <div className="grid items-start gap-5 lg:grid-cols-2">
-    <SettingsCard title="输出设置">
-    {state.supported && <FadeIn><SettingRow title="HDR" description="开启时把 HDR 画面原样送到显示器，关闭时转为 SDR 显示。远程 KVM 不受影响。"
+    <SettingsCard title={t("output.outputSettings")}>
+    {state.supported && <FadeIn><SettingRow title="HDR" description={t("output.passHdrVideoThroughWhenOn")}
       status={hdrLabel} inactive={hdrInactive} pending={pending === "hdr"}
       control={<Switch aria-label="HDR" checked={pending === "hdr" ? hdrTarget : hdr}
         disabled={locked || (state.enabled && hdrUnsupported)} onCheckedChange={() => void change({ hdr: !hdr })} />} /></FadeIn>}
-    {state.supported && <FadeIn><SettingRow title="声音" description="把 HDMI IN 的声音送到显示器扬声器。"
+    {state.supported && <FadeIn><SettingRow title={t("output.sound")} description={t("output.sendHdmiInAudioToThe")}
       status={audioLabel} inactive={!audioEffective}
-      control={<Switch aria-label="声音" checked={state.audio}
+      control={<Switch aria-label={t("output.sound")} checked={state.audio}
         disabled={locked || (state.enabled && audioUnsupported)} onCheckedChange={() => void change({ audio: !state.audio })} />} /></FadeIn>}
-      <Notice>信号源切换分辨率时，本地显示器可能短暂黑屏。</Notice>
+      <Notice>{t("output.theLocalDisplayMayBrieflyGo")}</Notice>
     </SettingsCard>
-    <SettingsCard title="显示器信息">
+    <SettingsCard title={t("output.displayInformation")}>
       {monitor ? <dl className="space-y-4 text-sm">{[
-        ["型号", monitor.name || "未知型号"],
-        ["最大分辨率", `${monitor.maxWidth} × ${monitor.maxHeight}`],
-        ["最高刷新率", refreshLabel(monitor.maxRefreshHz)],
-        ["HDR", monitor.hdr ? "支持" : "不支持"],
-        ["音频", monitor.audio ? "支持" : "不支持"],
+        [t("output.model"), monitor.name || t("output.unknownModel")],
+        [t("output.maximumResolution"), `${monitor.maxWidth}×${monitor.maxHeight}`],
+        [t("output.maximumRefreshRate"), refreshLabel(monitor.maxRefreshHz)],
+        ["HDR", monitor.hdr ? t("output.supported") : t("output.notSupported")],
+        [t("output.audio"), monitor.audio ? t("output.supported") : t("output.notSupported")],
       ].map(([label, value], i) => <div className={`flex justify-between gap-6 ${i ? "border-t pt-4" : ""}`} key={label}><dt className="shrink-0 text-muted-foreground">{label}</dt><dd className="min-w-0 break-words text-right font-medium">{value}</dd></div>)}</dl>
-        : <EmptyState icon={MonitorOff}>未连接显示器。接到板子的 HDMI OUT 口后，这里显示型号、分辨率与 HDR、音频支持。</EmptyState>}
+        : <EmptyState icon={MonitorOff}>{t("output.noDisplayConnectedConnectOneTo")}</EmptyState>}
     </SettingsCard>
     </div>}
     </section>

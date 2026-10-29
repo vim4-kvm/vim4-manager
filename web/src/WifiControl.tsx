@@ -20,6 +20,7 @@ import { useEffect, useState } from "react";
 import { request, wifiWrite, type SavedWifi, type WifiNetwork, type WifiState } from "./api";
 import { PasswordInput } from "@/components/PasswordInput";
 import { WifiHotspot } from "./WifiHotspot";
+import { t, useLocale } from "@/i18n";
 
 type Confirm =
   | { kind: "off" }
@@ -32,7 +33,7 @@ const PSK_PATTERN = /^([\x20-\x7e]{8,63}|[0-9a-fA-F]{64})$/;
 export function SignalBars({ signal }: { signal: number }) {
   const level = signal >= 75 ? 4 : signal >= 50 ? 3 : signal >= 25 ? 2 : 1;
   const Icon = level === 4 ? Wifi : level === 3 ? WifiHigh : level === 2 ? WifiLow : WifiZero;
-  return <Icon className="size-4 shrink-0 text-muted-foreground" role="img" aria-label={`信号 ${signal}%`} />;
+  return <Icon className="size-4 shrink-0 text-muted-foreground" role="img" aria-label={t("wifi.signal", { p0: signal })} />;
 }
 
 function band(frequency: number) {
@@ -40,6 +41,7 @@ function band(frequency: number) {
 }
 
 export function WifiControl() {
+  const locale = useLocale();
   const busy = useActionStore((s) => !!s.busy);
   const [reading, setReading] = useState(true);
   const [state, setState] = useState<WifiState>();
@@ -76,7 +78,7 @@ export function WifiControl() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending]);
+  }, [pending, locale]);
 
   const clientMode = !!state?.supported && state.enabled && state.hardwareEnabled && state.mode === "client";
 
@@ -122,12 +124,12 @@ export function WifiControl() {
   }
 
   const toggleRadio = (enabled: boolean) =>
-    act(enabled ? "正在开启…" : "正在关闭…", () => request("/api/wifi", { enabled }, AbortSignal.timeout(25000)));
+    act(enabled ? t("wifi.turningOn") : t("wifi.turningOff"), () => request("/api/wifi", { enabled }, AbortSignal.timeout(25000)));
 
   async function join() {
     if (!joining) return;
     const ssid = joining.hidden ? hiddenSSID : joining.ssid;
-    const ok = await act(`正在连接 ${ssid}…`, () =>
+    const ok = await act(t("wifi.connectingTo", { p0: String(ssid) }), () =>
       wifiWrite("/connect", { ssid, password: joining.secured ? password : "", hidden: joining.hidden }),
     );
     if (ok) {
@@ -141,14 +143,14 @@ export function WifiControl() {
   const label = pending
     ? pending
     : stale
-      ? "状态暂不可用"
+      ? t("wifi.statusUnavailable")
       : !state?.supported
-        ? "未检测到无线网卡"
+        ? t("wifi.noWiFiAdapterDetected")
         : !state.hardwareEnabled
-          ? "无线硬件已禁用"
+          ? t("wifi.wiFiHardwareDisabled")
           : state.enabled
-            ? "已开启"
-            : "已关闭";
+            ? t("wifi.on")
+            : t("wifi.off");
 
   const on = !!state?.supported && state.hardwareEnabled && state.enabled;
   const current = state?.current;
@@ -163,17 +165,17 @@ export function WifiControl() {
 
   return (
     <SettingsCard label="Wi-Fi"><FadeIn className="flex min-w-0 flex-col gap-5">
-        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Wifi className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Wi-Fi" description="连接到无线网络或创建热点，两种模式互斥。有线网络不受影响。"
+        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Wifi className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Wi-Fi" description={t("wifi.joinAWiFiNetworkOr")}
           status={label} pending={!!pending} control={<Switch aria-label="Wi-Fi" checked={!!state?.enabled}
             disabled={locked || !state?.supported || !state.hardwareEnabled}
             onCheckedChange={() => (state?.enabled ? setConfirming({ kind: "off" }) : void toggleRadio(true))} />} /></div></div>
 
         {on && state.mode && state.mode !== "off" && (
           <div className="flex min-w-0 flex-col gap-5">
-            <Segmented label="无线模式" className="max-sm:grid-cols-1">
-              <SegmentedOption title="连接网络" detail="板子加入现有 Wi-Fi" pressed={state.mode === "client"} disabled={locked}
+            <Segmented label={t("wifi.wiFiMode")} className="max-sm:grid-cols-1">
+              <SegmentedOption title={t("wifi.joinNetwork")} detail={t("wifi.connectTheBoardToWiFi")} pressed={state.mode === "client"} disabled={locked}
                 onClick={() => state.mode !== "client" && setConfirming({ kind: "mode", mode: "client" })} />
-              <SegmentedOption title="热点" detail="其他设备连入板子" pressed={state.mode === "hotspot"} disabled={locked}
+              <SegmentedOption title={t("wifi.hotspot")} detail={t("wifi.connectDevicesToTheBoard")} pressed={state.mode === "hotspot"} disabled={locked}
                 onClick={() => state.mode !== "hotspot" && setConfirming({ kind: "mode", mode: "hotspot" })} />
             </Segmented>
 
@@ -186,35 +188,34 @@ export function WifiControl() {
                       <div className="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
                         <span className="font-medium">{current.ssid}</span>
                         <span className="text-xs text-muted-foreground">
-                          {[current.ipv4, band(current.frequency), current.security || "开放网络"].filter(Boolean).join(" · ")}
+                          {[current.ipv4, band(current.frequency), current.security?.replace(/WPA2 WPA3/g, "WPA2/WPA3") || t("wifi.openNetwork")].filter(Boolean).join(" · ")}
                         </span>
                       </div>
                       <SignalBars signal={current.signal} />
                       <Button variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "disconnect" })}>
-                        断开
-                      </Button>
+                        {t("wifi.disconnect")}</Button>
                     </>
                   ) : (
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5 [overflow-wrap:anywhere]">
-                      <span className="font-medium">{state.state === "connecting" ? "正在连接…" : "未连接"}</span>
-                      <span className="text-xs text-muted-foreground">从下方列表选择网络。</span>
+                      <span className="font-medium">{state.state === "connecting" ? t("wifi.connecting") : t("wifi.notConnected")}</span>
+                      <span className="text-xs text-muted-foreground">{t("wifi.chooseANetworkBelow")}</span>
                     </div>
                   )}
                 </div>
 
                 <div className="-mb-2 flex flex-wrap items-center justify-between gap-3">
-                  <h4 className="text-sm font-medium">附近的网络</h4>
+                  <h4 className="text-sm font-medium">{t("wifi.nearbyNetworks")}</h4>
                   <Button variant="outline" disabled={locked || scanning} aria-busy={scanning} onClick={() => void scan(true)}>
                     {scanning && <Spinner />}
-                    {scanning ? "扫描中" : "重新扫描"}
+                    {scanning ? t("wifi.scanning") : t("wifi.scanAgain")}
                   </Button>
                 </div>
                 {networks === undefined ? (
-                  <PanelSkeleton label="正在扫描…" rows={2} />
+                  <PanelSkeleton label={t("wifi.scanning23")} rows={2} />
                 ) : visible.length === 0 ? (
-                  <EmptyState icon={Wifi}>没有发现其他网络。</EmptyState>
+                  <EmptyState icon={Wifi}>{t("wifi.noOtherNetworksFound")}</EmptyState>
                 ) : (
-                  <AnimatedList className="flex flex-col divide-y overflow-hidden rounded-md border [&_li]:min-w-0" label="附近的网络" items={visible} getKey={(n) => n.ssid}>{(n) => {
+                  <AnimatedList className="flex flex-col divide-y overflow-hidden rounded-md border [&_li]:min-w-0" label={t("wifi.nearbyNetworks")} items={visible} getKey={(n) => n.ssid}>{(n) => {
                       const open = joining && !joining.hidden && joining.ssid === n.ssid;
                       return (
                         <div className={open ? "bg-accent" : undefined}>
@@ -226,7 +227,7 @@ export function WifiControl() {
                             onClick={() => {
                               if (n.saved) {
                                 const entry = saved.find((s) => s.ssid === n.ssid);
-                                if (entry) return void act(`正在连接 ${n.ssid}…`, () => wifiWrite("/activate", { id: entry.id }));
+                                if (entry) return void act(t("wifi.connectingTo", { p0: String(n.ssid) }), () => wifiWrite("/activate", { id: entry.id }));
                               }
                               setPassword("");
                               setJoining(open ? undefined : { ssid: n.ssid, secured: !!n.security, hidden: false });
@@ -234,9 +235,9 @@ export function WifiControl() {
                           >
                             <SignalBars signal={n.signal} />
                             <span className="min-w-0 flex-1 break-all font-medium">{n.ssid}</span>
-                            {n.saved && <Badge variant="secondary">已保存</Badge>}
+                            {n.saved && <Badge variant="secondary">{t("wifi.saved")}</Badge>}
                             <span className="text-muted-foreground ml-auto text-xs">
-                              {n.security || "开放网络"} · {band(n.frequency)}
+                              {n.security?.replace(/WPA2 WPA3/g, "WPA2/WPA3") || t("wifi.openNetwork")} · {band(n.frequency)}
                             </span>
                           </Button>
                           {open && (
@@ -264,19 +265,17 @@ export function WifiControl() {
                       setJoining(joining?.hidden ? undefined : { ssid: "", secured: true, hidden: true });
                     }}
                   >
-                    加入隐藏网络
-                  </Button>
+                    {t("wifi.joinHiddenNetwork")}</Button>
                   {saved.length > 0 && (
                     <Button variant="link" size="inline" type="button" aria-expanded={showSaved} onClick={() => setShowSaved(!showSaved)}>
-                      已保存的网络（{saved.length}）
+                      {t("wifi.savedCount", { count: saved.length })}
                     </Button>
                   )}
                 </div>
                 {joining?.hidden && (
                   <div className="flex flex-col gap-4 rounded-md border p-4">
                     <label className="flex min-w-0 flex-col gap-2 text-sm">
-                      网络名称（SSID）
-                      <Input
+                      {t("wifi.networkNameSsid")}<Input
                         value={hiddenSSID}
                         autoComplete="off"
                         spellCheck={false}
@@ -289,8 +288,7 @@ export function WifiControl() {
                         checked={!joining.secured}
                         onCheckedChange={(value) => setJoining({ ...joining, secured: value !== true })}
                       />
-                      开放网络（无密码）
-                    </label>
+                      {t("wifi.openNetworkNoPassword")}</label>
                     <JoinForm
                       secured={joining.secured}
                       password={password}
@@ -303,12 +301,12 @@ export function WifiControl() {
                   </div>
                 )}
                 {showSaved && saved.length > 0 && (
-                  <AnimatedList className="flex flex-col divide-y rounded-md border [&_li]:min-w-0 " label="已保存的网络" items={saved} getKey={(s) => s.id}>{(s) => (
+                  <AnimatedList className="flex flex-col divide-y rounded-md border [&_li]:min-w-0 " label={t("wifi.savedNetworks30")} items={saved} getKey={(s) => s.id}>{(s) => (
                       <>
                         <div className="flex min-w-0 flex-wrap items-center gap-3 p-3">
                           <span className="min-w-0 flex-1 break-all font-medium">
                             {s.ssid}
-                            {s.active && <Badge variant="outline">当前</Badge>}
+                            {s.active && <Badge variant="outline">{t("wifi.current")}</Badge>}
                           </span>
                           <label className="flex items-start gap-2 text-sm [&_input]:mt-1">
                             <input className="accent-primary"
@@ -316,22 +314,19 @@ export function WifiControl() {
                               checked={s.autoconnect}
                               disabled={locked}
                               onChange={(e) =>
-                                void act("正在保存…", () => wifiWrite("/autoconnect", { id: s.id, enabled: e.target.checked }))
+                                void act(t("common.saving"), () => wifiWrite("/autoconnect", { id: s.id, enabled: e.target.checked }))
                               }
                             />
-                            自动连接
-                          </label>
+                            {t("wifi.connectAutomatically")}</label>
                           {!s.active && (
                             <Button variant="outline"
                               disabled={locked}
-                              onClick={() => void act(`正在连接 ${s.ssid}…`, () => wifiWrite("/activate", { id: s.id }))}
+                              onClick={() => void act(t("wifi.connectingTo", { p0: String(s.ssid) }), () => wifiWrite("/activate", { id: s.id }))}
                             >
-                              连接
-                            </Button>
+                              {t("wifi.connect")}</Button>
                           )}
                           <Button variant="outline" disabled={locked} onClick={() => setConfirming({ kind: "forget", network: s })}>
-                            忘记
-                          </Button>
+                            {t("wifi.forget")}</Button>
                         </div>
                       </>
                     )}</AnimatedList>
@@ -364,13 +359,13 @@ export function WifiControl() {
       case "off":
         return toggleRadio(false);
       case "mode":
-        return act(c.mode === "hotspot" ? "正在开启热点…" : "正在切换到连接网络…", () =>
+        return act(c.mode === "hotspot" ? t("wifi.startingHotspot") : t("wifi.switchingToWiFi"), () =>
           wifiWrite("/mode", { mode: c.mode, force: c.mode === "client" && !keepHotspotFallback(state) }),
         );
       case "disconnect":
-        return act("正在断开…", () => wifiWrite("/disconnect", {}));
+        return act(t("wifi.disconnecting"), () => wifiWrite("/disconnect", {}));
       case "forget":
-        return act("正在删除…", () => wifiWrite("/forget", { id: c.network.id }));
+        return act(t("wifi.deleting"), () => wifiWrite("/forget", { id: c.network.id }));
     }
   }
 }
@@ -384,31 +379,33 @@ function keepHotspotFallback(state: WifiState | undefined) {
 function confirmTitle(c: Confirm) {
   switch (c.kind) {
     case "off":
-      return "关闭 Wi-Fi";
+      return t("wifi.turnOffWiFi");
     case "mode":
-      return c.mode === "hotspot" ? "开启热点" : "切换到连接网络";
+      return c.mode === "hotspot" ? t("wifi.startHotspot") : t("wifi.switchToWiFi");
     case "disconnect":
-      return "断开";
+      return t("wifi.disconnect");
     case "forget":
-      return "忘记网络";
+      return t("wifi.forgetNetwork");
   }
 }
 
 function confirmText(c: Confirm, state: WifiState | undefined, hotspotName?: string) {
-  const via = state?.viaWifi ? "你当前正通过 Wi-Fi 访问此页面，会话会断开。" : "";
+  const remote = !!state?.viaWifi;
   switch (c.kind) {
     case "off":
-      return "关闭会断开 Wi-Fi 连接和热点。如果当前通过 Wi-Fi 访问，请改用有线网络。";
+      return t("wifi.turningOffWiFiDisconnectsWireless");
     case "mode":
-      return c.mode === "hotspot"
-        ? `${via}${state?.current ? `板子将断开「${state.current.ssid}」，` : "板子将"}发出热点「${hotspotName}」。连入后访问 http://${(state?.hotspot?.address || "10.42.0.1").split("/")[0]} 打开管理面板。`
-        : keepHotspotFallback(state)
-          ? `${via}热点将关闭，已连入的设备会断开。板子会自动连接已保存的网络；30 秒内连不上会自动恢复热点。`
-          : `${via}热点将关闭，已连入的设备会断开。${state?.saved?.length ? "板子会尝试连接已保存的网络，" : "之后可在列表中选择网络连接，"}连不上时不会恢复热点。`;
+      if (c.mode === "hotspot") return t(remote ? "wifi.startHotspotRemoteHelp" : "wifi.startHotspotHelp", {
+        name: hotspotName || "", address: (state?.hotspot?.address || "10.42.0.1").split("/")[0],
+      });
+      if (keepHotspotFallback(state)) return t("wifi.clientFallbackHelp");
+      return state?.saved?.length
+        ? t(remote ? "wifi.clientSavedRemoteHelp" : "wifi.clientSavedHelp")
+        : t(remote ? "wifi.clientEmptyRemoteHelp" : "wifi.clientEmptyHelp");
     case "disconnect":
-      return `${via}断开「${state?.current?.ssid}」后不会自动重连，直到手动连接或板子重启。`;
+      return t(remote ? "wifi.disconnectRemoteHelp" : "wifi.disconnectHelp", { name: state?.current?.ssid || "" });
     case "forget":
-      return `删除「${c.network.ssid}」的保存密码${c.network.active ? "，并断开当前连接" : ""}。${c.network.active ? via : ""}`;
+      return t(c.network.active ? remote ? "wifi.forgetActiveRemoteHelp" : "wifi.forgetActiveHelp" : "wifi.forgetHelp", { name: c.network.ssid });
   }
 }
 
@@ -422,7 +419,7 @@ function JoinForm(props: {
   onJoin: () => void;
 }) {
   return (
-    <form aria-label="连接网络"
+    <form aria-label={t("wifi.joinNetwork")}
       className="flex flex-col gap-4 border-t p-4"
       onSubmit={(e) => {
         e.preventDefault();
@@ -431,24 +428,21 @@ function JoinForm(props: {
     >
       {props.secured && (
         <label className="flex min-w-0 flex-col gap-2 text-sm">
-          密码
-          <PasswordInput
+          {t("login.password")}<PasswordInput
             value={props.password}
             autoComplete="off"
             autoFocus
             aria-invalid={!!props.password && !props.valid}
             onChange={(e) => props.setPassword(e.target.value)}
           />
-          {!!props.password && !props.valid && <span className="text-xs text-muted-foreground">8–63 位字符，或 64 位十六进制密钥</span>}
+          {!!props.password && !props.valid && <span className="text-xs text-muted-foreground">{t("wifi.useCharactersOrADigitHexadecimal")}</span>}
         </label>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="outline" type="button" onClick={props.onCancel}>
-          取消
-        </Button>
+          {t("common.cancel")}</Button>
         <Button variant="default" type="submit" disabled={props.locked || !props.valid}>
-          连接
-        </Button>
+          {t("wifi.connect")}</Button>
       </div>
     </form>
   );

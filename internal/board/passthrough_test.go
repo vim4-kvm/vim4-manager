@@ -175,7 +175,7 @@ func TestPassthroughPreferencesSurviveRestartAndUnsupportedKernel(t *testing.T) 
 	for _, event := range events.List() {
 		texts = append(texts, event.Text)
 	}
-	for _, want := range []string{"透传已开启", "透传已关闭", "透传失败：当前内核不支持"} {
+	for _, want := range []string{"Passthrough enabled", "Passthrough disabled", "Passthrough failed: Unavailable on this kernel"} {
 		if !strings.Contains(strings.Join(texts, "\n"), want) {
 			t.Fatalf("missing %q in %v", want, texts)
 		}
@@ -198,7 +198,7 @@ func TestPassthroughFailureDoesNotPersistAndSaveFailureRestoresKernel(t *testing
 	if _, err := os.Stat(p.path); !os.IsNotExist(err) {
 		t.Fatalf("failed apply wrote preferences: %v", err)
 	}
-	if got := events.List()[0].Text; got != "透传失败：kernel refused" {
+	if got := events.List()[0].Text; got != "Passthrough failed: kernel refused" {
 		t.Fatal(got)
 	}
 	fake.err = nil
@@ -208,7 +208,7 @@ func TestPassthroughFailureDoesNotPersistAndSaveFailureRestoresKernel(t *testing
 		t.Fatal(err)
 	}
 	state, err = p.Set(ctx, PassthroughChange{Enabled: boolPointer(true)})
-	if err == nil || !strings.Contains(err.Error(), "保存透传设置失败") || state.Enabled || fake.state.Enabled {
+	if err == nil || !strings.Contains(err.Error(), "Couldn't save passthrough settings") || state.Enabled || fake.state.Enabled {
 		t.Fatalf("failed save must restore: %+v %v", state, err)
 	}
 }
@@ -226,12 +226,12 @@ func TestPassthroughScalingEventsFollowChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := events.List(); len(got) != 1 || got[0].Text != "透传输出已缩放到 1920×1080 59.94Hz" {
+	if got := events.List(); len(got) != 1 || got[0].Text != "Passthrough scaled to 1920×1080 59.94Hz" {
 		t.Fatalf("scale event duplicated or incorrect: %v", got)
 	}
 	fake.state.Output = &PassthroughOutput{Width: 1280, Height: 720, RefreshHz: 23.976, Scaled: true}
 	_, _ = p.Status(context.Background())
-	if got := events.List(); len(got) != 2 || got[0].Text != "透传输出已缩放到 1280×720 23.98Hz" {
+	if got := events.List(); len(got) != 2 || got[0].Text != "Passthrough scaled to 1280×720 23.98Hz" {
 		t.Fatalf("changed scale: %v", got)
 	}
 }

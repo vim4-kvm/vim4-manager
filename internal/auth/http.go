@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 const CookieName = "vim4_session"
@@ -26,12 +28,12 @@ func response(w http.ResponseWriter, status int, value any) {
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-func failure(w http.ResponseWriter, e error) {
+func failure(w http.ResponseWriter, r *http.Request, e error) {
 	code := 400
 	var locked *LockedError
 	switch {
 	case errors.As(e, &locked):
-		response(w, 429, map[string]any{"error": e.Error(), "retryAfter": locked.RetryAfter})
+		response(w, 429, map[string]any{"error": i18n.Message{Key: "auth.locked"}.Render(i18n.RequestLocale(r)), "retryAfter": locked.RetryAfter})
 		return
 	case errors.Is(e, ErrBusy), errors.Is(e, ErrUnavailable):
 		code = 503
@@ -40,7 +42,7 @@ func failure(w http.ResponseWriter, e error) {
 	case errors.Is(e, ErrConfigured):
 		code = 409
 	}
-	response(w, code, map[string]string{"error": e.Error()})
+	response(w, code, map[string]string{"error": i18n.RenderError(i18n.RequestLocale(r), e)})
 }
 
 func (s *Store) cookie(w http.ResponseWriter, r *http.Request, token string) {
@@ -73,7 +75,7 @@ func (s *Store) Require(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v := s.session(r)
 		if v == nil {
-			response(w, 401, map[string]string{"error": "未登录"})
+			response(w, 401, map[string]string{"error": i18n.Message{Key: "auth.signInRequired"}.Render(i18n.RequestLocale(r))})
 			return
 		}
 		ctx, cancel := context.WithCancel(r.Context())
@@ -139,11 +141,11 @@ func (s *Store) Routes() http.Handler {
 				Password string `json:"password"`
 			}
 			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body) != nil {
-				failure(w, errors.New("请求格式错误"))
+				failure(w, r, i18n.New("auth.invalidRequest", nil))
 				return
 			}
 			if action == "setup" && !LAN(Peer(r.RemoteAddr)) {
-				response(w, 403, map[string]string{"error": "请在局域网内完成首次设置"})
+				response(w, 403, map[string]string{"error": i18n.Message{Key: "auth.lanRequired"}.Render(i18n.RequestLocale(r))})
 				return
 			}
 			var token string
@@ -154,7 +156,7 @@ func (s *Store) Routes() http.Handler {
 				token, e = s.Login(r.Context(), Peer(r.RemoteAddr), r.UserAgent(), body.Username, body.Password)
 			}
 			if e != nil {
-				failure(w, e)
+				failure(w, r, e)
 				return
 			}
 			s.cookie(w, r, token)
@@ -163,7 +165,7 @@ func (s *Store) Routes() http.Handler {
 	}
 	mux.Handle("POST /__vim4/api/auth/logout", s.Require(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if e := s.Revoke(Current(r).ID, false); e != nil {
-			failure(w, e)
+			failure(w, r, e)
 			return
 		}
 		s.cookie(w, r, "")
@@ -202,7 +204,7 @@ func (s *Store) AccountRoutes() http.Handler {
 				Username        string `json:"username"`
 			}
 			if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body) != nil {
-				failure(w, errors.New("请求格式错误"))
+				failure(w, r, i18n.New("auth.invalidRequest", nil))
 				return
 			}
 			var e error
@@ -215,17 +217,17 @@ func (s *Store) AccountRoutes() http.Handler {
 				e = s.Change(r.Context(), Peer(r.RemoteAddr), Current(r), body.CurrentPassword, "", body.Password)
 			case "username":
 				if strings.TrimSpace(body.Username) == "" {
-					failure(w, errors.New("用户名不能为空"))
+					failure(w, r, i18n.New("auth.usernameRequired", nil))
 					return
 				}
 				e = s.Change(r.Context(), Peer(r.RemoteAddr), Current(r), body.CurrentPassword, body.Username, "")
 			}
 			if errors.Is(e, ErrCredentials) {
-				response(w, 403, map[string]string{"error": "当前密码错误"})
+				response(w, 403, map[string]string{"error": i18n.Message{Key: "auth.currentPassword"}.Render(i18n.RequestLocale(r))})
 				return
 			}
 			if e != nil {
-				failure(w, e)
+				failure(w, r, e)
 				return
 			}
 			response(w, 200, map[string]bool{"ok": true})

@@ -2,6 +2,7 @@ import { FadeIn } from "@/components/Motion";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InlineError } from "@/components/InlineError";
+import { EmptyState } from "@/components/EmptyState";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingsCard } from "@/components/SettingsCard";
 import { StatusLabel, type Tone } from "@/components/StatusDot";
@@ -13,7 +14,9 @@ import { DevelopmentBadge } from "@/components/DevelopmentBadge";
 import { isDevelopmentVersion } from "@/lib/version";
 import { PageHeading } from "@/components/PageHeading";
 import { KernelPanel } from "@/KernelPanel";
-import { ExternalLink, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw, PackageOpen } from "lucide-react";
+import { t, useLocale } from "@/i18n";
+import { time } from "@/i18n/format";
 
 
 // NanoKVM, JetKVM and One-KVM install updates from their own settings page,
@@ -21,16 +24,17 @@ import { ExternalLink, RefreshCw } from "lucide-react";
 const SELF_SERVICE: Record<string, string> = { "vim4-nanokvm": "nanokvm", "vim4-jetkvm": "jetkvm", "vim4-onekvm": "onekvm" };
 
 function state(update: Update): { tone: Tone; label: string } {
-  if (!update.installed) return { tone: "idle", label: "未安装" };
+  if (!update.installed) return { tone: "idle", label: t("tailscale.notInstalled") };
   if (update.error) return { tone: "warning", label: update.error };
-  if (update.available) return { tone: "warning", label: `可更新到 ${update.latest}` };
-  if (isDevelopmentVersion(update.installed)) return { tone: "idle", label: "暂无更新的正式版" };
+  if (update.available) return { tone: "warning", label: t("updates.updateTo", { p0: String(update.latest) }) };
+  if (isDevelopmentVersion(update.installed)) return { tone: "idle", label: t("updates.noNewerStableRelease") };
   // Not offered but different: a local build at or past the newest release.
-  if (update.latest && update.installed !== update.latest) return { tone: "good", label: "高于最新发布版" };
-  return { tone: "good", label: "已是最新" };
+  if (update.latest && update.installed !== update.latest) return { tone: "good", label: t("updates.newerThanLatestRelease") };
+  return { tone: "good", label: t("updates.upToDate") };
 }
 
 export function UpdatesPanel() {
+  const locale = useLocale();
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const active = useStatusStore((s) => s.status?.active);
@@ -58,37 +62,38 @@ export function UpdatesPanel() {
     const controller = new AbortController();
     void check(controller.signal);
     return () => controller.abort();
-  }, [busy, check]);
+  }, [busy, check, locale]);
 
   const install = (update: Update) => {
     setConfirming(undefined);
-    const restart = update.package === "vim4-manager" ? "，面板几秒后自动重新连接" : "";
-    void run(`正在下载并安装 ${update.name} ${update.latest}…`, () => installUpdate(update.package),
-      `${update.name} 已更新到 ${update.latest}${restart}`);
+    void run(t("updates.downloadingAndInstalling", { p0: String(update.name), p1: String(update.latest) }), () => installUpdate(update.package),
+      t(update.package === "vim4-manager" ? "updates.managerUpdated" : "updates.componentUpdated", { name: update.name, version: update.latest || "" }));
   };
 
   return (
     <>
       <PageHeading page="updates" action={
         <Button variant="outline" disabled={busy || checking} onClick={() => void check()}><RefreshCw className={checking ? "motion-safe:animate-spin" : undefined} />
-          {checking ? "检查中…" : "重新检查"}
+          {checking ? t("updates.checking") : t("updates.checkAgain")}
         </Button>
       } />
-      <SettingsCard label="内核" title="运行内核"><KernelPanel /></SettingsCard>
-      <SettingsCard label="更新" title="软件组件" description="从各项目在 GitHub 上的最新发布检查。平台组件（内核、采集、编码）需通过组件包或镜像升级。" flush>
+      <SettingsCard label={t("updates.kernel")} title={t("updates.runningKernel")}><KernelPanel /></SettingsCard>
+      <SettingsCard label={t("updates.update")} title={t("updates.softwareComponents")} description={t("updates.checksEachProjectSLatestGithub")} flush>
       <div className="p-4 sm:p-6">
-      {error && <InlineError>检查失败：{error}</InlineError>}
+      {error && <InlineError>{t("updates.checkFailed", { reason: error })}</InlineError>}
       {!updates ? (
         !error && <PanelSkeleton />
+      ) : updates.length === 0 ? (
+        <EmptyState icon={PackageOpen}>{t("updates.noComponents")}</EmptyState>
       ) : (
-        <FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:bg-muted/60 [&_th]:px-3 [&_th]:py-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-b [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle [&_tr:last-child_td]:border-b-0">
+        <FadeIn className="min-w-0 overflow-auto"><table className="w-full text-left text-sm [&_th]:bg-muted/60 [&_th]:px-3 [&_th]:py-3 [&_th]:text-xs [&_th]:font-medium [&_th]:text-muted-foreground [&_td]:border-b [&_td]:px-3 [&_td]:py-4 [&_td]:align-middle [&_tr:last-child_td]:border-b-0 max-md:block max-md:[&_tbody]:block max-md:[&_thead]:block max-md:[&_tr]:grid max-md:[&_tr]:grid-cols-2 max-md:[&_td]:min-w-0 max-md:[&_td]:border-b-0 max-md:[&_tbody_tr]:border-b max-md:[&_tbody_tr:last-child]:border-b-0">
           <thead>
             <tr>
-              <th>项目</th>
-              <th className="hidden md:table-cell">已安装</th>
-              <th className="hidden xl:table-cell">最新版本</th>
-              <th>状态</th>
-              <th aria-label="操作" />
+              <th>{t("updates.component")}</th>
+              <th className="hidden md:table-cell">{t("updates.installed")}</th>
+              <th className="hidden xl:table-cell">{t("updates.latestVersion")}</th>
+              <th>{t("updates.status")}</th>
+              <th className="hidden md:table-cell" aria-label={t("common.actions")} />
             </tr>
           </thead>
           <tbody>
@@ -99,8 +104,8 @@ export function UpdatesPanel() {
                   <td>
                     <span className="flex flex-wrap items-center gap-2 font-medium">{update.name}<DevelopmentBadge version={update.installed} /></span>
                     <a className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-link hover:underline" href={`https://github.com/vim4-kvm/${update.repo}/releases`} target="_blank" rel="noreferrer"
-                      aria-label={`${update.name} 的 GitHub 发布页（${update.repo}）`}>
-                      发布页<ExternalLink aria-hidden="true" className="size-3" />
+                      aria-label={t("updates.githubReleasesFor", { p0: String(update.name), p1: String(update.repo) })}>
+                      {t("updates.releases")}<ExternalLink aria-hidden="true" className="size-3" />
                     </a>
                   </td>
                   <td className="font-mono break-all text-muted-foreground hidden md:table-cell text-xs">{update.installed || "—"}</td>
@@ -110,27 +115,25 @@ export function UpdatesPanel() {
                       {label}
                     </StatusLabel>
                     {update.available && update.selfService && active !== SELF_SERVICE[update.package] && (
-                      <span className="text-muted-foreground mt-1 block text-xs">切换到 {update.name} 后在其设置中更新</span>
+                      <span className="text-muted-foreground mt-1 block text-xs">{t("updates.selfServiceHelp", { name: update.name })}</span>
                     )}
                   </td>
-                  <td className="text-right">
+                  <td className="text-right max-md:col-span-2 max-md:pt-0">
                     {update.available && update.selfService && active === SELF_SERVICE[update.package] && (
                       <Button asChild variant="outline"><a href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
-                        在 {update.name} 中更新
-                      </a></Button>
+                        {t("updates.selfServiceAction", { name: update.name })}</a></Button>
                     )}
                     {update.available && !update.selfService && (
                       confirming === update.package ? (
-                        <ConfirmDialog open title={`确认更新 ${update.name}`} confirm="更新" disabled={busy}
-                          description={update.package === "vim4-pikvm" ? "PiKVM 运行中会重启。" : "管理面板会重启。"}
+                        <ConfirmDialog open title={t("updates.update211", { p0: String(update.name) })} confirm={t("updates.update")} disabled={busy}
+                          description={update.package === "vim4-pikvm" ? t("updates.pikvmWillRestartIfItIs") : t("updates.theManagerWillRestart")}
                           onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => install(update)} />
                       ) : (
                         <Button variant="default" disabled={busy} onClick={() => setConfirming(update.package)}>
-                          更新
-                        </Button>
+                          {t("updates.update")}</Button>
                       )
                     )}
-                    {!update.available && update.selfService && <span className="text-xs text-muted-foreground">在 KVM 内更新</span>}
+                    {!update.available && update.selfService && <span className="text-xs text-muted-foreground">{t("updates.updateInKvm")}</span>}
                   </td>
                 </tr>
               );
@@ -140,7 +143,7 @@ export function UpdatesPanel() {
       )}
       </div>
       </SettingsCard>
-      <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground"><span>上次检查：{checkedAt ? new Date(checkedAt).toLocaleTimeString("zh-CN", { hour12: false }) : "尚未完成"}</span><a className="text-link hover:underline" href="#/overview">查看设备与版本 →</a></div>
+      <div className="flex flex-wrap justify-between gap-3 text-xs text-muted-foreground"><span>{checkedAt ? t("updates.checkedAt", { time: time(checkedAt) }) : t("updates.notCheckedYet")}</span><a className="text-link hover:underline" href="#/overview">{t("updates.viewDeviceAndVersions")}</a></div>
     </>
   );
 }

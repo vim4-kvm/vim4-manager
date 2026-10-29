@@ -3,7 +3,7 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"net/netip"
 	"net/url"
 	"regexp"
@@ -71,7 +71,7 @@ func (s *Service) TailscalePing(ctx context.Context, ip string) (TailscalePingRe
 	address, err := netip.ParseAddr(ip)
 	if err != nil || address.Zone() != "" ||
 		!(tailscaleNetworks[0].Contains(address) || tailscaleNetworks[1].Contains(address)) {
-		return result, fmt.Errorf("需要有效的 Tailscale IP 地址")
+		return result, i18n.New("tailscale.invalidIP", nil)
 	}
 	s.tailscalePingOnce.Do(func() { s.tailscalePings = make(chan struct{}, 2) })
 	select {
@@ -84,10 +84,10 @@ func (s *Service) TailscalePing(ctx context.Context, ip string) (TailscalePingRe
 	defer cancel()
 	output, err := s.Run(ctx, "sudo", "-n", Helper, "tailscale-ping", address.String())
 	if err != nil {
-		return result, fmt.Errorf("Tailscale 连接测试失败：%s", strings.TrimPrefix(err.Error(), "sudo: "))
+		return result, i18n.Wrap(err, "tailscale.pingFailed", map[string]any{"p0": networkHelperError(err)})
 	}
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
-		return result, fmt.Errorf("Tailscale 连接测试结果无效：%w", err)
+		return result, i18n.Wrap(err, "tailscale.invalidPing", map[string]any{"p0": err})
 	}
 	if result.Path != "derp" {
 		result.Via = ""
@@ -100,6 +100,7 @@ type TailscaleJob struct {
 	Action  string `json:"action"`
 	Running bool   `json:"running"`
 	Error   string `json:"error"`
+	failure error
 }
 
 func (s *Service) Tailscale(ctx context.Context) (TailscaleState, error) {
@@ -136,28 +137,28 @@ func (s *Service) TailscaleAction(ctx context.Context, action, controlURL, previ
 	var label string
 	switch action {
 	case "install":
-		label = "提交 Tailscale 安装任务"
+		label = "events.tailscaleInstall"
 	case "uninstall":
-		label = "提交 Tailscale 卸载任务"
+		label = "events.tailscaleUninstall"
 	case "up":
-		label = "连接 Tailscale"
+		label = "events.tailscaleConnected"
 	case "down":
-		label = "断开 Tailscale"
+		label = "events.tailscaleDisconnected"
 	case "login":
-		label = "发起 Tailscale 登录"
+		label = "events.tailscaleLogin"
 		if !tailscaleControlURL.MatchString(controlURL) {
-			return "", fmt.Errorf("控制服务器地址需为 http(s)://host[:port]")
+			return "", i18n.New("tailscale.invalidControlURL", nil)
 		}
 	case "logout":
-		label = "退出 Tailscale 登录"
+		label = "events.tailscaleLogout"
 	default:
-		return "", fmt.Errorf("未知 Tailscale 操作 %q", action)
+		return "", i18n.New("tailscale.unknownAction", map[string]any{"p0": action})
 	}
 	if action != "login" && controlURL != "" {
-		return "", fmt.Errorf("控制服务器只能在登录时指定")
+		return "", i18n.New("tailscale.controlLoginOnly", nil)
 	}
 	if previousControlURL != "" && (action != "login" || !tailscaleControlURL.MatchString(previousControlURL)) {
-		return "", fmt.Errorf("确认的控制服务器地址无效")
+		return "", i18n.New("tailscale.invalidPreviousControl", nil)
 	}
 
 	s.tailscaleMu.Lock()
@@ -188,27 +189,28 @@ func (s *Service) runTailscaleAction(ctx context.Context, action, controlURL, pr
 	// This subsystem owns its own job lock; s.helper would serialize KVM switches.
 	output, err := s.Run(ctx, "sudo", args...)
 	if err != nil {
-		err = fmt.Errorf("Tailscale 操作失败：%s", strings.TrimPrefix(err.Error(), "sudo: "))
+		err = i18n.Wrap(err, "tailscale.actionFailed", map[string]any{"p0": networkHelperError(err)})
 	}
 	var result struct {
 		AuthURL string `json:"authURL"`
 	}
 	if err == nil && action == "login" {
 		if decodeErr := json.Unmarshal([]byte(output), &result); decodeErr != nil {
-			err = fmt.Errorf("Tailscale 登录结果无效：%w", decodeErr)
+			err = i18n.Wrap(decodeErr, "tailscale.invalidLogin", map[string]any{"p0": decodeErr})
 		}
 		if err == nil && !validTailscaleAuthURL(result.AuthURL) {
-			err = fmt.Errorf("Tailscale 登录地址无效")
+			err = i18n.New("tailscale.invalidAuthURL", nil)
 		}
 	}
 	s.tailscaleReadMu.Lock()
 	s.tailscaleReadAt = time.Time{}
 	s.tailscaleReadMu.Unlock()
-	err = s.record(err, "%s", label)
+	err = s.recordMessage(err, i18n.Message{Key: label})
 	s.tailscaleMu.Lock()
 	s.tailscaleJob.Running = false
 	if err != nil {
 		s.tailscaleJob.Error = err.Error()
+		s.tailscaleJob.failure = err
 	}
 	s.tailscaleMu.Unlock()
 	return result.AuthURL, err

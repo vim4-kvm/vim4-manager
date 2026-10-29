@@ -1,5 +1,7 @@
 import type { Unit } from "@/api";
 import type { Tone } from "@/components/StatusDot";
+import { getLocale, t } from "@/i18n";
+import { dateTime, durationPart, number, time } from "@/i18n/format";
 
 export function unitTone(unit: Unit): Tone {
   if (!unit.loaded) return "idle";
@@ -10,19 +12,19 @@ export function unitTone(unit: Unit): Tone {
 }
 
 export function unitLabel(unit: Unit): string {
-  if (!unit.loaded) return "未安装";
+  if (!unit.loaded) return t("units.notInstalled");
   switch (unit.active) {
     case "active":
       // Oneshot board units stay "active (exited)" after doing their work.
-      return unit.sub === "exited" ? "已完成" : "运行中";
+      return unit.sub === "exited" ? t("units.completed") : t("units.running");
     case "failed":
-      return "失败";
+      return t("units.failed");
     case "activating":
-      return "启动中";
+      return t("units.starting");
     case "deactivating":
-      return "停止中";
+      return t("units.stopping");
     default:
-      return "已停止";
+      return t("units.stopped");
   }
 }
 
@@ -30,9 +32,9 @@ export function duration(seconds: number): string {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor((seconds % 86400) / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
-  if (days > 0) return `${days} 天 ${hours} 小时`;
-  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
-  return `${minutes} 分钟`;
+  const parts = [[days, "day"], [hours, "hour"], [minutes, "minute"]] as const;
+  const shown = parts.filter(([value]) => value > 0).slice(0, 2);
+  return (shown.length ? shown : [[0, "minute"]] as const).map(([value, unit]) => durationPart(value, unit)).join(getLocale() === "en" ? " " : "");
 }
 
 export function since(unit: Unit, now: number): string | undefined {
@@ -48,7 +50,7 @@ export function kvmURL(port: number, app: string): string {
   return `${location.protocol}//${location.hostname}:${port}/?kvm=${encodeURIComponent(app)}`;
 }
 
-export const celsius = (v: number) => `${v.toFixed(1)} °C`;
+export const celsius = (v: number) => `${number(v, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
 
 // Receiver values include HDR10-GAMMA_ST2084, HDR10-GAMMA_HLG and HDR10Plus-VSIF.
 export function hdrLabel(status?: string): string | undefined {
@@ -61,6 +63,5 @@ export function hdrLabel(status?: string): string | undefined {
 
 export function clockTime(t: number, now: number): string {
   const d = new Date(t);
-  const time = d.toLocaleTimeString("zh-CN", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  return new Date(now).toDateString() === d.toDateString() ? time : `${d.getMonth() + 1}/${d.getDate()} ${time}`;
+  return new Date(now).toDateString() === d.toDateString() ? time(d) : dateTime(d);
 }

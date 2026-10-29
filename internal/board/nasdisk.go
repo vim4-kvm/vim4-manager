@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 type NASDiskRequest struct {
@@ -21,19 +22,19 @@ type NASDiskRequest struct {
 
 func (s *Service) NASDiskCommand(ctx context.Context, action string, request *NASDiskRequest) (json.RawMessage, error) {
 	if action == "start" && request != nil && request.UTCOffsetMinutes != nil && (*request.UTCOffsetMinutes < -720 || *request.UTCOffsetMinutes > 840) {
-		return nil, fmt.Errorf("时区偏移必须是 -720 到 840 之间的整数分钟")
+		return nil, i18n.New("nasDisk.timezone", nil)
 	}
 	switch action {
 	case "status", "start", "cancel", "commit", "reattach", "discard", "trash-empty":
 	default:
-		return nil, fmt.Errorf("不支持的 NAS U 盘操作")
+		return nil, i18n.New("nasDisk.unsupported", nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	args := []string{"-n", Helper, "nasdisk-" + action}
 	if action == "commit" || action == "reattach" || action == "discard" {
 		if request == nil || request.ID == "" {
-			return nil, fmt.Errorf("缺少会话 ID")
+			return nil, i18n.New("nasDisk.missingSession", nil)
 		}
 		args = append(args, request.ID)
 		if action == "commit" && request.Force {
@@ -51,13 +52,13 @@ func (s *Service) NASDiskCommand(ctx context.Context, action string, request *NA
 		run = ExecStream
 	}
 	if err := run(ctx, &input, &output, "sudo", args...); err != nil {
-		if err.Error() == "另一个 NAS U 盘操作正在进行，请稍后重试" {
-			return nil, ErrBusy
+		if err.Error() == (i18n.Message{Key: "nasDisk.busy"}).Render(i18n.English) || err.Error() == (i18n.Message{Key: "nasDisk.busy"}).Render(i18n.Chinese) {
+			return nil, i18n.Wrap(ErrBusy, "nasDisk.busy", nil)
 		}
-		return nil, err
+		return nil, storageHelperError(err)
 	}
 	if !json.Valid(output.Bytes()) {
-		return nil, fmt.Errorf("NAS U 盘响应无效")
+		return nil, i18n.New("nasDisk.invalidResponse", nil)
 	}
 	return json.RawMessage(output.Bytes()), nil
 }

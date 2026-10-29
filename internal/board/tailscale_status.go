@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ func (s *Service) tailscaleJSON(ctx context.Context, path string, target any) er
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("Tailscale LocalAPI: HTTP %d", response.StatusCode)
+		return i18n.New("tailscale.localAPIStatus", map[string]any{"status": response.StatusCode})
 	}
 	return json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(target)
 }
@@ -68,7 +69,7 @@ func (s *Service) readTailscale(ctx context.Context) (TailscaleState, error) {
 		if ctx.Err() == nil && errors.As(err, &connectionError) {
 			return state, nil
 		}
-		return state, fmt.Errorf("无法读取 Tailscale：%w", err)
+		return state, i18n.Wrap(err, "tailscale.readFailed", map[string]any{"p0": err})
 	}
 	state.Installed, state.Running = true, true
 	state.BackendState, state.Version = status.BackendState, status.Version
@@ -109,7 +110,7 @@ func (s *Service) readTailscale(ctx context.Context) (TailscaleState, error) {
 	})
 	var prefs struct{ ControlURL string }
 	if err := s.tailscaleJSON(ctx, "prefs", &prefs); err != nil {
-		return state, fmt.Errorf("无法读取 Tailscale 配置：%w", err)
+		return state, i18n.Wrap(err, "tailscale.prefsFailed", map[string]any{"p0": err})
 	}
 	if prefs.ControlURL != "" {
 		state.ControlURL = prefs.ControlURL
@@ -156,8 +157,83 @@ func (s *Service) tailscalePackageJob(ctx context.Context) *TailscaleJob {
 			if readErr == nil && json.Unmarshal(latest, &completed) == nil && !completed.Running {
 				return &completed
 			}
-			job.Running, job.Error = false, "Tailscale 包操作已中断，请重试"
+			job.failure = i18n.New("tailscale.packageInterrupted", nil)
+			job.Running, job.Error = false, job.failure.Error()
 		}
 	}
 	return &job
+}
+
+// LocalizeTailscaleJob renders a response copy. Shared job state remains in
+// English, so one browser cannot change another browser's language.
+func LocalizeTailscaleJob(job *TailscaleJob, locale i18n.Locale) {
+	if job.failure != nil {
+		job.Error = i18n.RenderError(locale, job.failure)
+	} else {
+		job.Error = NetworkHelperText(locale, job.Error)
+	}
+}
+
+func NetworkHelperText(locale i18n.Locale, text string) string {
+	if message, ok := networkHelperMessage(text); ok {
+		return message.Render(locale)
+	}
+	return i18n.HelperText(locale, text)
+}
+
+func networkHelperError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var contextual *i18n.Error
+	if errors.As(err, &contextual) && contextual.Message.Key == "common.operationFailed" {
+		if reason, ok := contextual.Message.Args["reason"].(error); ok {
+			return i18n.Wrap(err, contextual.Message.Key, map[string]any{"reason": networkHelperError(reason)})
+		}
+	}
+	if message, ok := networkHelperMessage(err.Error()); ok {
+		return i18n.Wrap(err, message.Key, message.Args)
+	}
+	return i18n.HelperError(err)
+}
+
+var networkCommandFailure = regexp.MustCompile(`^([a-zA-Z0-9/-]+ [a-zA-Z0-9-]+) failed: (.*)$`)
+var tailscaleAPIStatus = regexp.MustCompile(`^Tailscale local API failed \(([0-9]+)\)$`)
+var updateNotInstalled = regexp.MustCompile(`^([a-zA-Z0-9-]+) is not installed; deploy it with the component packages$`)
+
+func networkHelperMessage(text string) (i18n.Message, bool) {
+	text = strings.TrimPrefix(text, "sudo: ")
+	for _, pattern := range i18n.KernelMediaLegacyPatterns {
+		if matches := regexp.MustCompile(pattern).FindStringSubmatch(text); matches != nil {
+			return i18n.Message{Key: "kernel.mediaMounted", Args: map[string]any{"name": matches[1]}}, true
+		}
+	}
+	if key, ok := i18n.NetworkHelperLegacy[text]; ok {
+		return i18n.Message{Key: key}, true
+	}
+	for _, key := range i18n.NetworkHelperLegacy {
+		message := i18n.Message{Key: key}
+		if text == message.Render(i18n.English) {
+			return message, true
+		}
+	}
+	for _, suffix := range i18n.NetworkHelperSuffixes {
+		if reason, ok := strings.CutSuffix(text, suffix); ok {
+			var detail any = reason
+			if message, known := networkHelperMessage(reason); known {
+				detail = message
+			}
+			return i18n.Message{Key: "wifi.hotspotRestoredReason", Args: map[string]any{"reason": detail}}, true
+		}
+	}
+	if matches := networkCommandFailure.FindStringSubmatch(text); matches != nil {
+		return i18n.Message{Key: "tailscale.commandFailed", Args: map[string]any{"command": matches[1], "detail": matches[2]}}, true
+	}
+	if matches := tailscaleAPIStatus.FindStringSubmatch(text); matches != nil {
+		return i18n.Message{Key: "tailscale.localAPIStatus", Args: map[string]any{"status": matches[1]}}, true
+	}
+	if matches := updateNotInstalled.FindStringSubmatch(text); matches != nil {
+		return i18n.Message{Key: "updates.componentMissing", Args: map[string]any{"package": matches[1]}}, true
+	}
+	return i18n.Message{}, false
 }

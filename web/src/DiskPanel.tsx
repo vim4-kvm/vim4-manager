@@ -1,3 +1,5 @@
+import { t, useLocale, getLocale } from "@/i18n";
+import { number, dateTime } from "@/i18n/format";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/Spinner";
 import { FadeIn } from "@/components/Motion";
@@ -32,18 +34,19 @@ type Report = (tone: "good" | "critical", text: string) => void;
 const FAT_FILE_LIMIT = 2 ** 32 - 1;
 const SIZES = [256, 1024, 4096, 16384];
 const GROW_SIZES = [512, 1024, 2048, 4096, 8192, 16384, 32768];
-const LEAVE_UPLOAD = "正在上传，离开会中断上传。确定离开？";
+const leaveUpload = () => t("disk.anUploadIsInProgressLeaving");
 
 export function bytes(value: number): string {
-  if (value >= 2 ** 40) return `${(value / 2 ** 40).toFixed(1)} TiB`;
-  if (value >= 2 ** 30) return `${(value / 2 ** 30).toFixed(1)} GiB`;
-  if (value >= 2 ** 20) return `${(value / 2 ** 20).toFixed(1)} MiB`;
-  if (value >= 2 ** 10) return `${(value / 2 ** 10).toFixed(0)} KiB`;
-  return `${value} B`;
+  const decimal = (v: number) => number(v, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  if (value >= 2 ** 40) return `${decimal(value / 2 ** 40)} TiB`;
+  if (value >= 2 ** 30) return `${decimal(value / 2 ** 30)} GiB`;
+  if (value >= 2 ** 20) return `${decimal(value / 2 ** 20)} MiB`;
+  if (value >= 2 ** 10) return `${number(value / 2 ** 10, { maximumFractionDigits: 0 })} KiB`;
+  return `${number(value)} B`;
 }
 
 function when(seconds: number): string {
-  return new Date(seconds * 1000).toLocaleString("zh-CN", { hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+  return dateTime(seconds * 1000, { year: "numeric", second: undefined });
 }
 
 const join = (dir: string, name: string) => (dir === "/" ? `/${name}` : `${dir}/${name}`);
@@ -92,12 +95,12 @@ function ArmedButton({ label, armedLabel, ariaLabel, disabled, working, onConfir
 
 function DiskState({ disk }: { disk: Disk }) {
   return <StatusLabel tone={disk.attached ? "idle" : disk.editing ? "warning" : "good"}>
-    {disk.attached ? disk.readOnly ? "已挂载（只读）" : "已挂载到被控电脑" : disk.editing ? "正在编辑" : "空闲"}
+    {disk.attached ? disk.readOnly ? t("disk.mountedReadOnly") : t("disk.mountedOnHost") : disk.editing ? t("disk.editing") : t("disk.available")}
   </StatusLabel>;
 }
 
 function Usage({ disk }: { disk: Disk }) {
-  if (disk.freeBytes == null) return <span className="text-muted-foreground">无法读取文件系统</span>;
+  if (disk.freeBytes == null) return <span className="text-muted-foreground">{t("disk.couldnTReadTheFileSystem")}</span>;
   const used = Math.max(0, disk.size - disk.freeBytes);
   const percent = Math.min(100, (used / disk.size) * 100);
   return (
@@ -105,7 +108,7 @@ function Usage({ disk }: { disk: Disk }) {
       <span className="block h-1.5 w-full overflow-hidden rounded-full bg-muted [&>span]:block [&>span]:h-full [&>span]:bg-chart-1" aria-hidden="true">
         <span style={{ width: `${percent}%` }} />
       </span>
-      <span className="tabular-nums">已用 {bytes(used)} / {bytes(disk.size)}</span>
+      <span className="tabular-nums">{t("disk.usedCapacity", { used: bytes(used), total: bytes(disk.size) })}</span>
     </span>
   );
 }
@@ -117,39 +120,39 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
   const [label, setLabel] = useState("VIM4KVM");
   const [sizeMiB, setSizeMiB] = useState(1024);
   const file = `${name.trim()}.img`;
-  const invalid = !/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/.test(name.trim()) ? "名称只能包含字母、数字、点、下划线和短横线，且以字母或数字开头。"
-    : disks.some((disk) => disk.name.toLowerCase() === file.toLowerCase()) ? "已有同名数据盘。"
-    : !label.trim() ? "卷标不能为空。"
-    : sizeMiB < 64 || sizeMiB > 32768 ? "容量需在 64 MiB 到 32 GiB 之间。"
+  const invalid = !/^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/.test(name.trim()) ? t("disk.useLettersNumbersPeriodsUnderscoresAnd")
+    : disks.some((disk) => disk.name.toLowerCase() === file.toLowerCase()) ? t("disk.aDataDiskWithThisName")
+    : !label.trim() ? t("disk.enterAVolumeLabel")
+    : sizeMiB < 64 || sizeMiB > 32768 ? t("disk.chooseACapacityBetweenMibAnd")
     : undefined;
 
   return (
     <>
-    <Button disabled={busy || disks.length >= 8} onClick={() => setOpen(true)}><Plus />新建数据盘</Button>
-    {open && <DetailsDialog open title="新建数据盘" onOpenChange={(value) => { if (!busy) setOpen(value); }}>
+    <Button disabled={busy || disks.length >= 8} onClick={() => setOpen(true)}><Plus />{t("disk.createDataDisk")}</Button>
+    {open && <DetailsDialog open title={t("disk.createDataDisk")} onOpenChange={(value) => { if (!busy) setOpen(value); }}>
     <form
       className="flex w-full min-w-0 flex-col gap-4"
       onKeyDown={(event) => { if (event.key === "Escape" && !busy) setOpen(false); }}
       onSubmit={(event) => {
         event.preventDefault();
         if (invalid) return;
-        void track("create")(`正在创建 ${file}…`, () => request("/api/disks", { name: file, sizeMiB, label: label.trim() }), `数据盘 ${file} 已创建`)
+        void track("create")(t("disk.creating", { p0: String(file) }), () => request("/api/disks", { name: file, sizeMiB, label: label.trim() }), t("disk.dataDiskCreated", { p0: String(file) }))
           .then((ok) => { if (ok) { setOpen(false); setName(""); onCreated(file); } });
       }}
     >
       <label className="flex min-w-0 flex-col gap-2 text-sm">
-        <span>名称</span>
+        <span>{t("disk.name")}</span>
         <span className="flex items-center gap-2">
           <Input autoFocus value={name} disabled={busy} maxLength={60} placeholder="tools" onChange={(event) => setName(event.target.value)} />
           <span className="text-muted-foreground">.img</span>
         </span>
       </label>
       <label className="flex min-w-0 flex-col gap-2 text-sm">
-        <span>卷标</span>
+        <span>{t("disk.volumeLabel")}</span>
         <Input value={label} disabled={busy} onChange={(event) => setLabel(normalizeLabel(event.target.value))} />
       </label>
       <fieldset className="flex min-w-0 flex-wrap gap-2 text-sm [&_legend]:mb-2">
-        <legend>容量</legend>
+        <legend>{t("disk.capacity")}</legend>
         {SIZES.map((size) => (
           <label key={size} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 has-checked:border-primary has-checked:bg-primary/5${size === sizeMiB ? " border-primary bg-primary/5" : ""}`}>
             <input className="accent-primary" type="radio" name="disk-size" checked={size === sizeMiB} disabled={busy} onChange={() => setSizeMiB(size)} />
@@ -157,11 +160,11 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
           </label>
         ))}
       </fieldset>
-      <p className="text-sm text-muted-foreground">FAT32 文件系统，Windows、macOS 与 Linux 均可直接读写；单个文件不能超过 4 GiB。空间立即在板子上分配。</p>
+      <p className="text-sm text-muted-foreground">{t("disk.fatWorksWithWindowsMacosAnd")}</p>
       <div className="flex flex-wrap items-center justify-end gap-2">
         {invalid && name && <span className="text-destructive">{invalid}</span>}
-        <Button variant="outline" type="button" disabled={busy} onClick={() => setOpen(false)}>取消</Button>
-        <Action variant="default" type="submit" working={doing === "create"} disabled={busy || !!invalid}>创建</Action>
+        <Button variant="outline" type="button" disabled={busy} onClick={() => setOpen(false)}>{t("common.cancel")}</Button>
+        <Action variant="default" type="submit" working={doing === "create"} disabled={busy || !!invalid}>{t("disk.create")}</Action>
       </div>
     </form>
     </DetailsDialog>}
@@ -170,7 +173,7 @@ function CreateDisk({ disks, busy, run, onCreated }: { disks: Disk[]; busy: bool
 }
 
 function duration(seconds: number): string {
-  return seconds < 60 ? `约 ${Math.max(1, Math.round(seconds))} 秒` : `约 ${Math.round(seconds / 60)} 分钟`;
+  return seconds < 60 ? t("disk.aboutSeconds", { p0: String(Math.max(1, Math.round(seconds))) }) : t("disk.aboutMinutes", { p0: String(Math.round(seconds / 60)) });
 }
 
 function Uploads({ uploads, started, onCancel }: { uploads: Upload[]; started: number; onCancel: () => void }) {
@@ -189,20 +192,19 @@ function Uploads({ uploads, started, onCancel }: { uploads: Upload[]; started: n
       <div className="flex flex-wrap items-center gap-3">
         {finished ? <span className="text-success" aria-hidden="true">✓</span> : <Spinner />}
         <strong>
-          {finished ? `已上传 ${uploads.length} 个文件` : writing ? `正在写入 ${current.file.name}…` : `正在上传 ${current.file.name}`}
+          {finished ? t("disk.filesUploaded", { p0: String(uploads.length) }) : writing ? t("disk.writing", { p0: String(current.file.name) }) : t("disk.uploading", { p0: String(current.file.name) })}
         </strong>
-        {!finished && uploads.length > 1 && <span className="tabular-nums text-muted-foreground">第 {index + 1}/{uploads.length} 个</span>}
+        {!finished && uploads.length > 1 && <span className="tabular-nums text-muted-foreground">{t("disk.uploadPosition", { current: index + 1, total: uploads.length })}</span>}
         <span className="tabular-nums text-muted-foreground">{bytes(sent)} / {bytes(total)}</span>
-        {!finished && <Button variant="outline" onClick={onCancel}>取消</Button>}
+        {!finished && <Button variant="outline" onClick={onCancel}>{t("common.cancel")}</Button>}
       </div>
       <span className="block h-1.5 w-full overflow-hidden rounded-full bg-primary/10 [&>span]:block [&>span]:h-full [&>span]:bg-primary" role="progressbar" aria-valuemin={0} aria-valuemax={total || 1} aria-valuenow={sent}>
         <span style={{ width: `${total ? (sent / total) * 100 : 100}%` }} />
       </span>
       {!finished && (
         <p className="text-sm text-muted-foreground tabular-nums">
-          {rate > 0 && `${bytes(rate)}/s · 剩余${duration((total - sent) / rate)} · `}
-          文件先完整传到板子，再写入数据盘；离开此页会中断上传。
-        </p>
+          {rate > 0 && t("disk.sRemaining", { p0: String(bytes(rate)), p1: String(duration((total - sent) / rate)) })}
+          {t("disk.filesUploadToTheBoardBefore")}</p>
       )}
     </div>
   );
@@ -215,11 +217,11 @@ interface Upload {
 }
 
 function dropBlocked(disk: Disk, busy: boolean, uploading: boolean, loaded: boolean): string | undefined {
-  if (disk.attached) return "数据盘挂载在被控电脑上，不能上传";
-  if (disk.editing) return "数据盘正在编辑，暂时不能上传";
-  if (uploading) return "正在上传，完成后再拖入";
-  if (busy) return "正在处理其他操作，稍后再拖入";
-  if (!loaded) return "文件列表加载中，稍后再拖入";
+  if (disk.attached) return t("disk.theDiskIsMountedOnThe");
+  if (disk.editing) return t("disk.theDiskIsBeingEditedWait");
+  if (uploading) return t("disk.waitForTheCurrentUploadBefore");
+  if (busy) return t("disk.anotherOperationIsInProgressTry");
+  if (!loaded) return t("disk.theFileListIsLoadingWait");
   return undefined;
 }
 
@@ -283,7 +285,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
     const unload = (event: BeforeUnloadEvent) => event.preventDefault();
     const leave = (event: MouseEvent) => {
       const link = (event.target as Element).closest?.("a[href^='#/']");
-      if (link && link.getAttribute("href") !== "#/disks" && !window.confirm(LEAVE_UPLOAD)) event.preventDefault();
+      if (link && link.getAttribute("href") !== "#/disks" && !window.confirm(leaveUpload())) event.preventDefault();
     };
     window.addEventListener("beforeunload", unload);
     document.addEventListener("click", leave, true);
@@ -315,10 +317,10 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
         done += 1;
       }
       ok = true;
-      report("good", `已上传 ${done} 个文件到 ${disk.name}`);
+      report("good", t("disk.filesUploadedTo", { p0: String(done), p1: String(disk.name) }));
     } catch (e) {
       const cancelled = e instanceof DOMException && e.name === "AbortError";
-      report("critical", cancelled ? `已取消上传；${done} 个文件已完成` : `${(e as Error).message}；${done} 个文件已完成`);
+      report("critical", cancelled ? t("disk.uploadCanceledFilesCompleted", { p0: String(done) }) : t("disk.filesCompleted", { p0: String((e as Error).message), p1: String(done) }));
     } finally {
       abort.current = undefined;
       refresh();
@@ -333,14 +335,14 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
   const chooseFiles = (list: FileList | null) => {
     const files = [...(list ?? [])];
     if (!files.length) return;
-    if (!entries) return report("critical", "文件列表尚未加载，请稍后再上传");
+    if (!entries) return report("critical", t("disk.waitForTheFileListTo"));
     const tooLarge = files.find((file) => file.size > FAT_FILE_LIMIT);
-    if (tooLarge) return report("critical", `${tooLarge.name} 超过 FAT32 单个文件 4 GiB 上限`);
+    if (tooLarge) return report("critical", t("disk.exceedsTheFatLimitOfLess", { p0: String(tooLarge.name) }));
     const badName = files.find((file) => !validName(file.name));
-    if (badName) return report("critical", `文件名「${badName.name}」不能用于 FAT 文件系统`);
+    if (badName) return report("critical", t("disk.theFilenameIsnTSupportedBy", { p0: String(badName.name) }));
     const total = files.reduce((sum, file) => sum + file.size, 0);
     if (disk.freeBytes != null && total > disk.freeBytes) {
-      return report("critical", `空间不足：需要 ${bytes(total)}，剩余 ${bytes(disk.freeBytes)}`);
+      return report("critical", t("disk.notEnoughSpaceNeededAvailable", { p0: String(bytes(total)), p1: String(bytes(disk.freeBytes)) }));
     }
     // FAT names compare case-insensitively.
     const existing = new Set(entries.map((entry) => entry.name.toLowerCase()));
@@ -359,9 +361,9 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
   return (
     <SettingsCard
       className={dragging ? "ring-2 ring-primary" : undefined}
-      title="文件"
+      title={t("disk.file41")}
       description={
-        <nav className="flex min-w-0 flex-wrap items-center gap-1" aria-label="路径">
+        <nav className="flex min-w-0 flex-wrap items-center gap-1" aria-label={t("disk.path")}>
           <Button variant="link" size="inline" className="text-sm disabled:text-foreground disabled:opacity-100" disabled={path === "/"} onClick={() => setPath("/")}>{disk.label || disk.name}</Button>
           {crumbs.map((part, index) => (
             <span key={index} className="flex items-center gap-1">
@@ -373,15 +375,15 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
       }
       action={
         <span className="flex flex-wrap items-center justify-end gap-2">
-          <Button variant="outline" disabled={locked || !entries} onClick={() => input.current?.click()}><Upload />上传文件</Button>
-          <Button variant="outline" disabled={locked || !entries} onClick={() => { setFolder(""); }}><FolderPlus />新建文件夹</Button>
-          <Action working={loading && !!listing} disabled={busy || !entries} onClick={() => setReload((value) => value + 1)}><RefreshCw />刷新</Action>
+          <Button variant="outline" disabled={locked || !entries} onClick={() => input.current?.click()}><Upload />{t("disk.uploadFiles")}</Button>
+          <Button variant="outline" disabled={locked || !entries} onClick={() => { setFolder(""); }}><FolderPlus />{t("disk.createFolder")}</Button>
+          <Action working={loading && !!listing} disabled={busy || !entries} onClick={() => setReload((value) => value + 1)}><RefreshCw />{t("disk.refresh")}</Action>
           <input ref={input} type="file" multiple hidden onChange={(event) => { chooseFiles(event.target.files); event.target.value = ""; }} />
         </span>
       }
-      aria-label="文件"
+      aria-label={t("disk.file41")}
       data-dragging={dragging || undefined}
-      data-drop={blocked ?? "松开以上传到当前文件夹"}
+      data-drop={blocked ?? t("disk.dropFilesToUploadToThis")}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault();
@@ -393,19 +395,18 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
     ><div className="flex min-w-0 flex-col gap-4">
       {disk.attached && (
         <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-warning-foreground" role="note">
-          数据盘正挂载在被控电脑上，此处只能浏览和下载；被控电脑尚未写回的内容不会显示。需要修改时先在被控电脑安全弹出，再到「虚拟介质」页弹出。
-        </p>
+          {t("disk.theDiskIsMountedOnThe47")}</p>
       )}
-      {listing?.stale && !disk.attached && <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-warning-foreground" role="note">列表读取时数据盘仍在使用，内容可能不是最新。</p>}
+      {listing?.stale && !disk.attached && <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-warning-foreground" role="note">{t("disk.theDiskWasInUseWhen")}</p>}
 
       <Uploads uploads={uploads} started={started} onCancel={() => abort.current?.abort()} />
 
-      <ConfirmDialog open={!!pending} onOpenChange={(open) => { if (!open) setPending(undefined); }} title="覆盖" confirm="覆盖" destructive
-        description={<>当前文件夹已有 {conflicts.map((file) => `「${file.name}」`).join("、")}，是否覆盖？</>}
+      <ConfirmDialog open={!!pending} onOpenChange={(open) => { if (!open) setPending(undefined); }} title={t("disk.replace")} confirm={t("disk.replace")} destructive
+        description={t("disk.replaceFile", { name: new Intl.ListFormat(getLocale(), { style: "long", type: "conjunction" }).format(conflicts.map(file => file.name)) })}
         onConfirm={() => { if (pending) void startUpload(pending, true); }} />
       <ConfirmDialog open={!!deleting} onOpenChange={(open) => { if (!open) setDeleting(undefined); }}
-        title={`删除 ${deleting?.name ?? ""}`} confirm={deleting?.dir ? "删除全部内容" : "确认删除"} destructive disabled={locked}
-        onConfirm={() => { if (deleting) void mutate(`rm:${deleting.name}`, `正在删除 ${deleting.name}…`, () => request("/api/disks/rm", { disk: disk.name, path: join(shown, deleting.name) }), `已删除 ${deleting.name}`); }} />
+        title={t("disk.delete", { p0: String(deleting?.name ?? "") })} confirm={deleting?.dir ? t("disk.deleteAllContents") : t("disk.confirmDeletion")} destructive disabled={locked}
+        onConfirm={() => { if (deleting) void mutate(`rm:${deleting.name}`, t("disk.deleting", { p0: String(deleting.name) }), () => request("/api/disks/rm", { disk: disk.name, path: join(shown, deleting.name) }), t("disk.deleted", { p0: String(deleting.name) })); }} />
 
       {folder !== undefined && (
         <form
@@ -414,14 +415,14 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
           onSubmit={(event) => {
             event.preventDefault();
             if (!validName(folder)) return;
-            void mutate("mkdir", `正在新建文件夹…`, () => request("/api/disks/mkdir", { disk: disk.name, path: join(path, folder) }), `已新建文件夹 ${folder}`)
+            void mutate("mkdir", t("disk.creatingFolder"), () => request("/api/disks/mkdir", { disk: disk.name, path: join(path, folder) }), t("disk.folderCreated", { p0: String(folder) }))
               .then((ok) => { if (ok) setFolder(undefined); });
           }}
         >
           <FileIcon dir />
-          <Input autoFocus aria-label="文件夹名称" value={folder} disabled={busy} onChange={(event) => setFolder(event.target.value)} />
-          <Button variant="outline" type="button" onClick={() => setFolder(undefined)}>取消</Button>
-          <Action variant="default" type="submit" working={doing === "mkdir"} disabled={busy || !validName(folder)}>新建</Action>
+          <Input autoFocus aria-label={t("disk.folderName")} value={folder} disabled={busy} onChange={(event) => setFolder(event.target.value)} />
+          <Button variant="outline" type="button" onClick={() => setFolder(undefined)}>{t("common.cancel")}</Button>
+          <Action variant="default" type="submit" working={doing === "mkdir"} disabled={busy || !validName(folder)}>{t("disk.create60")}</Action>
         </form>
       )}
 
@@ -429,7 +430,7 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
         : !listing ? <PanelSkeleton />
         : (
           <div className={`min-w-0${loading ? " opacity-60" : ""}`} aria-busy={loading}>
-            <div className="rounded-md bg-muted/60 px-2 py-3"><FileColumns size="大小" date="修改时间" actions><span className="text-xs text-muted-foreground">名称</span></FileColumns></div>
+            <div className="rounded-md bg-muted/60 px-2 py-3"><FileColumns size={t("disk.size")} date={t("disk.modified")} actions><span className="text-xs text-muted-foreground">{t("disk.name")}</span></FileColumns></div>
             {shown !== "/" && (
               <div className="flex min-w-0 flex-wrap items-center gap-2 border-b py-1.5" role="row">
                 <Button variant="ghost" className="h-auto min-w-0 flex-1 justify-start gap-2 px-2 py-2 text-left font-normal whitespace-normal" onClick={() => setPath(parent(shown))}>
@@ -439,9 +440,9 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
               </div>
             )}
             {visible.length === 0 && (
-              <EmptyState icon={File}>{readOnly ? "文件夹为空。" : "文件夹为空。把文件拖到这里，或点「上传文件」。"}</EmptyState>
+              <EmptyState icon={File}>{readOnly ? t("disk.thisFolderIsEmpty") : t("disk.thisFolderIsEmptyDropFiles")}</EmptyState>
             )}
-            <AnimatedList className="flex flex-col divide-y" items={visible} getKey={(entry) => entry.name} label="文件列表">{(entry: DiskEntry) => {
+            <AnimatedList className="flex flex-col divide-y" items={visible} getKey={(entry) => entry.name} label={t("disk.fileList")}>{(entry: DiskEntry) => {
               const target = join(shown, entry.name);
               const open = selected === entry.name;
               return (
@@ -453,13 +454,13 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                       onSubmit={(event) => {
                         event.preventDefault();
                         if (!validName(newName) || newName === entry.name) return;
-                        void mutate(`mv:${entry.name}`, "正在重命名…", () => request("/api/disks/mv", { disk: disk.name, from: target, to: join(shown, newName) }), `已重命名为 ${newName}`);
+                        void mutate(`mv:${entry.name}`, t("disk.renaming"), () => request("/api/disks/mv", { disk: disk.name, from: target, to: join(shown, newName) }), t("disk.renamedTo", { p0: String(newName) }));
                       }}
                     >
                       <FileIcon dir={entry.dir} />
-                      <Input autoFocus aria-label="新名称" value={newName} disabled={busy} onChange={(event) => setNewName(event.target.value)} />
-                      <Button variant="outline" type="button" onClick={() => setRenaming(undefined)}>取消</Button>
-                      <Action variant="default" type="submit" working={doing === `mv:${entry.name}`} disabled={busy || !validName(newName) || newName === entry.name}>重命名</Action>
+                      <Input autoFocus aria-label={t("disk.newName")} value={newName} disabled={busy} onChange={(event) => setNewName(event.target.value)} />
+                      <Button variant="outline" type="button" onClick={() => setRenaming(undefined)}>{t("common.cancel")}</Button>
+                      <Action variant="default" type="submit" working={doing === `mv:${entry.name}`} disabled={busy || !validName(newName) || newName === entry.name}>{t("disk.rename")}</Action>
                     </form>
                   ) : (
                     <>
@@ -473,16 +474,16 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
                         </FileColumns>
                       </Button>
                       <FileActions name={entry.name} expanded={open} actions={[
-                        ...(!entry.dir ? [{ label: "下载", name: `下载 ${entry.name}`, href: diskFileURL(disk.name, target), download: entry.name }] : []),
+                        ...(!entry.dir ? [{ label: t("disk.download"), name: t("disk.download71", { p0: String(entry.name) }), href: diskFileURL(disk.name, target), download: entry.name }] : []),
                         ...(!readOnly ? [
-                          { label: "重命名", name: `重命名 ${entry.name}`, disabled: locked, onSelect: () => { setRenaming(entry.name); setNewName(entry.name); } },
-                          { label: "删除", name: `删除 ${entry.name}`, disabled: locked, destructive: true, working: doing === `rm:${entry.name}`, onSelect: () => setDeleting(entry) },
+                          { label: t("disk.rename"), name: t("disk.rename72", { p0: String(entry.name) }), disabled: locked, onSelect: () => { setRenaming(entry.name); setNewName(entry.name); } },
+                          { label: t("disk.delete73"), name: t("disk.delete", { p0: String(entry.name) }), disabled: locked, destructive: true, working: doing === `rm:${entry.name}`, onSelect: () => setDeleting(entry) },
                         ] : []),
                       ]} />
                       {open && !entry.dir && (
                         <p className="col-span-full flex flex-wrap gap-x-4 gap-y-1 px-3 pb-3 text-xs text-muted-foreground  tabular-nums">
-                          <span>{bytes(entry.size)}{entry.size >= 1024 ? `（${entry.size.toLocaleString("zh-CN")} 字节）` : ""}</span>
-                          {entry.mtime ? <span>修改于 {when(entry.mtime)}</span> : null}
+                          <span>{bytes(entry.size)}{entry.size >= 1024 ? t("disk.bytes", { p0: String(new Intl.NumberFormat(getLocale()).format(entry.size)) }) : ""}</span>
+                          {entry.mtime ? <span>{t("disk.modifiedAt", { date: when(entry.mtime) })}</span> : null}
                           <span className="w-full break-all font-mono">{target}</span>
                         </p>
                       )}
@@ -493,8 +494,8 @@ function Files({ disk, busy, run, report, onChanged }: { disk: Disk; busy: boole
             }}</AnimatedList>
             {hidden.length > 0 && (
               <p className="flex flex-wrap items-baseline gap-x-2 px-2 pt-3 text-xs text-muted-foreground">
-                {showHidden ? `已显示 ${hidden.length} 个隐藏项（名称以 . 开头）` : `已隐藏 ${hidden.length} 个系统文件（名称以 . 开头，多为 macOS 索引）`}
-                <Button variant="link" size="inline" className="text-xs" onClick={() => setShowHidden(!showHidden)}>{showHidden ? "隐藏" : "显示"}</Button>
+                {showHidden ? t("disk.hiddenEntriesShownNamesBeginningWith", { p0: String(hidden.length) }) : t("disk.systemFilesHiddenNamesBeginningWith", { p0: String(hidden.length) })}
+                <Button variant="link" size="inline" className="text-xs" onClick={() => setShowHidden(!showHidden)}>{showHidden ? t("disk.hide") : t("disk.show")}</Button>
               </p>
             )}
           </div>
@@ -512,7 +513,7 @@ function Confirmed({ name, onConfirm, onCancel, children, action, busy, working 
       destructive busy={busy || working} disabled={typed !== name} closeOnConfirm={false} onConfirm={onConfirm}>
       {children}
       <label className="flex min-w-0 flex-col gap-2 text-sm">
-        <span>输入 <code>{name}</code> 确认</span>
+        <span>{t("disk.confirmName", { name })}</span>
         <Input autoFocus value={typed} disabled={busy} autoComplete="off" onChange={(event) => setTyped(event.target.value)} />
       </label>
     </ConfirmDialog>
@@ -554,72 +555,71 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
   const formatLabel = label.trim() || "VIM4KVM";
 
   const dangers: { id: Danger; title: string; text: string; button: string; danger: boolean; disabled: boolean }[] = [
-    { id: "resize", title: "扩容", text: "保留文件和卷标，扩容前自动创建快照。", button: "扩容…", danger: false,
+    { id: "resize", title: t("disk.expand"), text: t("disk.preservesFilesAndTheVolumeLabel"), button: t("disk.expand84"), danger: false,
       disabled: locked || !sizes.length || disk.snapshots.length >= 3 },
-    { id: "format", title: "格式化", text: "清空全部文件，保留容量。", button: "格式化…", danger: true, disabled: locked },
-    { id: "delete", title: "删除数据盘", text: `删除镜像文件，释放 ${bytes(disk.size)}。`, button: "删除数据盘…", danger: true, disabled: locked },
+    { id: "format", title: t("disk.format"), text: t("disk.deletesAllFilesAndKeepsThe"), button: t("disk.format87"), danger: true, disabled: locked },
+    { id: "delete", title: t("disk.deleteDataDisk"), text: t("disk.deletesTheImageFileAndFrees", { p0: String(bytes(disk.size)) }), button: t("disk.deleteDataDisk90"), danger: true, disabled: locked },
   ];
 
   return (
     <SettingsCard
       id="disk-maintenance"
       className="scroll-mt-20"
-      title="备份与快照"
-      description={`${disk.snapshots.length} / 3 个快照${expanded ? " · 已展开维护操作" : ""}`}
+      title={t("disk.backupsAndSnapshots")}
+      description={t("disk.snapshots", { p0: String(disk.snapshots.length), p1: String(expanded ? t("disk.maintenanceOptionsExpanded") : "") })}
       onKeyDown={(event) => { if (event.key === "Escape" && open && !busy) setOpen(undefined); }}
     >
-      {expanded && <div className="space-y-5"><p className="text-sm text-muted-foreground">{disk.attached ? "数据盘挂载期间不能维护，先在被控电脑安全弹出，再到「虚拟介质」页弹出。" : "维护操作需要数据盘未挂载到被控电脑。"}</p><form
+      {expanded && <div className="space-y-5"><p className="text-sm text-muted-foreground">{disk.attached ? t("disk.safelyEjectTheDiskOnThe") : t("disk.unmountTheDiskFromTheHost")}</p><form
         className="grid grid-cols-1 items-center gap-x-6 gap-y-1 @md:grid-cols-[minmax(0,1fr)_auto]"
         onSubmit={(event) => {
           event.preventDefault();
-          void act("label", "正在修改卷标…", () => request("/api/disks/label", { name: disk.name, label: label.trim() }), `卷标已改为 ${label.trim()}`);
+          void act("label", t("disk.changingVolumeLabel"), () => request("/api/disks/label", { name: disk.name, label: label.trim() }), t("disk.volumeLabelChangedTo", { p0: String(label.trim()) }));
         }}
       >
-        <h3 className="col-start-1 row-start-1 text-sm font-medium">卷标</h3>
+        <h3 className="col-start-1 row-start-1 text-sm font-medium">{t("disk.volumeLabel")}</h3>
         <span className="col-start-1 row-start-3 flex min-w-0 items-center justify-end gap-2 @max-md:mt-2 @md:col-start-2 @md:row-span-2 @md:row-start-1">
-          <Input aria-label="卷标" className="w-full font-mono @md:w-40" value={label} disabled={locked} onChange={(event) => setLabel(normalizeLabel(event.target.value))} />
-          <Action type="submit" working={doing === "label"} disabled={locked || !label.trim() || label.trim() === disk.label}>保存</Action>
+          <Input aria-label={t("disk.volumeLabel")} className="w-full font-mono @md:w-40" value={label} disabled={locked} onChange={(event) => setLabel(normalizeLabel(event.target.value))} />
+          <Action type="submit" working={doing === "label"} disabled={locked || !label.trim() || label.trim() === disk.label}>{t("common.save")}</Action>
         </span>
-        <p className="col-start-1 row-start-2 text-sm text-pretty text-muted-foreground">被控电脑上显示的名称，最多 11 位大写字母或数字。</p>
+        <p className="col-start-1 row-start-2 text-sm text-pretty text-muted-foreground">{t("disk.theNameShownOnTheHost")}</p>
       </form>
 
       <div className="flex flex-col gap-3">
-        <SettingRow title="检查文件系统" description="只读检查，不修复。被控电脑异常拔出后建议检查。" control={
+        <SettingRow title={t("disk.checkFileSystem")} description={t("disk.checksWithoutMakingRepairsRecommendedAfter")} control={
           <Action
             working={doing === "check"}
             disabled={locked}
-            onClick={() => void track("check")("正在检查文件系统…", async () => {
+            onClick={() => void track("check")(t("disk.checkingFileSystem"), async () => {
               const result = await request<{ ok: boolean; output: string }>("/api/disks/check", { name: disk.name });
               setCheck(result);
-              if (!result.ok) throw new Error("文件系统有错误，可在被控电脑上修复，或从快照恢复");
-            }, "文件系统检查通过")}
+              if (!result.ok) throw new Error(t("disk.theFileSystemHasErrorsRepair"));
+            }, t("disk.fileSystemCheckPassed"))}
           >
-            {doing === "check" ? "正在检查…" : "开始检查"}
+            {doing === "check" ? t("disk.checking") : t("disk.startCheck")}
           </Action>} />
-        {check && <pre className={`max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs${check.ok ? "" : " text-destructive"}`}>{check.output || (check.ok ? "无错误" : "")}</pre>}
+        {check && <pre className={`max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-xs${check.ok ? "" : " text-destructive"}`}>{check.output || (check.ok ? t("disk.noErrors") : "")}</pre>}
       </div></div>}
 
-      <SettingRow title="备份" description="下载完整镜像，可在电脑上直接挂载或写入真实 U 盘。" control={
+      <SettingRow title={t("disk.backUp")} description={t("disk.downloadTheFullImageToMount")} control={
         <Button asChild variant="outline"><a
           className={disk.attached && !disk.readOnly ? "pointer-events-none opacity-50" : undefined}
           aria-disabled={disk.attached && !disk.readOnly}
           href={diskImageURL(disk.name)}
           download={disk.name}
         >
-          下载镜像 · {bytes(disk.size)}
+          {t("disk.downloadImageSize", { size: bytes(disk.size) })}
         </a></Button>} />
 
       <div className="flex flex-col gap-3">
-        <SettingRow title="快照" description="保存在板子上，每个数据盘最多 3 个，占用与数据盘相同的空间。" control={
+        <SettingRow title={t("disk.snapshots111")} description={t("disk.storedOnTheBoardUpTo")} control={
           <Action
             working={doing === "snapshot"}
             disabled={locked || disk.snapshots.length >= 3}
-            onClick={() => void act("snapshot", "正在创建快照…", () => request("/api/disks/snapshot", { disk: disk.name }), "快照已创建")}
+            onClick={() => void act("snapshot", t("disk.creatingSnapshot"), () => request("/api/disks/snapshot", { disk: disk.name }), t("disk.snapshotCreated"))}
           >
-            创建快照
-          </Action>} />
-        {disk.snapshots.length === 0 ? <p className="text-sm text-muted-foreground">尚无快照。格式化前可自动创建一个。</p> : (
-          <AnimatedList className="flex flex-col divide-y rounded-md border px-3" label="快照" items={disk.snapshots} getKey={(snapshot) => snapshot.id}>{(snapshot) => {
+            {t("disk.createSnapshot")}</Action>} />
+        {disk.snapshots.length === 0 ? <p className="text-sm text-muted-foreground">{t("disk.noSnapshotsYetYouCanCreate")}</p> : (
+          <AnimatedList className="flex flex-col divide-y rounded-md border px-3" label={t("disk.snapshots111")} items={disk.snapshots} getKey={(snapshot) => snapshot.id}>{(snapshot) => {
               const restoring = typeof open === "object" && open.restore === snapshot.id;
               return (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2">
@@ -628,26 +628,25 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
                   <span className="ml-auto flex items-center gap-2">
                     <Button variant="outline"
                       className={restoring ? "bg-accent" : undefined}
-                      aria-label={`恢复 ${when(snapshot.time)} 的快照`}
+                      aria-label={t("disk.restoreSnapshotOf", { p0: String(when(snapshot.time)) })}
                       aria-expanded={restoring}
                       disabled={locked}
                       onClick={() => setOpen(restoring ? undefined : { restore: snapshot.id })}
                     >
-                      恢复…
-                    </Button>
+                      {t("disk.restore")}</Button>
                     <ArmedButton
-                      label="删除"
-                      armedLabel="确认删除快照"
-                      ariaLabel={`删除 ${when(snapshot.time)} 的快照`}
+                      label={t("disk.delete73")}
+                      armedLabel={t("disk.deleteSnapshot")}
+                      ariaLabel={t("disk.deleteSnapshotOf", { p0: String(when(snapshot.time)) })}
                       disabled={busy}
                       working={doing === `snapshot-delete:${snapshot.id}`}
-                      onConfirm={() => void act(`snapshot-delete:${snapshot.id}`, "正在删除快照…", () => request("/api/disks/snapshot/delete", { disk: disk.name, id: snapshot.id }), "快照已删除")}
+                      onConfirm={() => void act(`snapshot-delete:${snapshot.id}`, t("disk.deletingSnapshot"), () => request("/api/disks/snapshot/delete", { disk: disk.name, id: snapshot.id }), t("disk.snapshotDeleted"))}
                     />
                   </span>
                   {restoring && (
-                    <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "restore"} action="恢复快照" onConfirm={() =>
-                      void act("restore", "正在恢复快照…", () => request("/api/disks/restore", { disk: disk.name, id: snapshot.id, confirm: disk.name }), `已恢复到 ${when(snapshot.time)} 的快照`)}>
-                      <p>数据盘当前内容将被 {when(snapshot.time)} 的快照替换，容量恢复为 {bytes(snapshot.size)}，之后的修改会丢失。</p>
+                    <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "restore"} action={t("disk.restoreSnapshot")} onConfirm={() =>
+                      void act("restore", t("disk.restoringSnapshot"), () => request("/api/disks/restore", { disk: disk.name, id: snapshot.id, confirm: disk.name }), t("disk.restoredSnapshotOf", { p0: String(when(snapshot.time)) }))}>
+                      <p>{t("disk.restoreWarning", { date: when(snapshot.time), size: bytes(snapshot.size) })}</p>
                     </Confirmed>
                   )}
                 </div>
@@ -673,11 +672,11 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
                 onSubmit={(event) => {
                   event.preventDefault();
                   // The server still requires the name; resize is non-destructive and snapshots first.
-                  void act("resize", "正在扩容数据盘…", () => request("/api/disks/resize", { name: disk.name, sizeMiB, confirm: disk.name }), `${disk.name} 已扩容`);
+                  void act("resize", t("disk.expandingDataDisk"), () => request("/api/disks/resize", { name: disk.name, sizeMiB, confirm: disk.name }), t("disk.expanded", { p0: String(disk.name) }));
                 }}
               >
                 <fieldset className="flex min-w-0 flex-wrap gap-2 text-sm [&_legend]:mb-2">
-                  <legend>新容量（当前 {bytes(disk.size)}）</legend>
+                  <legend>{t("disk.currentCapacity", { size: bytes(disk.size) })}</legend>
                   {sizes.map((size) => (
                     <label key={size} className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 has-checked:border-primary has-checked:bg-primary/5${size === sizeMiB ? " border-primary bg-primary/5" : ""}`}>
                       <input className="accent-primary" type="radio" name="disk-grow" autoFocus={size === sizeMiB} checked={size === sizeMiB} disabled={locked} onChange={() => setSizeMiB(size)} />
@@ -685,32 +684,31 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
                     </label>
                   ))}
                 </fieldset>
-                <p className="text-sm text-muted-foreground">板子需要容纳旧盘快照和新盘的可用空间，最多扩到 32 GiB。</p>
+                <p className="text-sm text-muted-foreground">{t("disk.theBoardNeedsRoomForThe")}</p>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button variant="outline" type="button" disabled={busy} onClick={() => setOpen(undefined)}>取消</Button>
-                  <Action variant="default" type="submit" working={doing === "resize"} disabled={locked || !sizeMiB}>扩容到 {bytes(sizeMiB * 2 ** 20)}</Action>
+                  <Button variant="outline" type="button" disabled={busy} onClick={() => setOpen(undefined)}>{t("common.cancel")}</Button>
+                  <Action variant="default" type="submit" working={doing === "resize"} disabled={locked || !sizeMiB}>{t("disk.expandCapacity", { size: bytes(sizeMiB * 2 ** 20) })}</Action>
                 </div>
               </form>
             )}
             {open === "format" && item.id === "format" && (
-              <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "format"} action="格式化" onConfirm={() =>
-                void act("format", "正在格式化…", () => request("/api/disks/format", { name: disk.name, label: formatLabel, confirm: disk.name, snapshot: snapshotFirst }), `${disk.name} 已格式化`)}>
-                <p>清空 {disk.name} 中的全部文件，保留容量，卷标设为「{formatLabel}」。</p>
+              <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "format"} action={t("disk.format")} onConfirm={() =>
+                void act("format", t("disk.formatting"), () => request("/api/disks/format", { name: disk.name, label: formatLabel, confirm: disk.name, snapshot: snapshotFirst }), t("disk.formatted", { p0: String(disk.name) }))}>
+                <p>{t("disk.formatWarning", { name: disk.name, label: formatLabel })}</p>
                 <label className="flex items-start gap-2 text-sm">
                   <Checkbox className="mt-0.5" checked={snapshotFirst} disabled={locked} onCheckedChange={(value) => setSnapshotFirst(value === true)} />
-                  格式化前创建快照{disk.snapshots.length >= 3 ? "（已达 3 个上限）" : ""}
+                  {t("disk.createSnapshotBeforeFormatting")} {disk.snapshots.length >= 3 ? t("disk.threeSnapshotLimitReached") : ""}
                 </label>
               </Confirmed>
             )}
             {open === "delete" && item.id === "delete" && (
-              <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "delete"} action="删除数据盘" onConfirm={() =>
-                void act("delete", "正在删除数据盘…", () => request("/api/disks/delete", { name: disk.name, confirm: disk.name, keepSnapshots }), `${disk.name} 已删除`).then((ok) => { if (ok) onDeleted(); })}>
-                <p>删除镜像文件 {disk.name}，释放 {bytes(disk.size)}。此操作无法撤销。</p>
+              <Confirmed onCancel={() => setOpen(undefined)} name={disk.name} busy={locked} working={doing === "delete"} action={t("disk.deleteDataDisk")} onConfirm={() =>
+                void act("delete", t("disk.deletingDataDisk"), () => request("/api/disks/delete", { name: disk.name, confirm: disk.name, keepSnapshots }), t("disk.deleted141", { p0: String(disk.name) })).then((ok) => { if (ok) onDeleted(); })}>
+                <p>{t("disk.deleteWarning", { name: disk.name, size: bytes(disk.size) })}</p>
                 {disk.snapshots.length > 0 && (
                   <label className="flex items-start gap-2 text-sm">
                     <Checkbox className="mt-0.5" checked={keepSnapshots} disabled={locked} onCheckedChange={(value) => setKeepSnapshots(value === true)} />
-                    保留 {disk.snapshots.length} 个快照
-                  </label>
+                    {t("disk.keepSnapshots", { count: disk.snapshots.length })}</label>
                 )}
               </Confirmed>
             )}
@@ -721,6 +719,7 @@ function Maintenance({ disk, busy, run, onChanged, onDeleted, expanded }: {
 }
 
 export function DiskPanel() {
+  const locale = useLocale();
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const status = useStatusStore((s) => s.status);
@@ -747,7 +746,7 @@ export function DiskPanel() {
     });
     return () => controller.abort();
     // The shared LUN token changes on mount/eject, which changes `attached`.
-  }, [reload, mediaToken]);
+  }, [reload, mediaToken, locale]);
   const refresh = () => setReload((value) => value + 1);
   const disk = disks?.find((item) => item.name === selected);
 
@@ -771,20 +770,20 @@ export function DiskPanel() {
   return (
     <>
       <PageHeading page="disks" action={disks && <CreateDisk disks={disks} busy={busy} run={run} onCreated={(name) => { setSelected(name); refresh(); }} />} />
-      {status && <SettingsCard label="系统盘空间"><div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        <div className="flex items-center gap-3"><HardDrive className="size-7 text-muted-foreground" aria-hidden="true" /><strong className="text-sm">系统盘剩余 {bytes(status.system.disk.freeBytes)}</strong></div>
+      {status && <SettingsCard label={t("disk.systemDiskSpace")}><div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-3"><HardDrive className="size-7 text-muted-foreground" aria-hidden="true" /><strong className="text-sm">{t("disk.systemAvailable", { size: bytes(status.system.disk.freeBytes) })}</strong></div>
         <div className="h-2 min-w-24 flex-1 basis-40 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-chart-1" style={{ width: `${Math.max(0, Math.min(100, (1 - status.system.disk.freeBytes / Math.max(1, status.system.disk.totalBytes)) * 100))}%` }} /></div>
-        <span className="text-xs tabular-nums text-muted-foreground">已用 {bytes(status.system.disk.totalBytes - status.system.disk.freeBytes)} / 共 {bytes(status.system.disk.totalBytes)}</span>
+        <span className="text-xs tabular-nums text-muted-foreground">{t("disk.systemUsage", { used: bytes(status.system.disk.totalBytes - status.system.disk.freeBytes), total: bytes(status.system.disk.totalBytes) })}</span>
       </div></SettingsCard>}
       <div className="grid items-start gap-5 xl:grid-cols-[250px_minmax(0,1fr)]">
-      <SettingsCard label="数据盘列表" title="数据盘"
+      <SettingsCard label={t("disk.dataDiskList")} title={t("nav.disks")}
         >
-        {error ? <div className="flex flex-col items-start gap-3"><InlineError>{error}</InlineError><Button variant="outline" onClick={refresh}>重新读取数据盘</Button></div>
+        {error ? <div className="flex flex-col items-start gap-3"><InlineError>{error}</InlineError><Button variant="outline" onClick={refresh}>{t("disk.refreshDataDisks")}</Button></div>
           : !disks ? <PanelSkeleton />
           : disks.length === 0 ? (
-            <EmptyState icon={HardDrive}>还没有数据盘。新建一个，用来在被控电脑和这里之间传递文件。</EmptyState>
+            <EmptyState icon={HardDrive}>{t("disk.noDataDisksYetCreateOne")}</EmptyState>
           ) : (
-            <FadeIn><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1" role="radiogroup" aria-label="选择数据盘">
+            <FadeIn><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1" role="radiogroup" aria-label={t("disk.selectDataDisk")}>
               {disks.map((item) => (
                 <label key={item.name} className={`flex min-w-0 cursor-pointer flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/60 has-checked:border-chart-1 has-checked:bg-chart-1/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50${item.name === selected ? " border-chart-1 bg-chart-1/5" : ""}`}>
                   <input className="sr-only" type="radio" name="disk" checked={item.name === selected} onChange={() => { setSelected(item.name); setMaintenanceOpen(false); }} />
@@ -802,16 +801,16 @@ export function DiskPanel() {
       </SettingsCard>
       {disk && (
         <div key={disk.name} className="flex min-w-0 flex-col gap-5">
-          <SettingsCard label="所选数据盘">
+          <SettingsCard label={t("disk.selectedDataDisk")}>
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="min-w-32 flex-1 text-lg font-semibold [overflow-wrap:anywhere]">{disk.name}</h2>
               <DiskState disk={disk} />
               <div className="ml-auto flex flex-wrap gap-2">
-                <Button variant="outline" asChild><a href="#/media"><ExternalLink />前往挂载</a></Button>
+                <Button variant="outline" asChild><a href="#/media"><ExternalLink />{t("disk.mountDisk")}</a></Button>
                 <Button variant="outline" aria-expanded={maintenanceOpen} aria-controls="disk-maintenance" onClick={() => {
                   setMaintenanceOpen((value) => !value);
                   if (!maintenanceOpen) requestAnimationFrame(() => document.getElementById("disk-maintenance")?.scrollIntoView({ block: "start" }));
-                }}><MoreHorizontal />维护</Button>
+                }}><MoreHorizontal />{t("disk.maintenance")}</Button>
               </div>
             </div>
           </SettingsCard>

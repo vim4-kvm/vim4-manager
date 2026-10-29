@@ -16,13 +16,14 @@ import (
 	"unicode/utf8"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"golang.org/x/crypto/argon2"
 )
 
-var ErrBusy = errors.New("登录请求过多，请稍后再试")
-var ErrCredentials = errors.New("用户名或密码错误")
-var ErrConfigured = errors.New("账户已被设置，请登录")
-var ErrUnavailable = errors.New("账户存储不可用，请稍后再试")
+var ErrBusy = i18n.New("auth.busy", nil)
+var ErrCredentials = i18n.New("auth.credentials", nil)
+var ErrConfigured = i18n.New("auth.configured", nil)
+var ErrUnavailable = i18n.New("auth.unavailable", nil)
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
 // Persist the algorithm and cost with the hash, so later cost changes cannot
@@ -32,13 +33,13 @@ const dummyHash = hashPrefix + "dW5jb25maWd1cmVkLWR1bW15$AAAAAAAAAAAAAAAAAAAAAAA
 
 func Validate(username, password string) error {
 	if !usernamePattern.MatchString(username) {
-		return errors.New("用户名须为 1–32 个字母、数字、点、下划线或连字符")
+		return i18n.New("auth.usernameRules", nil)
 	}
 	if !utf8.ValidString(password) || utf8.RuneCountInString(password) < 8 || utf8.RuneCountInString(password) > 128 {
-		return errors.New("密码须为 8–128 个字符")
+		return i18n.New("auth.passwordRules", nil)
 	}
 	if username == password {
-		return errors.New("密码不能与用户名相同")
+		return i18n.New("auth.passwordMatchesUsername", nil)
 	}
 	return nil
 }

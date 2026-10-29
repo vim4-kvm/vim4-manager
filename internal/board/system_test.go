@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 func TestParseAddrsKeepsGlobalAddressesIPv4First(t *testing.T) {
@@ -105,8 +107,8 @@ func TestCompareReportsTransitionsOnce(t *testing.T) {
 		texts = append(texts, e.Text)
 	}
 	slices.Reverse(texts)
-	want := []string{"HDMI 信号丢失", "SoC 温度超过 85 °C", "HDMI 信号恢复：3840×2160@60",
-		"USB 键鼠断开（suspended）", "SoC 温度回落到 79 °C", "One-KVM 失败"}
+	want := []string{"HDMI signal lost", "SoC temperature exceeded 85 °C", "HDMI signal restored: 3840×2160@60",
+		"USB keyboard and mouse disconnected (suspended)", "SoC temperature fell to 79 °C", "One-KVM failed"}
 	if !slices.Equal(texts, want) {
 		t.Errorf("events = %q", texts)
 	}
@@ -114,11 +116,15 @@ func TestCompareReportsTransitionsOnce(t *testing.T) {
 
 func TestRecordLogsActionOutcomeButNotBusy(t *testing.T) {
 	s := &Service{Events: &Events{Capacity: 5}}
-	_ = s.record(nil, "切换到 %s", "PiKVM")
-	_ = s.record(errors.New("x"), "重启%s", "HDMI 采集")
-	_ = s.record(ErrBusy, "ignored")
+	_ = s.recordMessage(nil, i18n.Message{Key: "events.appSelected", Args: map[string]any{"p0": "PiKVM"}})
+	_ = s.recordMessage(errors.New("x"), i18n.Message{Key: "events.serviceRestarted", Args: map[string]any{"p0": unitName("vim4-kvm-hdmi.service")}})
+	_ = s.recordMessage(ErrBusy, i18n.Message{Key: "events.appSelected", Args: map[string]any{"p0": "ignored"}})
 	got := s.Events.List()
-	if len(got) != 2 || got[0].Text != "重启HDMI 采集失败" || got[0].Tone != "critical" || got[1].Text != "切换到 PiKVM" {
+	if len(got) != 2 || got[0].Text != "Restart HDMI capture failed" || got[0].Tone != "critical" || got[1].Text != "Switch to PiKVM" {
 		t.Errorf("events = %+v", got)
+	}
+	zh := s.Events.List(i18n.Chinese)
+	if len(zh) != 2 || zh[0].Text != "重启HDMI 采集失败" || zh[1].Text != "切换到 PiKVM" {
+		t.Errorf("Chinese events = %+v", zh)
 	}
 }

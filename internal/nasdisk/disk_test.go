@@ -173,7 +173,7 @@ func TestDiskWriteTimeoutPreservesOrderAndRequiresDecision(t *testing.T) {
 	if err := s.commit(context.Background(), false); err != nil {
 		t.Fatal(err)
 	}
-	if s.state() != "needs-decision" || s.status.Decision.Reason != "NAS 在 U 盘写入期间暂时无响应" || s.journal != nil {
+	if s.state() != "needs-decision" || s.status.Decision.Reason != "The NAS stopped responding while the USB drive was being written." || s.journal != nil {
 		t.Fatalf("blocked eject: %+v", s.status)
 	}
 	close(backend.release)

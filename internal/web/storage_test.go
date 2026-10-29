@@ -13,6 +13,40 @@ import (
 	"github.com/vim4-kvm/vim4-manager/internal/board"
 )
 
+func TestStorageHTTPDiagnosticLocale(t *testing.T) {
+	service := &board.Service{Stream: func(_ context.Context, _ io.Reader, out io.Writer, _ string, _ ...string) error {
+		_, err := io.WriteString(out, `{"name":"文件夹","error":"没有找到共享","session":{"error":"会话已改变"}}`)
+		return err
+	}}
+	handler := Handler(service, fstest.MapFS{})
+	for _, endpoint := range []struct{ method, path string }{
+		{"GET", "/api/storage"}, {"GET", "/api/storage/dirs?id=nas"},
+		{"POST", "/api/storage/test"}, {"GET", "/api/nasdisk"}, {"POST", "/api/nasdisk/commit"},
+	} {
+		for _, locale := range []string{"en", "zh-CN"} {
+			r := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader(`{"id":"nas-1"}`))
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("Cookie", "vim4_lang="+locale)
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, r)
+			var value struct {
+				Name, Error string
+				Session     struct{ Error string }
+			}
+			if err := json.Unmarshal(w.Body.Bytes(), &value); err != nil {
+				t.Fatal(err)
+			}
+			want := "The session has changed. Refresh and try again."
+			if locale == "zh-CN" {
+				want = "会话已改变"
+			}
+			if w.Code != 200 || value.Name != "文件夹" || value.Session.Error != want {
+				t.Fatalf("%s %s: %d %s", endpoint.path, locale, w.Code, w.Body.String())
+			}
+		}
+	}
+}
+
 func TestStorageRoutes(t *testing.T) {
 	for _, test := range []struct{ method, url, body, command string }{
 		{"GET", "/api/storage", "", "storage-list"},

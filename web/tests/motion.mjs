@@ -5,6 +5,7 @@ const base = process.env.TEST_URL || "http://127.0.0.1:5188";
 const browser = await chromium.launch({ channel: "chrome", headless: true });
 try {
   const page = await browser.newPage({ reducedMotion: "no-preference", viewport: { width: 1280, height: 900 } });
+  await (await import("./auth-fixture.mjs")).pinLanguage(page);
   const data = fixtures(), errors = [];
   let reads = 0;
   let output = { supported: true, enabled: true, audio: true, hdr: true, state: "running", audioState: "running",
@@ -19,9 +20,9 @@ try {
     return route.fulfill({ status: path in responses ? 200 : 404, json: responses[path] ?? {} });
   });
   const settle = () => page.waitForFunction(() => document.getAnimations().every((animation) => animation.effect.getTiming().iterations === Infinity || animation.playState !== "running"));
-  const state = page.getByRole("group", { name: "透传", exact: true }).getByRole("status");
+  const state = page.getByRole("group", { name: "Passthrough", exact: true }).getByRole("status");
   await page.goto(`${base}/#/output`);
-  await state.getByText("透传中", { exact: true }).waitFor();
+  await state.getByText("Passthrough active", { exact: true }).waitFor();
   await settle();
   await state.evaluate((element) => {
     window.sameStateText = element.firstElementChild;
@@ -33,11 +34,11 @@ try {
   await settle();
   assert(await state.evaluate((element) => element.firstElementChild === window.sameStateText && window.textReplacements === 0), "identical polls keep the same text node without another fade");
   output = { ...output, state: "no-signal", input: undefined, output: undefined };
-  await state.getByText("等待输入信号", { exact: true }).waitFor();
+  await state.getByText("Waiting for input", { exact: true }).waitFor();
   await settle();
-  assert.equal(await state.textContent(), "等待输入信号");
-  await page.getByRole("link", { name: /视频输入/ }).click();
-  await page.getByRole("heading", { name: "视频输入", exact: true }).waitFor();
+  assert.equal(await state.textContent(), "Waiting for input");
+  await page.getByRole("link", { name: /Video input/ }).click();
+  await page.getByRole("heading", { name: "Video input", exact: true }).waitFor();
   await settle();
   assert.equal(await page.getByRole("main").getByRole("heading", { level: 1 }).count(), 1, "wait-mode navigation leaves one page header");
   const horizontalOffset = await page.getByRole("main").locator(":scope > div").evaluate((element) => new DOMMatrix(getComputedStyle(element).transform).m41);
@@ -45,15 +46,15 @@ try {
   const stoppedAt = reads;
   await page.waitForResponse((response) => response.url().endsWith("/api/status"));
   assert.equal(reads, stoppedAt, "the outgoing page releases its polling when the fade finishes");
-  await page.getByRole("link", { name: /KVM 界面/ }).click();
-  await page.getByText("开机启用", { exact: true }).waitFor();
+  await page.getByRole("link", { name: /KVM interface/ }).click();
+  await page.getByText("Start at boot", { exact: true }).waitFor();
   data.status.apps.push({ ...data.status.apps[0], id: "fixture", name: "Fixture app" });
-  await page.getByRole("group", { name: "Fixture app", exact: true }).waitFor();
+  await page.getByRole("region", { name: "Fixture app", exact: true }).waitFor();
   data.status.apps = data.status.apps.filter((app) => app.id !== "fixture");
-  await page.getByRole("group", { name: "Fixture app", exact: true }).waitFor({ state: "detached" });
+  await page.getByRole("region", { name: "Fixture app", exact: true }).waitFor({ state: "detached" });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.getByRole("link", { name: /HDMI 输出/ }).click();
-  await state.getByText("等待输入信号", { exact: true }).waitFor();
+  await page.getByRole("link", { name: /HDMI output/ }).click();
+  await state.getByText("Waiting for input", { exact: true }).waitFor();
   assert.equal(await state.evaluate((element) => element.getAnimations({ subtree: true }).length), 0, "reduced motion omits status fades");
   assert.deepEqual(errors, []);
   console.log("PASS: unchanged poll identity, changed-state fade, wait-mode page navigation, polling cleanup, lazy list layout/enter/exit and reduced motion");

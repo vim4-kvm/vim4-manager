@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 func passthroughRoutes(mux *http.ServeMux, service *board.Service) {
@@ -15,9 +16,10 @@ func passthroughRoutes(mux *http.ServeMux, service *board.Service) {
 		defer cancel()
 		state, err := service.PassthroughStatus(ctx)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
+		state.Reason = i18n.HelperText(i18n.RequestLocale(r), state.Reason)
 		writeJSON(w, http.StatusOK, state)
 	})
 	mux.HandleFunc("POST /api/passthrough", func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +28,7 @@ func passthroughRoutes(mux *http.ServeMux, service *board.Service) {
 			return
 		}
 		if change.Enabled == nil && change.Audio == nil && change.HDR == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 enabled、audio 或 hdr 布尔值"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("output.flagsRequired", nil))
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -38,11 +40,12 @@ func passthroughRoutes(mux *http.ServeMux, service *board.Service) {
 				code = http.StatusConflict
 			}
 			if change.HDR != nil && code != http.StatusConflict {
-				err = errors.New("HDR 设置未能应用，请稍后重试")
+				err = i18n.New("output.hdrFailed", nil)
 			}
-			writeError(w, code, err)
+			writeError(w, r, code, err)
 			return
 		}
+		state.Reason = i18n.HelperText(i18n.RequestLocale(r), state.Reason)
 		writeJSON(w, http.StatusOK, state)
 	})
 }

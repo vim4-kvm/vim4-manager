@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,26 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestUpdateLabelsAndFailuresUseReaderLocale(t *testing.T) {
+	var calls []string
+	service := updateService(t, github(t, map[string][]byte{}), &calls)
+	for _, test := range []struct {
+		locale         i18n.Locale
+		manager, error string
+	}{
+		{i18n.English, "Manager", "No release published yet"},
+		{i18n.Chinese, "管理面板", "尚未发布"},
+	} {
+		updates := service.Updates(context.Background(), test.locale)
+		if updates[4].Name != test.manager || updates[0].Error != test.error {
+			t.Fatalf("%s: %+v", test.locale, updates)
+		}
+	}
+	if len(calls) != 0 {
+		t.Fatal("reading releases invoked a board helper")
+	}
+}
 
 func TestNewerVersionComparesNumerically(t *testing.T) {
 	for _, c := range []struct {

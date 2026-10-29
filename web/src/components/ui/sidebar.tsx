@@ -1,4 +1,5 @@
 import * as React from "react"
+import { t } from "@/i18n"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "cn"
 import { Slot } from "radix-ui"
@@ -150,8 +151,8 @@ function Sidebar({
           side={side}
         >
           <SheetHeader className="sr-only">
-            <SheetTitle>菜单</SheetTitle>
-            <SheetDescription>页面导航</SheetDescription>
+            <SheetTitle>{t("nav.menu")}</SheetTitle>
+            <SheetDescription>{t("nav.pageNavigation")}</SheetDescription>
           </SheetHeader>
           <div className="flex h-full w-full flex-col">{children}</div>
         </SheetContent>

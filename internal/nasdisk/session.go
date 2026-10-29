@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"github.com/vim4-kvm/vim4-manager/internal/vfat"
 	"golang.org/x/sys/unix"
 )
@@ -398,7 +399,7 @@ func (s *session) initialize(ctx context.Context) error {
 
 func (s *session) attach(ctx context.Context) error {
 	if s.disk == nil || s.journal != nil {
-		return fmt.Errorf("回写已开始，不能重新挂载")
+		return i18n.New("nasDisk.writebackStarted", nil)
 	}
 	s.setState("attaching")
 	ctx, cancel := context.WithTimeout(ctx, mountTimeout)
@@ -426,10 +427,10 @@ func (s *session) attach(ctx context.Context) error {
 			if ctx.Err() == context.Canceled {
 				return ctx.Err()
 			}
-			return fmt.Errorf("无法创建 U 盘镜像（FUSE 无响应）")
+			return i18n.New("nasDisk.fuseUnavailable", nil)
 		}
 		s.disk.Freeze()
-		return fmt.Errorf("挂载失败：%s", strings.TrimSpace(string(output)))
+		return i18n.New("nasDisk.mountFailed", map[string]any{"p0": strings.TrimSpace(string(output))})
 	}
 	s.setState("attached")
 	return nil
@@ -484,13 +485,13 @@ func (s *session) commit(ctx context.Context, force bool) error {
 			return nil
 		}
 		if (e != nil || !result.Safe || len(result.Warnings) > 0) && (!force || !canForce) {
-			reason := "文件系统需要检查"
+			reason := (i18n.Message{Key: "nasDisk.checkRequired"}).Render(i18n.English)
 			detail := "FAT32 validation did not complete"
 			if e != nil {
 				reason = failureMessage(e)
 				detail = e.Error()
 			} else if len(result.Warnings) > 0 {
-				reason = "U 盘文件系统存在警告，可能未安全弹出；请重新挂载到电脑检查，或选择恢复可识别内容"
+				reason = (i18n.Message{Key: "nasDisk.unsafeFilesystem"}).Render(i18n.English)
 				detail = strings.Join(result.Warnings, "; ")
 			}
 			s.mu.Lock()
@@ -544,7 +545,7 @@ func (s *session) writeTimeoutDecision(canForce bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.status.State = "needs-decision"
-	s.status.Decision = &Decision{"NAS 在 U 盘写入期间暂时无响应", canForce}
+	s.status.Decision = &Decision{(i18n.Message{Key: "nasDisk.stalled"}).Render(i18n.English), canForce}
 	s.status.Error = ""
 	s.status.Detail = "A timed-out overlay write or sync may have completed after the host received EIO."
 }
@@ -657,7 +658,7 @@ func (s *session) requireDetached() error {
 		return err
 	}
 	if strings.TrimSpace(string(b)) == s.image {
-		return fmt.Errorf("请先在被控电脑安全弹出")
+		return i18n.New("nasDisk.ejectRequired", nil)
 	}
 	return nil
 }
@@ -711,35 +712,35 @@ func (s *session) serve(ctx context.Context, l net.Listener) {
 				return
 			}
 			if c.ID != "" && c.ID != s.status.ID {
-				err = fmt.Errorf("会话已改变")
+				err = i18n.New("nasDisk.sessionChanged", nil)
 			} else {
 				switch c.Action {
 				case "cancel":
 					if s.status.State == "attached" || s.status.State == "committing" {
-						err = fmt.Errorf("请先在被控电脑安全弹出")
+						err = i18n.New("nasDisk.ejectRequired", nil)
 					} else if s.status.State == "scanning" || s.status.State == "attaching" {
 						s.cancel()
 					} else {
 						select {
 						case s.commands <- c:
 						default:
-							err = fmt.Errorf("会话正在处理操作")
+							err = i18n.New("nasDisk.sessionBusy", nil)
 						}
 					}
 				case "discard", "commit", "reattach":
 					if s.status.State != "needs-decision" && s.status.State != "failed" {
-						err = fmt.Errorf("当前会话不能执行此操作")
+						err = i18n.New("nasDisk.invalidOperation", nil)
 					} else if c.Action == "discard" && c.Confirm != s.status.ID {
-						err = fmt.Errorf("请确认完整会话 ID")
+						err = i18n.New("nasDisk.confirmSession", nil)
 					} else {
 						select {
 						case s.commands <- c:
 						default:
-							err = fmt.Errorf("会话正在处理操作")
+							err = i18n.New("nasDisk.sessionBusy", nil)
 						}
 					}
 				default:
-					err = fmt.Errorf("不支持的操作")
+					err = i18n.New("nasDisk.operationUnsupported", nil)
 				}
 			}
 			if err != nil {

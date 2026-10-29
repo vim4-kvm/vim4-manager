@@ -1,3 +1,4 @@
+import { t, useLocale, getLocale } from "@/i18n";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { cn } from "@/lib/utils";
 
@@ -25,7 +26,7 @@ export function useWidth<T extends HTMLElement>() {
 }
 
 function clock(t: number): string {
-  return new Date(t).toLocaleTimeString("zh-CN", { hour12: false });
+  return new Date(t).toLocaleTimeString(getLocale(), { hourCycle: "h23" });
 }
 
 export interface Point {
@@ -58,7 +59,7 @@ export function TrendChart({
   onHover,
   maxGapMs = Infinity,
   currentAvailable = true,
-  emptyMessage = "正在采样…",
+  emptyMessage = t("trends.sampling"),
   height = 112,
   sampledFrom,
   sampledMinutes = Math.round(windowMs / 60000),
@@ -84,6 +85,7 @@ export function TrendChart({
   sampledFrom?: number;
   sampledMinutes?: number;
 }) {
+ useLocale();
   const [ref, width] = useWidth<HTMLDivElement>();
   const gradientId = useId();
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
@@ -139,7 +141,7 @@ export function TrendChart({
 
   const values = visible.map((p) => p.v);
   const summary = visible.length
-    ? `${label}，最近 ${sampledMinutes} 分钟：当前 ${currentAvailable ? format(last.v) : "暂无数据"}，最低 ${format(Math.min(...values))}，最高 ${format(Math.max(...values))}`
+    ? t("chart.lastMinutesCurrentMinimumMaximum", { p0: String(label), count: sampledMinutes, p2: String(currentAvailable ? format(last.v) : t("chart.noData")), p3: String(format(Math.min(...values))), p4: String(format(Math.max(...values))) })
     : `${label}：${emptyMessage}`;
 
   const minutes = Math.round(windowMs / 60000);
@@ -168,7 +170,7 @@ export function TrendChart({
           </defs>
           {unsampledWidth > 0 && <>
             <rect data-chart="unsampled" className="fill-muted" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} />
-            {visible.length > 0 && unsampledWidth >= 96 && <text data-chart="tick" className={TICK} x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">尚未采样</text>}
+            {visible.length > 0 && unsampledWidth >= 96 && <text data-chart="tick" className={TICK} x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">{t("chart.noSamplesYet")}</text>}
           </>}
           {ticks.map((v) => (
             <g key={v}>
@@ -187,7 +189,7 @@ export function TrendChart({
               y={PAD_TOP + height + 14}
               textAnchor={m === 0 ? "end" : m === minutes ? "start" : "middle"}
             >
-              {m === 0 ? "现在" : `${Math.round(m)} 分钟前`}
+              {m === 0 ? t("chart.now") : new Intl.DateTimeFormat(getLocale(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(end - m * 60000)}
             </text>
           ))}
           <path fill={`url(#${gradientId})`} d={area} />

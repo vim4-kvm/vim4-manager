@@ -26,7 +26,7 @@ func TestMountCancellationReleasesWaiterAndCleansLateMount(t *testing.T) {
 			cancel()
 			select {
 			case err := <-done:
-				if timeout && (err == nil || !strings.Contains(err.Error(), "FUSE 无响应")) {
+				if timeout && (err == nil || !strings.Contains(err.Error(), "FUSE isn't responding")) {
 					t.Fatalf("error %v", err)
 				}
 				if !timeout && !errors.Is(err, context.Canceled) {

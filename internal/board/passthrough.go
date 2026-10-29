@@ -3,8 +3,6 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,10 +11,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"github.com/vim4-kvm/vim4-manager/internal/statefile"
 )
 
-var ErrPassthroughUnsupported = errors.New("当前内核不支持")
+var ErrPassthroughUnsupported = i18n.New("output.unsupported", nil)
 
 type PassthroughPreferences struct {
 	Enabled bool `json:"enabled"`
@@ -91,11 +90,11 @@ func (p kernelPassthroughProvider) command(ctx context.Context, args ...string) 
 	output, err := run(ctx, "sudo", append([]string{"-n", Helper}, args...)...)
 	if err != nil {
 		log.Printf("passthrough helper %s: %v", args[0], err)
-		return PassthroughState{}, errors.New("透传控制服务未响应")
+		return PassthroughState{}, i18n.New("output.unresponsive", nil)
 	}
 	var state PassthroughState
 	if err := json.Unmarshal([]byte(output), &state); err != nil || state.State == "" {
-		return state, errors.New("透传助手返回无效状态")
+		return state, i18n.New("output.invalidState", nil)
 	}
 	return state, nil
 }
@@ -143,12 +142,12 @@ func OpenPassthrough(ctx context.Context, dir string, provider PassthroughProvid
 	p := &Passthrough{provider: provider, path: filepath.Join(dir, "passthrough.json"), events: events}
 	data, err := os.ReadFile(p.path)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("读取透传设置失败：%w", err)
+		return nil, i18n.Wrap(err, "output.readFailed", map[string]any{"p0": err})
 	}
 	if err == nil {
 		prefs := PassthroughPreferences{HDR: true}
 		if err = json.Unmarshal(data, &prefs); err != nil {
-			return nil, fmt.Errorf("透传设置无效：%w", err)
+			return nil, i18n.Wrap(err, "output.invalidSettings", map[string]any{"p0": err})
 		}
 		state, readErr := provider.Status(ctx)
 		if readErr != nil {
@@ -158,7 +157,7 @@ func OpenPassthrough(ctx context.Context, dir string, provider PassthroughProvid
 			p.observe(state)
 			state, err = provider.Apply(ctx, prefs)
 			if err != nil {
-				p.events.Add("critical", "透传失败：%s", err)
+				p.events.AddMessage("critical", i18n.Message{Key: "events.outputFailed", Args: map[string]any{"p0": err}})
 				return nil, err
 			}
 			p.observe(state)
@@ -215,9 +214,9 @@ func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (Passth
 		actual, rollbackErr := p.provider.Apply(rollbackCtx, previous)
 		cancel()
 		p.observe(actual)
-		err = fmt.Errorf("保存透传设置失败：%w", err)
+		err = i18n.Wrap(err, "output.saveFailed", map[string]any{"p0": err})
 		if rollbackErr != nil {
-			err = fmt.Errorf("%w；恢复失败：%v", err, rollbackErr)
+			err = i18n.Wrap(err, "output.rollbackFailed", map[string]any{"p0": err, "p1": rollbackErr})
 		}
 		return actual, p.failure(err)
 	}
@@ -225,7 +224,7 @@ func (p *Passthrough) Set(ctx context.Context, change PassthroughChange) (Passth
 }
 
 func (p *Passthrough) failure(err error) error {
-	p.events.Add("critical", "透传失败：%s", err)
+	p.events.AddMessage("critical", i18n.Message{Key: "events.outputFailed", Args: map[string]any{"p0": err}})
 	return err
 }
 
@@ -236,16 +235,16 @@ func passthroughRefresh(hz float64) string {
 func (p *Passthrough) observe(state PassthroughState) {
 	if p.last != nil && state.Enabled != p.last.Enabled {
 		if state.Enabled {
-			p.events.Add("good", "透传已开启")
+			p.events.AddMessage("good", i18n.Message{Key: "events.outputEnabled", Args: nil})
 		} else {
-			p.events.Add("idle", "透传已关闭")
+			p.events.AddMessage("idle", i18n.Message{Key: "events.outputDisabled", Args: nil})
 		}
 	}
 	if out := state.Output; state.State == "running" && out != nil && out.Scaled {
 		old := p.last
 		if old == nil || old.State != "running" || old.Output == nil || !old.Output.Scaled ||
 			old.Output.Width != out.Width || old.Output.Height != out.Height || old.Output.RefreshHz != out.RefreshHz {
-			p.events.Add("warning", "透传输出已缩放到 %d×%d %s", out.Width, out.Height, passthroughRefresh(out.RefreshHz))
+			p.events.AddMessage("warning", i18n.Message{Key: "events.outputScaled", Args: map[string]any{"p0": out.Width, "p1": out.Height, "p2": passthroughRefresh(out.RefreshHz)}})
 		}
 	}
 	p.last = &state
@@ -260,7 +259,7 @@ func (s *Service) PassthroughStatus(ctx context.Context) (PassthroughState, erro
 
 func (s *Service) SetPassthrough(ctx context.Context, change PassthroughChange) (PassthroughState, error) {
 	if s.Passthrough == nil {
-		s.Events.Add("critical", "透传失败：%s", ErrPassthroughUnsupported)
+		s.Events.AddMessage("critical", i18n.Message{Key: "events.outputFailed", Args: map[string]any{"p0": ErrPassthroughUnsupported}})
 		return PassthroughState{State: "unsupported"}, ErrPassthroughUnsupported
 	}
 	return s.Passthrough.Set(ctx, change)

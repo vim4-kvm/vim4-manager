@@ -44,10 +44,10 @@ const overview = {
     ],
   },
   events: [
-    { t: now - 4 * 60e3, tone: "good", text: "HDMI 输入恢复：3840×2160 60 Hz" },
-    { t: now - 4.2 * 60e3, tone: "warning", text: "HDMI 输入无信号" },
-    { t: now - 31 * 60e3, tone: "good", text: "已切换到 One-KVM" },
-    { t: now - 52 * 60e3, tone: "good", text: "USB 键鼠已连接" },
+    { t: now - 4 * 60e3, tone: "good", text: "HDMI signal restored: 3840×2160@60" },
+    { t: now - 4.2 * 60e3, tone: "warning", text: "HDMI inputNo signal" },
+    { t: now - 31 * 60e3, tone: "good", text: "Switched to One-KVM" },
+    { t: now - 52 * 60e3, tone: "good", text: "USB inputConnected" },
   ],
   history,
 };
@@ -95,11 +95,12 @@ async function open(theme, width, hash) {
   await context.route("**/api/account/sessions", (route) => route.fulfill({ json: { sessions: [{ current: true, address: "192.168.50.12" }] } }));
   await context.route("**/api/passthrough", (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: state });
-    if (writeError) return route.fulfill({ status: 500, json: { error: "HDR 设置未能应用，请稍后重试" } });
+    if (writeError) return route.fulfill({ status: 500, json: { error: "Couldn't apply HDR settings. Try again." } });
     return route.fulfill({ json: { ...state, ...route.request().postDataJSON() } });
   });
   await authenticated(context);
   const page = await context.newPage();
+  await (await import("./auth-fixture.mjs")).pinLanguage(page);
   await page.goto(`${base}/${hash}`);
   return { context, page };
 }
@@ -130,15 +131,15 @@ try {
     for (const width of [1280, 390]) {
       const device = width < 768 ? "390" : "1280";
       const { context, page } = await open(theme, width, "#/overview");
-      await page.getByText("最近事件").first().waitFor();
-      await page.getByRole("img", { name: /CPU 使用率/ }).waitFor();
+      await page.getByText("Recent events").first().waitFor();
+      await page.getByRole("img", { name: /CPU usage/ }).waitFor();
       await capture(page, `overview-${theme}-${device}`);
       await context.close();
 
       for (const name of ["running-hdr", "sdr-converted", "off", "no-monitor", "no-signal", "unsupported", "starting", "stopping", "protected", "unsupported-format", "video-error", "scaled", "hdr-no-support", "hdr-sdr-input", "audio-unavailable"]) {
         state = passthrough(name);
         const { context, page } = await open(theme, width, "#/output");
-        await page.getByRole("switch", { name: "透传", exact: true }).waitFor();
+        await page.getByRole("switch", { name: "Passthrough", exact: true }).waitFor();
         await capture(page, `output-${name}-${theme}-${device}`);
         await context.close();
       }
@@ -151,7 +152,7 @@ try {
         await hdr.waitFor();
         await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]')?.disabled);
         await hdr.click();
-        await page.getByText("保存 HDR 设置失败：HDR 设置未能应用，请稍后重试", { exact: true }).first().waitFor();
+        await page.getByText("Couldn't save HDR settings. Couldn't apply HDR settings. Try again.", { exact: true }).first().waitFor();
         await page.waitForFunction(() => !document.querySelector('[role="switch"][aria-label="HDR"]')?.disabled);
         await capture(page, `output-save-failure-${theme}-${device}`);
         await context.close();
@@ -160,9 +161,9 @@ try {
 
       if (after && width < 768) {
         const { context, page } = await open(theme, width, "#/output");
-        await page.getByRole("switch", { name: "透传", exact: true }).waitFor();
-        await page.getByRole("button", { name: "打开菜单" }).click();
-        await page.getByRole("dialog").getByRole("navigation", { name: "页面" }).waitFor();
+        await page.getByRole("switch", { name: "Passthrough", exact: true }).waitFor();
+        await page.getByRole("button", { name: "Open menu" }).click();
+        await page.getByRole("dialog").getByRole("navigation", { name: "Pages" }).waitFor();
         await settle(page);
         await page.screenshot({ path: `${out}/output-sheet-open-${theme}-${device}.png` });
         shots.push(`${out}/output-sheet-open-${theme}-${device}.png`);

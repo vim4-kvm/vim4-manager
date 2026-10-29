@@ -1,3 +1,4 @@
+import { t, useLocale } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ const appIcons = { onekvm: Monitor, nanokvm: Box, jetkvm: Mouse, pikvm: CircuitB
 const appPackages: Record<string, string> = { onekvm: "vim4-onekvm", nanokvm: "vim4-nanokvm", jetkvm: "vim4-jetkvm", pikvm: "vim4-pikvm" };
 
 export function Applications() {
+ useLocale();
   const { status, stale, now } = useStatusStore(useShallow((s) => ({ status: s.status, stale: s.stale, now: s.now })));
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
@@ -37,14 +39,14 @@ export function Applications() {
   };
   const switchApp = (app: App) => {
     cancelWaiting();
-    return run(`正在切换到 ${app.name}…`, () => selectApp(app.id), `已切换到 ${app.name}`);
+    return run(t("apps.switchingTo", { p0: String(app.name) }), () => selectApp(app.id), t("apps.switchedTo", { p0: String(app.name) }));
   };
   useEffect(() => {
     // Cancel at navigation time even while the outgoing page finishes its fade.
     const leave = () => {
       if (location.hash === "#/apps" || !waitingRef.current) return;
       cancelWaiting();
-      report("warning", "已取消等待切换，请确认当前状态后重新选择。");
+      report("warning", t("apps.switchCanceledCheckTheCurrentStatus"));
     };
     window.addEventListener("hashchange", leave);
     return () => { window.removeEventListener("hashchange", leave); waitingRef.current = false; };
@@ -53,7 +55,7 @@ export function Applications() {
     if (!waiting || !waitingRef.current) return;
     if (stale || !status?.media?.known || status.active !== waiting.source || Date.now() - waiting.started >= 300_000) {
       cancelWaiting();
-      report("warning", "已取消等待切换，请确认当前状态后重新选择。");
+      report("warning", t("apps.switchCanceledCheckTheCurrentStatus"));
       return;
     }
     // Clear the ref before submitting: repeated polls must not switch twice.
@@ -69,11 +71,11 @@ export function Applications() {
     <PageHeading page="apps" />
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border bg-success/5 px-5 py-4 text-sm">
       <StatusLabel tone={stale ? "warning" : activeApp ? unitTone(activeApp.unit) : "idle"}>
-        <strong>{stale ? "连接中断" : activeApp ? `当前${activeApp.unit.active === "active" ? "运行" : "启用"} ${activeApp.name}` : "尚未启用 KVM"}</strong>
+        <strong>{stale ? t("overview.connectionLost") : activeApp ? t("apps.currently", { p0: String(activeApp.unit.active === "active" ? t("apps.running") : t("apps.enabled")), p1: String(activeApp.name) }) : t("apps.noKvmEnabled")}</strong>
       </StatusLabel>
-      {activeApp && <span className="text-muted-foreground">已运行 <span className="text-foreground tabular-nums">{since(activeApp.unit, now) ?? "—"}</span></span>}
-      <span className="min-w-0 break-all text-muted-foreground">虚拟介质：{stale || !status.media?.known ? "状态未知" : status.media.inserted ? mediaName(status.media) : "未挂载"}</span>
-      <a className="ml-auto inline-flex items-center gap-1 text-link hover:underline" href="#/media">管理虚拟介质 <ExternalLink className="size-3.5" /></a>
+      {activeApp && <span className="inline-flex gap-1 text-muted-foreground">{t("overview.uptimeValue", { duration: since(activeApp.unit, now) ?? "—" })}</span>}
+      <span className="min-w-0 break-all text-muted-foreground">{t("apps.mediaStatus", { status: stale || !status.media?.known ? t("overview.statusUnknown") : status.media.inserted ? mediaName(status.media) : t("overview.notMounted") })}</span>
+      <a className="ml-auto inline-flex items-center gap-1 text-link hover:underline" href="#/media">{t("apps.manageVirtualMedia")}<ExternalLink className="size-3.5" /></a>
     </div>
     {waiting ? <MediaWait media={status.media} target={waiting.app.name} onCancel={cancelWaiting} />
       : <MediaSummary media={stale ? undefined : status.media} />}
@@ -85,7 +87,7 @@ export function Applications() {
       return <SettingsCard label={app.name} className={selected ? "border-chart-1/60 bg-chart-1/3" : undefined}>
         <div className="flex h-full flex-col gap-5">
           <div className="flex flex-wrap items-center gap-2">
-            {selected && <Badge className="border-chart-1/20 bg-chart-1/10 text-chart-1" variant="outline">开机启用</Badge>}
+            {selected && <Badge className="border-chart-1/20 bg-chart-1/10 text-chart-1" variant="outline">{t("apps.startAtBoot")}</Badge>}
             <Badge variant="secondary"><StatusLabel tone={unitTone(app.unit)}>{unitLabel(app.unit)}</StatusLabel></Badge>
           </div>
           <div className="flex items-center gap-4">
@@ -93,30 +95,30 @@ export function Applications() {
             <div className="min-w-0"><h2 className="text-xl font-semibold tracking-tight">{app.name}</h2><p className="mt-1 text-sm text-muted-foreground">{app.description}</p></div>
           </div>
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-2 border-t pt-4 text-xs">
-            <dt className="text-muted-foreground">服务</dt><dd className="break-all font-mono">{app.unit.name}</dd>
-            <dt className="text-muted-foreground">版本</dt><dd className="flex flex-wrap gap-2 break-all font-mono">{version || (app.unit.loaded ? "版本未知" : "未安装")}<DevelopmentBadge version={version ?? ""} /></dd>
+            <dt className="text-muted-foreground">{t("apps.service")}</dt><dd className="break-all font-mono">{app.unit.name}</dd>
+            <dt className="text-muted-foreground">{t("apps.version")}</dt><dd className="flex flex-wrap gap-2 break-all font-mono">{version || (app.unit.loaded ? t("common.unknown") : t("apps.notInstalled"))}<DevelopmentBadge version={version ?? ""} /></dd>
           </dl>
           <div className="mt-auto flex flex-wrap gap-3 [&>button]:min-w-24 [&>a]:min-w-24 [&>*]:flex-1">
-            {!app.unit.loaded ? <span className="text-muted-foreground">未安装</span> : selected ? <>
-              <Button variant="outline" disabled={locked} onClick={() => setRestarting(app)}><RotateCw />重启</Button>
+            {!app.unit.loaded ? <span className="text-muted-foreground">{t("apps.notInstalled")}</span> : selected ? <>
+              <Button variant="outline" disabled={locked} onClick={() => setRestarting(app)}><RotateCw />{t("apps.restart")}</Button>
               <Button asChild className={running ? undefined : "pointer-events-none opacity-50"}>
-                <a href={kvmURL(app.port, app.id)} aria-disabled={!running}>打开 {app.name}<ExternalLink /></a>
+                <a href={kvmURL(app.port, app.id)} aria-disabled={!running}>{t("overview.openApp", { name: app.name })}<ExternalLink /></a>
               </Button>
-            </> : <Button variant="outline" disabled={locked || confirming?.id === app.id} onClick={() => setConfirming(app)}><ArrowRightLeft />切换到此</Button>}
+            </> : <Button variant="outline" disabled={locked || confirming?.id === app.id} onClick={() => setConfirming(app)}><ArrowRightLeft />{t("apps.switchTo", { p0: app.name })}</Button>}
           </div>
         </div>
       </SettingsCard>;
     }}</AnimatedList>
-    <Notice>切换界面会断开当前远程会话。已挂载的介质保持原状；需要弹出时会先提示。</Notice>
-    <SettingsCard title="共用设备"><FactGrid>
-      <Fact label="HDMI 采集" icon={Video} value={status.hardware.hdmi.signal ? "已连接" : "无信号"} tone={status.hardware.hdmi.signal ? "good" : "warning"} />
-      <Fact label="USB 键鼠" icon={Usb} value={status.hardware.usb === "configured" ? "已连接" : status.hardware.usb || "未知"} tone={status.hardware.usb === "configured" ? "good" : "idle"} />
-      <Fact label="KVM 网关" icon={Network} value={activeApp?.unit.active === "active" ? `访问 ${activeApp.port} 端口` : "等待启用界面"} />
+    <Notice>{t("apps.switchingClosesTheCurrentRemoteSession")}</Notice>
+    <SettingsCard title={t("apps.sharedDevices")}><FactGrid>
+      <Fact label={t("apps.hdmiCapture")} icon={Video} value={status.hardware.hdmi.signal ? t("overview.connected") : t("overview.noSignal")} tone={status.hardware.hdmi.signal ? "good" : "warning"} />
+      <Fact label={t("overview.usbInput")} icon={Usb} value={status.hardware.usb === "configured" ? t("overview.connected") : status.hardware.usb || t("common.unknown")} tone={status.hardware.usb === "configured" ? "good" : "idle"} />
+      <Fact label={t("apps.kvmGateway")} icon={Network} value={activeApp?.unit.active === "active" ? t("apps.openPort", { p0: String(activeApp.port) }) : t("apps.waitingForAnInterface")} />
     </FactGrid></SettingsCard>
-    {!status.apps.some((a) => a.id === status.active) && <p className="text-sm text-muted-foreground">尚未启用任何界面，选择一个即可开机自动启动。</p>}
-    {confirming && <ConfirmDialog open title={`切换到 ${confirming.name}`} disabled={locked}
-      description={mediaBlocked ? "虚拟磁盘仍已挂载。先在被控电脑安全弹出，检测到弹出后再切换。" : "当前远程会话会断开。"}
-      confirm={mediaBlocked ? "弹出后继续切换" : `切换到 ${confirming.name}`}
+    {!status.apps.some((a) => a.id === status.active) && <p className="text-sm text-muted-foreground">{t("apps.noInterfaceEnabledChooseOneTo")}</p>}
+    {confirming && <ConfirmDialog open title={t("apps.switchTo", { p0: String(confirming.name) })} disabled={locked}
+      description={mediaBlocked ? t("apps.aVirtualDiskIsStillMounted") : t("apps.theCurrentRemoteSessionWillDisconnect")}
+      confirm={mediaBlocked ? t("apps.switchAfterEjection") : t("apps.switchTo", { p0: String(confirming.name) })}
       onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => {
         if (mediaBlocked) {
           waitingRef.current = true;
@@ -125,9 +127,9 @@ export function Applications() {
         } else void switchApp(confirming);
         setConfirming(undefined);
       }} />}
-    {restarting && <ConfirmDialog open title={`重启 ${restarting.name}`} description="当前远程会话会断开。" confirm="重启" disabled={locked}
+    {restarting && <ConfirmDialog open title={t("apps.restart280", { p0: String(restarting.name) })} description={t("apps.theCurrentRemoteSessionWillDisconnect")} confirm={t("apps.restart")} disabled={locked}
       onOpenChange={(open) => { if (!open) setRestarting(undefined); }} onConfirm={() => {
-        void run(`正在重启 ${restarting.name}…`, () => restartUnit(restarting.unit.name), `${restarting.name} 已重启`);
+        void run(t("apps.restarting", { p0: String(restarting.name) }), () => restartUnit(restarting.unit.name), t("apps.restarted", { p0: String(restarting.name) }));
         setRestarting(undefined);
       }} />}
   </>;

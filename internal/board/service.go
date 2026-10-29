@@ -3,8 +3,6 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,13 +11,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // Helper is the root helper invoked through a sudoers rule.
 const Helper = "/usr/libexec/vim4-manager-helper"
 
 // ErrBusy means another operation in the same subsystem is still running.
-var ErrBusy = errors.New("另一项操作正在进行")
+var ErrBusy = i18n.New("common.busy", nil)
 
 // Service answers dashboard queries and serializes privileged operations.
 type Service struct {
@@ -161,9 +161,9 @@ func Restartable(unit string) bool {
 // Select enables and starts one application, stopping the other.
 func (s *Service) Select(ctx context.Context, id string) error {
 	if !slices.ContainsFunc(Apps, func(app App) bool { return app.ID == id }) {
-		return fmt.Errorf("未知应用 %q", id)
+		return i18n.New("apps.unknown", map[string]any{"p0": id})
 	}
-	return s.record(s.helper(ctx, "select", id), "切换到 %s", appName(id))
+	return s.recordMessage(s.helper(ctx, "select", id), i18n.Message{Key: "events.appSelected", Args: map[string]any{"p0": appName(id)}})
 }
 
 func appName(id string) string {
@@ -178,20 +178,24 @@ func appName(id string) string {
 // Restart restarts an application or shared platform unit.
 func (s *Service) Restart(ctx context.Context, unit string) error {
 	if !Restartable(unit) {
-		return fmt.Errorf("不允许重启 %s", unit)
+		return i18n.New("services.restartDenied", map[string]any{"p0": unit})
 	}
-	return s.record(s.helper(ctx, "restart", unit), "重启%s", unitName(unit))
+	return s.recordMessage(s.helper(ctx, "restart", unit), i18n.Message{Key: "events.serviceRestarted", Args: map[string]any{"p0": unitName(unit)}})
 }
 
 // SetHDRCurve applies the HDR -> SDR mapping to the running capture and keeps
 // it for the next HDMI service start.
 func (s *Service) SetHDRCurve(ctx context.Context, curve HDRCurve) error {
-	return s.record(s.hdrCurve(ctx, "hdr-curve", curve), "保存 HDR 映射 %d / %d 尼特", curve.White, curve.Peak)
+	return s.recordMessage(s.hdrCurve(ctx, "hdr-curve", curve), i18n.Message{Key: "events.hdrSaved", Args: map[string]any{"p0": curve.White, "p1": curve.Peak}})
 }
 
 // SetHDRMapping saves the shared default without restarting HDMI or a KVM session.
 func (s *Service) SetHDRMapping(ctx context.Context, enabled bool) error {
-	return s.record(s.helper(ctx, "hdr-mapping", strconv.FormatBool(enabled)), "HDR 转 SDR：%t", enabled)
+	key := "events.hdrDisabled"
+	if enabled {
+		key = "events.hdrEnabled"
+	}
+	return s.recordMessage(s.helper(ctx, "hdr-mapping", strconv.FormatBool(enabled)), i18n.Message{Key: key})
 }
 
 // PreviewHDRCurve applies the mapping without saving it, for slider drags.
@@ -202,10 +206,10 @@ func (s *Service) PreviewHDRCurve(ctx context.Context, curve HDRCurve) error {
 // hdrCurve checks the vim4-hdr-curve limits before reaching the helper.
 func (s *Service) hdrCurve(ctx context.Context, action string, curve HDRCurve) error {
 	if curve.White < 160 || curve.White > 1000 {
-		return fmt.Errorf("SDR 白需在 160–1000 尼特之间")
+		return i18n.New("hdr.invalidWhite", nil)
 	}
 	if curve.Peak <= curve.White || curve.Peak > 10000 {
-		return fmt.Errorf("高光上限需大于 SDR 白且不超过 10000 尼特")
+		return i18n.New("hdr.invalidPeak", nil)
 	}
 	return s.helper(ctx, action, strconv.Itoa(curve.White), strconv.Itoa(curve.Peak))
 }
@@ -225,7 +229,8 @@ func (s *Service) helper(ctx context.Context, args ...string) error {
 	defer cancel()
 	_, err := s.Run(ctx, "sudo", append([]string{"-n", Helper}, args...)...)
 	if err != nil {
-		return fmt.Errorf("操作失败：%s", strings.TrimPrefix(err.Error(), "sudo: "))
+		err = i18n.HelperError(err)
+		return i18n.Wrap(err, "common.operationFailed", map[string]any{"reason": err})
 	}
 	return nil
 }

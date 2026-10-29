@@ -9,6 +9,7 @@ import { usePassthroughStore } from "@/stores/passthrough";
 import { useStatusStore } from "@/stores/status";
 import { navHint, PAGE_GROUPS, PAGES, type PageId } from "./pages";
 import { preloadPage } from "./routes";
+import { useT } from "@/i18n";
 
 const hintTones = {
   good: "text-success-foreground",
@@ -18,26 +19,28 @@ const hintTones = {
 };
 
 function Brand() {
+  const t = useT();
   return (
-    <a href="#/overview" aria-label="VIM4 KVM 管理面板" className="flex h-12 items-center gap-2.5 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:px-0">
+    <a href="#/overview" aria-label={t("nav.brand")} className="flex h-12 items-center gap-2.5 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:px-0">
       <BrandMark />
       <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
         <span data-brand className="text-sm font-semibold text-foreground">VIM4 KVM</span>
-        <span className="mt-0.5 text-xs text-muted-foreground">管理面板</span>
+        <span className="mt-0.5 text-xs text-muted-foreground">{t("nav.manager")}</span>
       </span>
     </a>
   );
 }
 
 function Navigation({ page }: { page: PageId }) {
+  const t = useT();
   const status = useStatusStore((s) => s.status);
   const passthrough = usePassthroughStore((s) => s.state);
   const { setOpenMobile } = useSidebar();
   return (
-    <nav aria-label="页面">
+    <nav aria-label={t("nav.pages")}>
       {PAGE_GROUPS.map((group) => (
         <SidebarGroup key={group}>
-          <SidebarGroupLabel>{group}</SidebarGroupLabel>
+          <SidebarGroupLabel>{t(`nav.${group}`)}</SidebarGroupLabel>
           <SidebarMenu className="gap-1">
             {PAGES.filter((p) => p.group === group).map((p) => {
               const hint = navHint(p.id, status, passthrough);
@@ -70,12 +73,13 @@ function Navigation({ page }: { page: PageId }) {
 }
 
 function Connection() {
+  const t = useT();
   const { status, stale } = useStatusStore(useShallow((s) => ({ status: s.status, stale: s.stale })));
   return (
     <div className="flex min-w-0 flex-col gap-1 px-2 text-xs group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
       <span className="flex min-w-0 items-center gap-2 text-sidebar-foreground">
-        <span title={stale ? "连接中断" : status ? status.hardware.hostname : "连接中"}><StatusDot tone={stale ? "critical" : status ? "good" : "warning"} /></span>
-        <span className="truncate group-data-[collapsible=icon]:sr-only">{stale ? "连接中断" : status ? status.hardware.hostname : "连接中"}</span>
+        <span title={stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}><StatusDot tone={stale ? "critical" : status ? "good" : "warning"} /></span>
+        <span className="truncate group-data-[collapsible=icon]:sr-only">{stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}</span>
       </span>
       {status && <span data-kernel className="truncate pl-4 font-mono text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden">{status.hardware.kernel}</span>}
     </div>

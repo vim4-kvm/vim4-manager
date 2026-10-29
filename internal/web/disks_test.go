@@ -13,6 +13,24 @@ import (
 	"github.com/vim4-kvm/vim4-manager/internal/board"
 )
 
+func TestStorageErrorUsesRequestLocale(t *testing.T) {
+	for _, test := range []struct{ locale, want string }{
+		{"en", "Provide Content-Length for the upload."},
+		{"zh-CN", "需要 Content-Length"},
+	} {
+		r := httptest.NewRequest(http.MethodPut, "/api/disks/file?disk=disk.img&path=/file", strings.NewReader("body"))
+		r.ContentLength = -1
+		r.Header.Set("Content-Type", "application/octet-stream")
+		r.Header.Set("X-Vim4-Upload", "1")
+		r.Header.Set("Cookie", "vim4_lang="+test.locale)
+		w := httptest.NewRecorder()
+		Handler(&board.Service{}, fstest.MapFS{}).ServeHTTP(w, r)
+		if w.Code != http.StatusLengthRequired || !strings.Contains(w.Body.String(), test.want) {
+			t.Fatalf("%s: %d %s", test.locale, w.Code, w.Body.String())
+		}
+	}
+}
+
 func TestDiskConfirmationAndFormatSnapshot(t *testing.T) {
 	var calls [][]string
 	s := &board.Service{Stream: func(_ context.Context, _ io.Reader, out io.Writer, _ string, args ...string) error {

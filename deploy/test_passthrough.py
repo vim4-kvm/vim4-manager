@@ -227,7 +227,7 @@ class VendorPassthroughTest(unittest.TestCase):
         self.assertEqual(state['state'], 'video-error')
         self.assertEqual(state['input']['hdr'], 'HDR10')
         self.assertIn('monitor', state)
-        self.assertIn('检查 HDMI 输入线', state['reason'])
+        self.assertIn('Check the HDMI input cable', state['reason'])
 
     def test_mapped_hdr_uses_sdr_output_without_fake_hdr_signaling(self):
         for eotf, expected in (('SMPTE_ST_2048', 'HDR10'), ('HLG', 'HLG')):
@@ -262,7 +262,7 @@ class VendorPassthroughTest(unittest.TestCase):
 
     def test_missing_audio_service_does_not_change_request_or_hardware(self):
         with patch.object(self.controller, 'write') as write:
-            with self.assertRaisesRegex(ValueError, '音频'):
+            with self.assertRaisesRegex(ValueError, 'audio'):
                 self.controller.set(True, True)
             write.assert_not_called()
         self.assertFalse(self.controller.path(passthrough.RUNTIME + 'request.json').exists())
@@ -294,12 +294,12 @@ class VendorPassthroughTest(unittest.TestCase):
 
     def test_status_rejects_dead_or_stale_worker(self):
         passthrough.atomic_json(self.controller.path(passthrough.RUNTIME + 'request.json'), {'enabled': True, 'revision': 1})
-        with self.assertRaisesRegex(ValueError, '未响应'):
+        with self.assertRaisesRegex(ValueError, "didn't respond"):
             self.controller.status()
         passthrough.atomic_json(self.controller.path(passthrough.RUNTIME + 'state.json'), {
             'revision': 1, 'heartbeat': passthrough.time.monotonic() - 10, 'state': {},
         })
-        with self.assertRaisesRegex(ValueError, '未响应'):
+        with self.assertRaisesRegex(ValueError, "didn't respond"):
             self.controller.status()
 
     def test_scaling_and_fractional_refresh_follow_sink_intersection(self):

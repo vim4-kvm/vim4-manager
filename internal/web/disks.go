@@ -1,7 +1,6 @@
 package web
 
 import (
-	"errors"
 	"mime"
 	"net/http"
 	"net/url"
@@ -10,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 type diskRequest struct {
@@ -30,7 +30,7 @@ func diskRoutes(mux *http.ServeMux, service *board.Service) {
 	query := func(w http.ResponseWriter, r *http.Request, command string, args ...string) {
 		result, err := service.DiskCommand(r.Context(), command, args...)
 		if err != nil {
-			respond(w, err)
+			respond(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
@@ -52,7 +52,7 @@ func diskRoutes(mux *http.ServeMux, service *board.Service) {
 				name = request.Disk
 			}
 			if (endpoint == "/delete" || endpoint == "/format" || endpoint == "/restore" || endpoint == "/resize") && (name == "" || request.Confirm != name) {
-				respond(w, errors.New("请确认完整的数据盘名称"))
+				respond(w, r, i18n.New("disk.confirmName", nil))
 				return
 			}
 			var command string
@@ -94,19 +94,19 @@ func diskRoutes(mux *http.ServeMux, service *board.Service) {
 	mux.HandleFunc("PUT /api/disks/file", func(w http.ResponseWriter, r *http.Request) {
 		contentType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if contentType != "application/octet-stream" || r.Header.Get("X-Vim4-Upload") != "1" {
-			writeError(w, http.StatusUnsupportedMediaType, errors.New("需要 application/octet-stream 和 X-Vim4-Upload: 1"))
+			writeError(w, r, http.StatusUnsupportedMediaType, i18n.New("disk.uploadHeaders", nil))
 			return
 		}
 		if r.ContentLength < 0 || (r.ContentLength == 0 && r.Header.Get("Content-Length") == "") {
-			writeError(w, http.StatusLengthRequired, errors.New("需要 Content-Length"))
+			writeError(w, r, http.StatusLengthRequired, i18n.New("disk.missingLength", nil))
 			return
 		}
 		mode := r.URL.Query().Get("overwrite")
 		if mode != "0" && mode != "1" {
-			respond(w, errors.New("overwrite 需为 0 或 1"))
+			respond(w, r, i18n.New("disk.overwriteValue", nil))
 			return
 		}
-		respond(w, service.UploadDiskFile(r.Context(), r.URL.Query().Get("disk"), r.URL.Query().Get("path"), r.ContentLength, mode == "1", r.Body))
+		respond(w, r, service.UploadDiskFile(r.Context(), r.URL.Query().Get("disk"), r.URL.Query().Get("path"), r.ContentLength, mode == "1", r.Body))
 	})
 	for _, endpoint := range []string{"file", "image"} {
 		mux.HandleFunc("GET /api/disks/"+endpoint, func(w http.ResponseWriter, r *http.Request) {
@@ -121,7 +121,7 @@ func diskRoutes(mux *http.ServeMux, service *board.Service) {
 					// Once bytes are sent, abort rather than append JSON to a corrupt download.
 					panic(http.ErrAbortHandler)
 				}
-				respond(w, err)
+				respond(w, r, err)
 				return
 			}
 			out.start()

@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
@@ -25,18 +26,19 @@ import { bytes } from "./DiskPanel";
 import { CopyButton } from "@/components/CopyButton";
 import { PasswordInput } from "@/components/PasswordInput";
 import { NasDiskPanel, NasDiskSetup, useNasDisk } from "./NasDiskPanel";
+import { useLocale } from "@/i18n";
 
 const VERSIONS: Record<StorageType, { value: string; label: string }[]> = {
   smb: [
-    { value: "auto", label: "自动协商" },
+    { value: "auto", get label() { return t("storage.automatic"); } },
     { value: "3.1.1", label: "SMB 3.1.1" },
     { value: "3.0", label: "SMB 3.0" },
     { value: "2.1", label: "SMB 2.1" },
     { value: "2.0", label: "SMB 2.0" },
-    { value: "1.0", label: "SMB 1.0（不安全）" },
+    { value: "1.0", get label() { return t("storage.smbInsecure"); } },
   ],
   nfs: [
-    { value: "auto", label: "自动协商" },
+    { value: "auto", get label() { return t("storage.automatic"); } },
     { value: "4.2", label: "NFS 4.2" },
     { value: "4.1", label: "NFS 4.1" },
     { value: "4.0", label: "NFS 4.0" },
@@ -69,28 +71,29 @@ function defaultName(d: StorageConfig) {
 }
 
 function draftError(d: StorageConfig) {
-  if (!d.server.trim()) return "填写服务器地址";
-  if (!d.share.trim()) return d.type === "smb" ? "填写共享名" : "填写导出路径";
-  if (d.type === "nfs" && !d.share.startsWith("/")) return "导出路径以 / 开头";
+  if (!d.server.trim()) return t("storage.enterAServerAddress");
+  if (!d.share.trim()) return d.type === "smb" ? t("storage.enterAShareName") : t("storage.enterAnExportPath");
+  if (d.type === "nfs" && !d.share.startsWith("/")) return t("storage.theExportPathMustStartWith");
   return "";
 }
 
 function capacity(s: Storage) {
   if (!s.mounted) return undefined;
-  if (s.totalBytes == null || s.freeBytes == null) return { text: s.stale ? "NAS 无响应" : "容量未知", ratio: undefined };
+  if (s.totalBytes == null || s.freeBytes == null) return { text: s.stale ? t("storage.nasNotResponding") : t("storage.capacityUnknown"), ratio: undefined };
   const used = 1 - s.freeBytes / Math.max(1, s.totalBytes);
-  return { text: `剩余 ${bytes(s.freeBytes)} / ${bytes(s.totalBytes)}`, ratio: used };
+  return { text: t("storage.available", { p0: bytes(Math.max(0, s.totalBytes - s.freeBytes)), p1: bytes(s.totalBytes) }), ratio: used };
 }
 
 function stateLabel(s: Storage): { tone: Tone; text: string } {
-  if (s.state === "mounting") return { tone: "warning", text: "正在连接" };
-  if (s.mounted && s.stale) return { tone: "warning", text: "已连接 · 无响应" };
-  if (s.mounted) return { tone: "good", text: s.writable === false ? "已连接 · 只读" : "已连接" };
-  if (s.state === "error") return { tone: "critical", text: "连接失败" };
-  return { tone: "idle", text: "未连接" };
+  if (s.state === "mounting") return { tone: "warning", text: t("storage.connecting") };
+  if (s.mounted && s.stale) return { tone: "warning", text: t("storage.connectedNotResponding") };
+  if (s.mounted) return { tone: "good", text: s.writable === false ? t("storage.connectedReadOnly") : t("storage.connected") };
+  if (s.state === "error") return { tone: "critical", text: t("storage.couldnTConnect") };
+  return { tone: "idle", text: t("storage.disconnected") };
 }
 
 export function StoragePanel() {
+  const locale = useLocale();
   const busy = useActionStore((s) => !!s.busy);
   const [state, setState] = useState<StorageState>();
   const [stale, setStale] = useState(true);
@@ -131,7 +134,7 @@ export function StoragePanel() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending]);
+  }, [pending, locale]);
 
   async function act(label: string, run: () => Promise<unknown>) {
     setPending(label);
@@ -186,7 +189,7 @@ export function StoragePanel() {
   async function save() {
     if (!editor) return;
     const body = payload(editor);
-    if (await act(`正在保存「${body.name}」…`, () => storageWrite("", body))) {
+    if (await act(t("storage.saving", { p0: String(body.name) }), () => storageWrite("", body))) {
       setEditor(undefined);
       setTest(undefined);
     }
@@ -199,7 +202,7 @@ export function StoragePanel() {
   // The mount unit only records that it failed; a saved-connection test returns the NAS's reason.
   const testSaved = (s: Storage) => {
     setConnectionTest(undefined);
-    void act(`正在测试「${s.name}」…`, async () => {
+    void act(t("storage.testing", { p0: String(s.name) }), async () => {
       const result = await storageWrite<StorageTest>("/test", { id: s.id, type: s.type, server: s.server, share: s.share, domain: s.domain, username: s.username, version: s.version });
       setConnectionTest({ id: s.id, result });
     });
@@ -207,10 +210,10 @@ export function StoragePanel() {
 
   return (
     <div className="flex flex-col gap-6">
-    <PageHeading page="storage" action={!editor && storages.length > 0 && <Button disabled={locked || storages.length >= 8} onClick={() => openEditor()}><Plus />添加 NAS</Button>} />
-    {stale && state && <Notice warning>无法刷新网络存储，显示的是上次读取的状态。连接恢复后再操作。</Notice>}
+    <PageHeading page="storage" action={!editor && storages.length > 0 && <Button disabled={locked || storages.length >= 8} onClick={() => openEditor()}><Plus />{t("storage.addNas")}</Button>} />
+    {stale && state && <Notice warning>{t("storage.couldnTRefreshNetworkStorageShowing")}</Notice>}
     <NasDiskPanel disk={disk} locked={locked} />
-    <section role="region" aria-label="网络存储" className="@container min-w-0 space-y-4">
+    <section role="region" aria-label={t("nav.storage")} className="@container min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           {(pending || (!disk.hasActivity && disk.pending)) && (
             <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
@@ -222,9 +225,7 @@ export function StoragePanel() {
       <div className="flex flex-col gap-5 empty:hidden">
       {missingTools && (
         <p className="rounded-md border border-warning/30 bg-warning/5 p-3 text-sm text-warning-foreground">
-          板子缺少{[!state.tools.smb && "SMB（cifs-utils）", !state.tools.nfs && "NFS（nfs-common）"].filter(Boolean).join("、")}
-          挂载工具，请先在「更新」页更新管理面板。
-        </p>
+          {t("storage.missingTools", { tools: [!state.tools.smb && "SMB (cifs-utils)", !state.tools.nfs && "NFS (nfs-common)"].filter(Boolean).join(" / ") })}</p>
       )}
 
       {editor && !editor.editing && (
@@ -241,13 +242,12 @@ export function StoragePanel() {
       )}
 
       {state === undefined ? (
-        <PanelSkeleton label={stale ? "正在读取…" : ""} />
+        <PanelSkeleton label={stale ? t("common.loading") : ""} />
       ) : storages.length === 0 && !editor ? (
-        <EmptyState icon={Server} action={<Button variant="default" disabled={locked} onClick={() => openEditor()}>添加 NAS</Button>}>
-          <strong className="font-medium text-foreground">还没有 NAS</strong><br />添加后可以把录屏保存到 NAS，或把 NAS 上的文件夹作为 U 盘交给被控电脑。
-        </EmptyState>
+        <EmptyState icon={Server} action={<Button variant="default" disabled={locked} onClick={() => openEditor()}>{t("storage.addNas")}</Button>}>
+          <strong className="font-medium text-foreground">{t("storage.noNasConnectionsYet")}</strong><br />{t("storage.addANasToSaveRecordings")}</EmptyState>
       ) : (
-        <FadeIn><AnimatedList className="flex min-w-0 flex-col gap-3 [&>li]:min-w-0" label="NAS 连接" items={storages} getKey={(s) => s.id}>{(s) => {
+        <FadeIn><AnimatedList className="flex min-w-0 flex-col gap-3 [&>li]:min-w-0" label={t("storage.nasConnections")} items={storages} getKey={(s) => s.id}>{(s) => {
             const connection = stateLabel(s);
             const room = capacity(s);
             const open = editor?.editing && editor.draft.id === s.id;
@@ -258,13 +258,13 @@ export function StoragePanel() {
                   <div className="rounded-lg bg-chart-1/8 p-3 text-chart-1"><Server className="size-5" aria-hidden="true" /></div>
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2 [&_strong]:font-medium">
-                      <button type="button" className="rounded-sm text-left text-base font-semibold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50" aria-pressed={s.id === selectedStorage?.id} aria-label={`查看 ${s.name} 连接信息`} onClick={() => setSelectedID(s.id)}>{s.name}</button>
+                      <button type="button" className="rounded-sm text-left text-base font-semibold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50" aria-pressed={s.id === selectedStorage?.id} aria-label={t("storage.viewConnectionDetailsFor", { p0: String(s.name) })} onClick={() => setSelectedID(s.id)}>{s.name}</button>
                       <StatusDot tone={connection.tone} />
                       <Badge variant="secondary">{s.type.toUpperCase()}</Badge>
-                      {s.autoMount && <Badge variant="secondary">自动连接</Badge>}
+                      {s.autoMount && <Badge variant="secondary">{t("storage.connectAutomatically")}</Badge>}
                       {s.insecure && <Badge variant="secondary" className="bg-warning/15 text-warning-foreground">SMB 1.0</Badge>}
                       <span className="text-sm text-muted-foreground">{connection.text}</span>
-                      {inUse && <Badge variant="secondary">U 盘使用中</Badge>}
+                      {inUse && <Badge variant="secondary">{t("storage.usbDriveInUse")}</Badge>}
                     </div>
                     <span className="text-xs text-muted-foreground font-mono break-all">{storageAddress(s)}</span>
                     {room && (
@@ -278,19 +278,19 @@ export function StoragePanel() {
                       </div>
                     )}
                     {s.mounted && s.writable === false && (
-                      <span className="text-sm text-warning-foreground">板子没有写入权限，录制和 U 盘回写不可用。请在 NAS 上给该账户写入权限。</span>
+                      <span className="text-sm text-warning-foreground">{t("storage.theBoardDoesnTHaveWrite")}</span>
                     )}
                     {!s.mounted && s.error && <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-sm">
                       <span className="text-destructive">{s.error}</span>
-                      {connectionTest?.id !== s.id && <Button variant="link" size="inline" disabled={locked} onClick={() => testSaved(s)}>查看原因</Button>}
+                      {connectionTest?.id !== s.id && <Button variant="link" size="inline" disabled={locked} onClick={() => testSaved(s)}>{t("storage.viewDetails")}</Button>}
                     </span>}
-                    {connectionTest?.id === s.id && <p role="status" className={`text-sm ${connectionTest.result.ok ? "text-success-foreground" : "text-destructive"}`}>{connectionTest.result.ok ? "连接测试成功，可以重新连接" : `连接测试失败：${connectionTest.result.error || "NAS 不可用"}`}</p>}
+                    {connectionTest?.id === s.id && <p role="status" className={`text-sm ${connectionTest.result.ok ? "text-success-foreground" : "text-destructive"}`}>{connectionTest.result.ok ? t("storage.connectionTestPassedYouCanReconnect") : t("storage.connectionTestFailed", { p0: String(connectionTest.result.error || t("storage.nasUnavailable")) })}</p>}
                   </div>
                   <div className="ml-auto flex flex-wrap items-center gap-2">
                     {s.mounted ? (
                       <Button variant="outline"
                         disabled={locked || !!disk.pending || !disk.state?.known || !!session}
-                        title={session ? "同一时间只能有一个 U 盘" : undefined}
+                        title={session ? t("storage.onlyOneUsbDriveCanBe") : undefined}
                         aria-expanded={diskSetup === s.id}
                         onClick={() => {
                           setDiskSetup(s.id);
@@ -299,17 +299,15 @@ export function StoragePanel() {
                           setConfirming(undefined);
                         }}
                       >
-                        作为 U 盘…
-                      </Button>
+                        {t("storage.useAsUsbDrive")}</Button>
                     ) : (
                       <Button variant="outline"
                         disabled={locked || s.state === "mounting"}
-                        onClick={() => void act(`正在连接「${s.name}」…`, () => storageWrite("/mount", { id: s.id }))}
+                        onClick={() => void act(t("storage.connectingTo", { p0: String(s.name) }), () => storageWrite("/mount", { id: s.id }))}
                       >
-                        连接
-                      </Button>
+                        {t("storage.connect")}</Button>
                     )}
-                    <Button variant="outline" disabled={locked} onClick={() => { setSelectedID(s.id); openEditor(s); }}><Pencil />编辑连接</Button>
+                    <Button variant="outline" disabled={locked} onClick={() => { setSelectedID(s.id); openEditor(s); }}><Pencil />{t("storage.editConnection")}</Button>
                     <StorageMenu storage={s} locked={locked} inUse={inUse}
                       onEdit={() => (open ? setEditor(undefined) : openEditor(s))}
                       onConfirm={(kind) => setConfirming({ kind, storage: s })} />
@@ -320,7 +318,7 @@ export function StoragePanel() {
                   <NasDiskSetup key={s.id} storage={s}
                     locked={locked || !!disk.pending || !disk.state?.known}
                     onCancel={() => setDiskSetup(undefined)}
-                    onStart={(setup) => void disk.act("正在准备 U 盘…", () => nasDiskWrite("/start", {
+                    onStart={(setup) => void disk.act(t("storage.preparingUsbDrive"), () => nasDiskWrite("/start", {
                       storage: setup.storage, path: setup.path, mode: setup.mode, label: setup.label,
                       utcOffsetMinutes: -new Date().getTimezoneOffset(),
                     })).then((ok) => { if (ok) setDiskSetup(undefined); })} />
@@ -328,8 +326,8 @@ export function StoragePanel() {
 
                 {open && (
                   <>
-                    <FactGrid cols={1}><Fact label="板上路径" value={<span className="flex min-w-0 items-center gap-2">
-                      <code className="font-mono break-all">{s.path}</code><CopyButton text={s.path} label="复制路径" />
+                    <FactGrid cols={1}><Fact label={t("storage.pathOnBoard")} value={<span className="flex min-w-0 items-center gap-2">
+                      <code className="font-mono break-all">{s.path}</code><CopyButton text={s.path} label={t("storage.copyPath")} />
                     </span>} /></FactGrid>
                     <StorageEditor
                       editor={editor}
@@ -346,14 +344,14 @@ export function StoragePanel() {
 
                 {confirming?.storage.id === s.id && (
                   <ConfirmDialog open onOpenChange={(open) => { if (!open) setConfirming(undefined); }}
-                    title={confirming.kind === "delete" ? "删除连接" : "断开"}
+                    title={confirming.kind === "delete" ? t("storage.deleteConnection") : t("storage.disconnect")}
                     description={confirming.kind === "delete"
-                      ? `删除「${s.name}」的连接设置和保存的密码${s.mounted ? "，并先断开" : ""}。NAS 上的文件不受影响。`
-                      : `断开「${s.name}」。正在使用它的录制或 U 盘会阻止断开，需先停止录制或安全弹出。`}
-                    confirm={confirming.kind === "delete" ? "删除连接" : "断开"} destructive disabled={locked || inUse}
+                      ? t(s.mounted ? "storage.deleteConnectedWarning" : "storage.deleteWarning", { name: s.name })
+                      : t("storage.disconnectStopAnyRecordingsOrSafely", { p0: String(s.name) })}
+                    confirm={confirming.kind === "delete" ? t("storage.deleteConnection") : t("storage.disconnect")} destructive disabled={locked || inUse}
                     onConfirm={() => void (confirming.kind === "delete"
-                      ? act(`正在删除「${s.name}」…`, () => storageWrite("/delete", { id: s.id, confirm: s.name })).then((ok) => ok && setEditor(undefined))
-                      : act(`正在断开「${s.name}」…`, () => storageWrite("/unmount", { id: s.id })))} />
+                      ? act(t("storage.deleting", { p0: String(s.name) }), () => storageWrite("/delete", { id: s.id, confirm: s.name })).then((ok) => ok && setEditor(undefined))
+                      : act(t("storage.disconnecting", { p0: String(s.name) }), () => storageWrite("/unmount", { id: s.id })))} />
                 )}
               </div>
             );
@@ -365,23 +363,23 @@ export function StoragePanel() {
           {error}
         </InlineError>
       )}
-      {!disk.hasActivity && disk.state && !disk.state.known && <p className="text-sm text-warning-foreground">暂时无法读取 U 盘状态。</p>}
+      {!disk.hasActivity && disk.state && !disk.state.known && <p className="text-sm text-warning-foreground">{t("nasDisk.couldnTReadTheUsbDrive")}</p>}
       {!disk.hasActivity && disk.error && <InlineError>{disk.error}</InlineError>}
     </div></section>
-    {selectedStorage && <SettingsCard title={`连接信息 · ${selectedStorage.name}`}>
+    {selectedStorage && <SettingsCard title={t("storage.connectionDetails", { p0: String(selectedStorage.name) })}>
       <FactGrid cols={2}>
-        <Fact label="协议" value={`${selectedStorage.type.toUpperCase()}${selectedStorage.version === "auto" ? " · 自动协商" : ` ${selectedStorage.version}`}`} />
-        <Fact label="用户名" value={selectedStorage.type === "smb" ? selectedStorage.username || "访客" : "—"} />
-        <Fact label="共享" value={selectedStorage.share} />
-        <Fact label="开机自动连接" value={selectedStorage.autoMount ? "已开启" : "已关闭"} />
-        <Fact label="服务器" value={selectedStorage.server} />
-        <Fact label="访问权限" value={!selectedStorage.mounted || selectedStorage.writable == null ? "未知" : selectedStorage.writable ? "可读写" : "只读"} />
+        <Fact label={t("storage.protocol")} value={`${selectedStorage.type.toUpperCase()}${selectedStorage.version === "auto" ? t("storage.automatic327") : ` ${selectedStorage.version}`}`} />
+        <Fact label={t("login.username")} value={selectedStorage.type === "smb" ? selectedStorage.username || t("storage.guest") : "—"} />
+        <Fact label={t("storage.share")} value={selectedStorage.share} />
+        <Fact label={t("storage.connectAtBoot")} value={selectedStorage.autoMount ? t("storage.on") : t("storage.off")} />
+        <Fact label={t("storage.server")} value={selectedStorage.server} />
+        <Fact label={t("storage.access")} value={!selectedStorage.mounted || selectedStorage.writable == null ? t("common.unknown") : selectedStorage.writable ? t("storage.readAndWrite") : t("nasDisk.readOnly")} />
       </FactGrid>
       <div className="space-y-4"><div className="flex flex-wrap gap-3">
-        <Button variant="outline" disabled={locked} onClick={() => testSaved(selectedStorage)}>测试已保存连接</Button>
-        {selectedStorage.mounted && <Button variant="outline" disabled={locked || session?.storage === selectedStorage.id} onClick={() => setConfirming({ kind: "unmount", storage: selectedStorage })}>断开连接…</Button>}
+        <Button variant="outline" disabled={locked} onClick={() => testSaved(selectedStorage)}>{t("storage.testSavedConnection")}</Button>
+        {selectedStorage.mounted && <Button variant="outline" disabled={locked || session?.storage === selectedStorage.id} onClick={() => setConfirming({ kind: "unmount", storage: selectedStorage })}>{t("storage.disconnect339")}</Button>}
       </div>
-      <Notice>断开只移除连接，不会删除 NAS 上的文件。作为 U 盘使用时会创建目录快照，文件不会实时共享。</Notice></div>
+      <Notice>{t("storage.disconnectingRemovesTheConnectionWithoutDeleting")}</Notice></div>
     </SettingsCard>}
     </div>
   );
@@ -396,13 +394,13 @@ function StorageMenu({ storage, locked, inUse, onEdit, onConfirm }: {
 }) {
   return <DropdownMenu modal={false}>
     <DropdownMenuTrigger asChild>
-      <Button variant="outline" aria-label={`${storage.name} 的更多操作`} disabled={locked}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
+      <Button variant="outline" aria-label={t("storage.moreActionsFor", { p0: String(storage.name) })} disabled={locked}><MoreHorizontal aria-hidden="true" className="size-4" /></Button>
     </DropdownMenuTrigger>
-    <DropdownMenuContent loop align="end" aria-label={`${storage.name} 的操作`}>
-      <DropdownMenuItem disabled={locked} onSelect={onEdit}>编辑</DropdownMenuItem>
-      {storage.mounted && <DropdownMenuItem disabled={locked || inUse} title={inUse ? "U 盘正在使用此 NAS" : undefined} onSelect={() => onConfirm("unmount")}>断开</DropdownMenuItem>}
-      <DropdownMenuItem disabled={locked || inUse} title={inUse ? "U 盘正在使用此 NAS" : undefined} onSelect={() => onConfirm("delete")}>删除</DropdownMenuItem>
-      {inUse && <p className="px-2 py-1 text-xs text-muted-foreground">U 盘正在使用此 NAS</p>}
+    <DropdownMenuContent loop align="end" aria-label={t("storage.actionsFor", { p0: String(storage.name) })}>
+      <DropdownMenuItem disabled={locked} onSelect={onEdit}>{t("storage.edit")}</DropdownMenuItem>
+      {storage.mounted && <DropdownMenuItem disabled={locked || inUse} title={inUse ? t("storage.aUsbDriveIsUsingThis") : undefined} onSelect={() => onConfirm("unmount")}>{t("storage.disconnect")}</DropdownMenuItem>}
+      <DropdownMenuItem disabled={locked || inUse} title={inUse ? t("storage.aUsbDriveIsUsingThis") : undefined} onSelect={() => onConfirm("delete")}>{t("disk.delete73")}</DropdownMenuItem>
+      {inUse && <p className="px-2 py-1 text-xs text-muted-foreground">{t("storage.aUsbDriveIsUsingThis")}</p>}
     </DropdownMenuContent>
   </DropdownMenu>;
 }
@@ -441,31 +439,30 @@ function StorageEditor({
       }}
     >
       {!editor.editing && (
-        <Segmented label="协议" className="max-sm:grid-cols-1">
-          <SegmentedOption title="SMB" detail="Windows、macOS、大多数 NAS" pressed={smb} onClick={() => set({ type: "smb", version: "auto" })} />
-          <SegmentedOption title="NFS" detail="Linux 与 NAS 的 NFS 导出" pressed={!smb} onClick={() => set({ type: "nfs", version: "auto", username: "", domain: "" })} />
+        <Segmented label={t("storage.protocol")} className="max-sm:grid-cols-1">
+          <SegmentedOption title="SMB" detail={t("storage.windowsMacosAndMostNasDevices")} pressed={smb} onClick={() => set({ type: "smb", version: "auto" })} />
+          <SegmentedOption title="NFS" detail={t("storage.nfsExportsOnLinuxAndNas")} pressed={!smb} onClick={() => set({ type: "nfs", version: "auto", username: "", domain: "" })} />
         </Segmented>
       )}
 
       <div className="grid min-w-0 gap-4 @lg:grid-cols-2">
         <label className="flex min-w-0 flex-col gap-2 text-sm">
-          服务器
-          <Input
+          {t("storage.server")}<Input
             value={d.server}
             autoFocus={!editor.editing}
             autoComplete="off"
             spellCheck={false}
-            placeholder="192.168.1.10 或 nas.local"
+            placeholder={t("storage.orNasLocal")}
             onChange={(e) => set({ server: e.target.value })}
           />
         </label>
         <label className="flex min-w-0 flex-col gap-2 text-sm">
-          {smb ? "共享名" : "导出路径"}
+          {smb ? t("storage.shareName") : t("storage.exportPath")}
           <Input
             value={d.share}
             autoComplete="off"
             spellCheck={false}
-            placeholder={smb ? "video 或 video/kvm" : "/volume1/kvm"}
+            placeholder={smb ? t("storage.videoOrVideoKvm") : "/volume1/kvm"}
             aria-invalid={!smb && !!d.share && !d.share.startsWith("/")}
             onChange={(e) => set({ share: e.target.value })}
           />
@@ -473,53 +470,47 @@ function StorageEditor({
         {smb && (
           <>
             <label className="flex min-w-0 flex-col gap-2 text-sm">
-              用户名
-              <Input
+              {t("login.username")}<Input
                 value={d.username}
                 autoComplete="off"
                 spellCheck={false}
-                placeholder="留空为访客访问"
+                placeholder={t("storage.leaveBlankForGuestAccess")}
                 onChange={(e) => set({ username: e.target.value })}
               />
             </label>
             <label className="flex min-w-0 flex-col gap-2 text-sm">
-              密码
-              <PasswordInput
+              {t("login.password")}<PasswordInput
                 value={editor.password}
                 autoComplete="new-password"
-                placeholder={editor.editing ? "留空则不修改" : ""}
+                placeholder={editor.editing ? t("storage.leaveBlankToKeepTheCurrent") : ""}
                 onChange={(e) => setEditor({ ...editor, password: e.target.value })}
               />
             </label>
           </>
         )}
         <label className="flex min-w-0 flex-col gap-2 text-sm">
-          名称
-          <Input value={d.name} autoComplete="off" placeholder={defaultName(d) || "NAS"} maxLength={40} onChange={(e) => set({ name: e.target.value })} />
+          {t("disk.name")}<Input value={d.name} autoComplete="off" placeholder={defaultName(d) || "NAS"} maxLength={40} onChange={(e) => set({ name: e.target.value })} />
         </label>
       </div>
 
       {(d.server || d.share) && (
         <p className="text-xs break-all text-muted-foreground">
-          将连接 <code className="font-mono break-all">{storageAddress({ ...d, server: d.server.trim(), share: d.share.trim() })}</code>
+          {t("storage.connectionTarget", { address: storageAddress({ ...d, server: d.server.trim(), share: d.share.trim() }) })}
         </p>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <label className="flex items-start gap-2 text-sm">
           <Checkbox className="mt-0.5" checked={d.autoMount} onCheckedChange={(value) => set({ autoMount: value === true })} />
-          开机自动连接
-        </label>
+          {t("storage.connectAtBoot")}</label>
         <Button variant="link" size="inline" type="button" aria-expanded={editor.advanced} onClick={() => setEditor({ ...editor, advanced: !editor.advanced })}>
-          高级选项
-        </Button>
+          {t("storage.advancedOptions")}</Button>
       </div>
 
       {editor.advanced && (
         <div className="grid min-w-0 gap-4 @lg:grid-cols-2 ">
           <label className="flex min-w-0 flex-col gap-2 text-sm">
-            协议版本
-            <NativeSelect className="w-full" value={d.version} onChange={(e) => set({ version: e.target.value })}>
+            {t("storage.protocolVersion")}<NativeSelect className="w-full" value={d.version} onChange={(e) => set({ version: e.target.value })}>
               {VERSIONS[d.type].map((v) => (
                 <option key={v.value} value={v.value}>
                   {v.label}
@@ -529,27 +520,24 @@ function StorageEditor({
           </label>
           {smb && (
             <label className="flex min-w-0 flex-col gap-2 text-sm">
-              域 / 工作组
-              <Input value={d.domain} autoComplete="off" spellCheck={false} placeholder="通常留空" onChange={(e) => set({ domain: e.target.value })} />
+              {t("storage.domainWorkgroup")}<Input value={d.domain} autoComplete="off" spellCheck={false} placeholder={t("storage.usuallyLeftBlank")} onChange={(e) => set({ domain: e.target.value })} />
             </label>
           )}
-          {smb && d.version === "1.0" && <p className="text-sm text-warning-foreground">SMB 1.0 没有加密且存在已知漏洞，只在老旧设备无法升级时使用。</p>}
+          {smb && d.version === "1.0" && <p className="text-sm text-warning-foreground">{t("storage.smbHasNoEncryptionAndKnown")}</p>}
         </div>
       )}
 
-      {toolMissing && <p className="text-sm text-warning-foreground">板子缺少 {smb ? "SMB" : "NFS"} 挂载工具，暂时无法连接。</p>}
+      {toolMissing && <p className="text-sm text-warning-foreground">{t("storage.toolsUnavailable", { tools: smb ? "SMB" : "NFS" })}</p>}
       {test && <TestResult test={test} />}
 
       <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
         <Button variant="outline" type="button" onClick={onCancel}>
-          取消
-        </Button>
+          {t("common.cancel")}</Button>
         <Button variant="outline" type="button" disabled={locked || !!invalid || !!toolMissing || test?.running} aria-busy={test?.running} onClick={onTest}>
           {test?.running && <Spinner />}
-          测试连接
-        </Button>
+          {t("storage.testConnection")}</Button>
         <Button variant="default" type="submit" disabled={locked || !!invalid || !!toolMissing} title={invalid || undefined}>
-          {editor.editing ? "保存" : d.autoMount ? "保存并连接" : "保存"}
+          {editor.editing ? t("common.save") : d.autoMount ? t("storage.saveAndConnect") : t("common.save")}
         </Button>
       </div>
     </form>
@@ -557,15 +545,15 @@ function StorageEditor({
 }
 
 function TestResult({ test }: { test: StorageTest & { running?: boolean } }) {
-  if (test.running) return <p className="rounded-md border p-3 text-sm text-muted-foreground">正在连接 NAS，最长约 15 秒…</p>;
-  if (!test.ok) return <p className="rounded-md border p-3 text-sm text-sm text-destructive">{test.error || "连接失败"}</p>;
+  if (test.running) return <p className="rounded-md border p-3 text-sm text-muted-foreground">{t("storage.connectingToNasThisMayTake")}</p>;
+  if (!test.ok) return <p className="rounded-md border p-3 text-sm text-sm text-destructive">{test.error || t("storage.couldnTConnect")}</p>;
   const parts = [
-    test.freeBytes != null && test.totalBytes != null ? `剩余 ${bytes(test.freeBytes)} / ${bytes(test.totalBytes)}` : "",
+    test.freeBytes != null && test.totalBytes != null ? t("storage.available", { p0: bytes(Math.max(0, test.totalBytes - test.freeBytes)), p1: bytes(test.totalBytes) }) : "",
     test.elapsedMs != null ? `${test.elapsedMs} ms` : "",
   ].filter(Boolean);
   return (
     <p className={`rounded-md border p-3 text-sm ${test.writable ? "text-sm text-success-foreground" : "text-sm text-warning-foreground"}`}>
-      {test.writable ? "连接成功，可以写入" : "可以读取，但没有写入权限"}
+      {test.writable ? t("storage.connectedWithWriteAccess") : t("storage.readableWithoutWriteAccess")}
       {parts.length > 0 && <span className="text-muted-foreground"> · {parts.join(" · ")}</span>}
     </p>
   );

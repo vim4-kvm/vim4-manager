@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"io"
 	"net/http"
 	"os"
@@ -14,6 +15,86 @@ import (
 	"testing"
 	"time"
 )
+
+func TestNetworkHelperUpgradeCompatibility(t *testing.T) {
+	for legacy, key := range i18n.NetworkHelperLegacy {
+		for _, output := range []string{legacy, (i18n.Message{Key: key}).Render(i18n.English)} {
+			cause := errors.New("sudo: " + output)
+			err := networkHelperError(cause)
+			if !errors.Is(err, cause) {
+				t.Fatalf("lost cause for %q", output)
+			}
+			if got, want := i18n.RenderError(i18n.Chinese, err), (i18n.Message{Key: key}).Render(i18n.Chinese); got != want {
+				t.Fatalf("%q: got %q, want %q", output, got, want)
+			}
+		}
+	}
+	if got := NetworkHelperText(i18n.English, "30 秒内未连接到已保存网络，已恢复热点"); got != "Couldn't connect to a saved network within 30 seconds. The hotspot was restored." {
+		t.Fatal(got)
+	}
+	unknown := "NAS-文件: diagnostic from an external tool"
+	if NetworkHelperText(i18n.Chinese, unknown) != unknown {
+		t.Fatal("unknown diagnostics changed")
+	}
+}
+
+func TestFeatureHelpersTranslateNestedOperationErrors(t *testing.T) {
+	for _, test := range []struct {
+		key string
+		run func(*Service) error
+	}{
+		{"media.diskLocked", func(s *Service) error { return s.EjectMedia(context.Background(), "mounted") }},
+		{"media.chooseRunningApp", func(s *Service) error {
+			return s.MountMedia(context.Background(), "onekvm", "data/disk.img", false, false)
+		}},
+		{"updates.installVerificationFailed", func(s *Service) error { return networkHelperError(s.helper(context.Background(), "update")) }},
+	} {
+		message := i18n.Message{Key: test.key}
+		outputs := []string{message.Render(i18n.English)}
+		for _, legacy := range []map[string]string{i18n.StorageHelperLegacy, i18n.NetworkHelperLegacy} {
+			for text, key := range legacy {
+				if key == test.key {
+					outputs = append(outputs, text)
+				}
+			}
+		}
+		for _, output := range outputs {
+			cause := errors.New(output)
+			service := &Service{Run: func(context.Context, string, ...string) (string, error) { return "", cause }}
+			err := test.run(service)
+			if !errors.Is(err, cause) || !strings.Contains(err.Error(), message.Render(i18n.English)) || !strings.Contains(i18n.RenderError(i18n.Chinese, err), message.Render(i18n.Chinese)) {
+				t.Fatalf("%s %s: %v / %s", test.key, output, err, i18n.RenderError(i18n.Chinese, err))
+			}
+		}
+	}
+	service := &Service{Run: func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("Virtual disk “disk.img” is still mounted. Safely eject it on the target computer and try again. The current interface will keep running.")
+	}}
+	err := service.SelectKernel(context.Background(), "vendor", true)
+	if !strings.Contains(i18n.RenderError(i18n.Chinese, err), "虚拟磁盘「disk.img」仍已挂载") {
+		t.Fatal(i18n.RenderError(i18n.Chinese, err))
+	}
+}
+
+func TestTailscaleJobLocaleDoesNotChangeStoredJob(t *testing.T) {
+	service := &Service{Root: t.TempDir(), Events: &Events{Capacity: 10}}
+	service.Run = func(context.Context, string, ...string) (string, error) {
+		return "", errors.New("请确认切换控制服务器，并重新提交当前 controlURL")
+	}
+	if _, err := service.TailscaleAction(context.Background(), "login", "https://head.example", ""); err == nil {
+		t.Fatal("expected failure")
+	}
+	english := *service.tailscaleJob
+	chinese := *service.tailscaleJob
+	LocalizeTailscaleJob(&chinese, i18n.Chinese)
+	LocalizeTailscaleJob(&english, i18n.English)
+	if !strings.Contains(chinese.Error, "请确认") || !strings.Contains(english.Error, "Confirm") || service.tailscaleJob.Error != english.Error {
+		t.Fatalf("locale leaked: %+v %+v", english, chinese)
+	}
+	if events := service.Events.List(i18n.Chinese); len(events) != 1 || !strings.Contains(events[0].Text, "登录") {
+		t.Fatalf("event not localized: %+v", events)
+	}
+}
 
 type tailscaleTransport func(*http.Request) (*http.Response, error)
 
@@ -217,7 +298,7 @@ func TestTailscaleSynchronousActionsDoNotTakeSwitchLock(t *testing.T) {
 	if err := s.Select(context.Background(), "nanokvm"); !errors.Is(err, ErrBusy) {
 		t.Fatalf("existing switch serialization changed: %v", err)
 	}
-	if events := s.Events.List(); len(events) != 4 || events[0].Text != "退出 Tailscale 登录" {
+	if events := s.Events.List(); len(events) != 4 || events[0].Text != "Sign out of Tailscale" {
 		t.Fatalf("action history: %+v", events)
 	}
 }

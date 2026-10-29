@@ -2,7 +2,7 @@ package web
 
 import (
 	"context"
-	"errors"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"net/http"
 	"time"
 
@@ -19,7 +19,7 @@ func tailscaleRoutes(mux *http.ServeMux, service *board.Service) {
 		}
 		result, err := service.TailscalePing(r.Context(), request.IP)
 		if err != nil {
-			respond(w, err)
+			respond(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, result)
@@ -29,10 +29,13 @@ func tailscaleRoutes(mux *http.ServeMux, service *board.Service) {
 		defer cancel()
 		state, err := service.Tailscale(ctx)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		state.Writable = true
+		if state.Job != nil {
+			board.LocalizeTailscaleJob(state.Job, i18n.RequestLocale(r))
+		}
 		writeJSON(w, http.StatusOK, state)
 	})
 	mux.HandleFunc("POST /api/tailscale", func(w http.ResponseWriter, r *http.Request) {
@@ -46,11 +49,11 @@ func tailscaleRoutes(mux *http.ServeMux, service *board.Service) {
 			return
 		}
 		if (request.Action == "down" || request.Action == "logout" || request.Action == "uninstall") && !request.Confirmed {
-			writeError(w, http.StatusBadRequest, errors.New("请确认此操作会断开 Tailscale 远程连接"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("tailscale.confirmDisconnect", nil))
 			return
 		}
 		if request.PreviousControlURL != "" && (!request.Confirmed || request.Action != "login") {
-			writeError(w, http.StatusBadRequest, errors.New("请确认切换控制服务器"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("tailscale.confirmServer", nil))
 			return
 		}
 		authURL, err := service.TailscaleAction(r.Context(), request.Action, request.ControlURL, request.PreviousControlURL)
@@ -58,6 +61,6 @@ func tailscaleRoutes(mux *http.ServeMux, service *board.Service) {
 			writeJSON(w, http.StatusOK, map[string]string{"authURL": authURL})
 			return
 		}
-		respond(w, err)
+		respond(w, r, err)
 	})
 }

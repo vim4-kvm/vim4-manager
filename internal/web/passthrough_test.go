@@ -85,7 +85,7 @@ func TestPassthroughAPI(t *testing.T) {
 	hdrRequest.Header.Set("Content-Type", "application/json")
 	hdrResponse := httptest.NewRecorder()
 	h.ServeHTTP(hdrResponse, hdrRequest)
-	if hdrResponse.Code != 500 || !strings.Contains(hdrResponse.Body.String(), "HDR 设置未能应用，请稍后重试") || strings.Contains(hdrResponse.Body.String(), "sudo") {
+	if hdrResponse.Code != 500 || !strings.Contains(hdrResponse.Body.String(), "Couldn't apply HDR settings. Try again.") || strings.Contains(hdrResponse.Body.String(), "sudo") {
 		t.Fatalf("HDR error exposed internal details: %s", hdrResponse.Body.String())
 	}
 	fake.writeErr = nil
@@ -117,7 +117,7 @@ func TestPassthroughAPIUnsupported(t *testing.T) {
 	r.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
-	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "当前内核不支持") {
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "Unavailable on this kernel") {
 		t.Fatalf("unsupported POST: %d %s", w.Code, w.Body.String())
 	}
 }

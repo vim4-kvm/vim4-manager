@@ -3,13 +3,56 @@ package board
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
+
+func TestStorageJSONLocalePreservesUserData(t *testing.T) {
+	input := json.RawMessage(`{"session":{"error":"会话已改变","decision":{"reason":"NAS 在 U 盘写入期间暂时无响应"},"storageName":"会话已改变","path":"/工具"},"count":9007199254740993,"pending":[]}`)
+	english := StorageJSONLocale(input, i18n.English)
+	if !strings.Contains(string(english), "The session has changed. Refresh and try again.") || !strings.Contains(string(english), "The NAS stopped responding") {
+		t.Fatal(string(english))
+	}
+	if !strings.Contains(string(english), `"storageName":"会话已改变"`) || !strings.Contains(string(english), `"path":"/工具"`) || !strings.Contains(string(english), "9007199254740993") {
+		t.Fatal("translation changed user data or a numeric value", string(english))
+	}
+	chinese := StorageJSONLocale(english, i18n.Chinese)
+	if !strings.Contains(string(chinese), `"error":"会话已改变"`) {
+		t.Fatal(string(chinese))
+	}
+	if got := StorageHelperText(i18n.Chinese, "Couldn't read /folder/file on the NAS. The file may have changed while the drive was mounted, or the NAS may be unavailable."); got != "读取 NAS 上的 /folder/file 失败：文件在 U 盘挂载期间被改动，或 NAS 暂时无法访问" {
+		t.Fatal(got)
+	}
+	if got := StorageHelperText(i18n.English, "unrecognized diagnostic"); got != "unrecognized diagnostic" {
+		t.Fatal(got)
+	}
+	if got := StorageHelperText(i18n.Chinese, "Couldn't read Permission denied on the NAS. The file may have changed while the drive was mounted, or the NAS may be unavailable."); !strings.Contains(got, "Permission denied") {
+		t.Fatal("translated a filename", got)
+	}
+}
+
+func TestStorageHelperUpgradeCompatibility(t *testing.T) {
+	for legacy, key := range i18n.StorageHelperLegacy {
+		english := (i18n.Message{Key: key}).Render(i18n.English)
+		for _, text := range []string{legacy, english} {
+			cause := errors.New(text)
+			err := storageHelperError(cause)
+			if !errors.Is(err, cause) || err.Error() != english {
+				t.Fatalf("%s: %v", key, err)
+			}
+			if i18n.RenderError(i18n.Chinese, err) != (i18n.Message{Key: key}).Render(i18n.Chinese) {
+				t.Fatalf("%s: lost Chinese rendering", key)
+			}
+		}
+	}
+}
 
 func TestUploadDoesNotHoldSwitchMutex(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})

@@ -434,7 +434,7 @@ class WifiTest(unittest.TestCase):
         self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
         self.active = self.HOTSPOT
         self.fail_up = True
-        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+        with self.assertRaisesRegex(ValueError, 'previous.*connection.*restored'):
             self.request('wifi-connect', {'ssid': 'Home', 'password': 'newsecret'})
         self.assertEqual(set(self.profiles), {self.CLIENT, self.HOTSPOT})
         self.assertEqual(self.active, self.HOTSPOT)
@@ -449,7 +449,7 @@ class WifiTest(unittest.TestCase):
         original = self.dbus_settings('read', self.CLIENT)
         self.active = self.CLIENT
         self.fail_up = True
-        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+        with self.assertRaisesRegex(ValueError, 'previous.*connection.*restored'):
             self.request('wifi-connect', {'ssid': 'Home', 'password': 'newsecret'})
         self.assertEqual(self.dbus_settings('read', self.CLIENT), original)
         self.assertEqual(self.profiles[self.CLIENT]['password'], 'oldsecret')
@@ -519,7 +519,7 @@ class WifiTest(unittest.TestCase):
         original = self.dbus_settings('read', self.HOTSPOT)
         self.active = self.HOTSPOT
         self.fail_up = True
-        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+        with self.assertRaisesRegex(ValueError, 'previous.*connection.*restored'):
             self.request('wifi-hotspot', {'ssid': 'Renamed', 'password': 'newsecret', 'channel': 11, 'autostart': False})
         self.assertEqual(self.dbus_settings('read', self.HOTSPOT), original)
         self.assertEqual(self.active, self.HOTSPOT)
@@ -529,14 +529,14 @@ class WifiTest(unittest.TestCase):
         self.add_profile(self.CLIENT, 'Home')
         self.active = self.CLIENT
         self.fail_up = True
-        with self.assertRaisesRegex(ValueError, '热点启动失败，已恢复原连接'):
+        with self.assertRaisesRegex(ValueError, 'start the hotspot.*previous connection was restored'):
             helper.wifi_command(['wifi-mode', 'hotspot'])
         self.assertEqual(self.active, self.CLIENT)
 
     def test_hotspot_to_client_fallback_force_and_success(self):
         self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
         self.active = self.HOTSPOT
-        with self.assertRaisesRegex(ValueError, '已恢复热点'):
+        with self.assertRaisesRegex(ValueError, 'hotspot was restored'):
             helper.wifi_command(['wifi-mode', 'client'])
         self.assertEqual(self.active, self.HOTSPOT)
         self.assertTrue(self.profiles[self.HOTSPOT]['autoconnect'])
@@ -544,7 +544,7 @@ class WifiTest(unittest.TestCase):
         # Controlled deadline proves the full 30-second window without sleeps.
         with patch.object(helper.time, 'monotonic', side_effect=[100, 100, 130]), \
              patch.object(helper.time, 'sleep'):
-            with self.assertRaisesRegex(ValueError, '30 秒内'):
+            with self.assertRaisesRegex(ValueError, 'within 30 seconds'):
                 helper.wifi_command(['wifi-mode', 'client'])
         self.assertEqual(self.active, self.HOTSPOT)
         helper.wifi_command(['wifi-mode', 'client', 'force'])
@@ -560,12 +560,12 @@ class WifiTest(unittest.TestCase):
         self.add_profile(self.HOTSPOT, 'AP', hotspot=True)
         self.active = self.HOTSPOT
         self.fail_up = True
-        with self.assertRaisesRegex(ValueError, '已恢复原连接'):
+        with self.assertRaisesRegex(ValueError, 'previous.*connection.*restored'):
             helper.wifi_command(['wifi-activate', self.CLIENT])
         self.assertEqual(self.active, self.HOTSPOT)
         for action in ('wifi-activate', 'wifi-forget', 'wifi-autoconnect'):
             args = [action, self.HOTSPOT] + (['yes'] if action == 'wifi-autoconnect' else [])
-            with self.assertRaisesRegex(ValueError, '找不到'):
+            with self.assertRaisesRegex(ValueError, 'not found'):
                 helper.wifi_command(args)
         helper.wifi_command(['wifi-activate', self.CLIENT])
         self.assertFalse(self.profiles[self.HOTSPOT]['autoconnect'])
@@ -794,7 +794,7 @@ class TailscaleTest(unittest.TestCase):
              patch.object(helper, 'tailscale_run', return_value=subprocess.CompletedProcess(
                  [], 0, json.dumps(status), '')) as run:
             for ip in ('100.64.0.1', '100.64.0.3', 'fd7a:115c:a1e0::3'):
-                with self.subTest(ip=ip), self.assertRaisesRegex(ValueError, 'not a current'):
+                with self.subTest(ip=ip), self.assertRaisesRegex(ValueError, 'no longer a Tailscale peer'):
                     helper.tailscale_command(['tailscale-ping', ip])
             self.assertTrue(all(call.args == ('tailscale', 'status', '--json') for call in run.call_args_list))
             run.reset_mock()
@@ -913,7 +913,7 @@ class TailscaleTest(unittest.TestCase):
         with patch.object(helper, 'tailscale_status', return_value=current), \
              patch.object(helper, 'tailscale_run', side_effect=run) as commands:
             for previous in ('', 'https://stale.example'):
-                with self.assertRaisesRegex(ValueError, '确认'):
+                with self.assertRaisesRegex(ValueError, 'Confirm'):
                     helper.tailscale_login('https://new.example', previous)
             self.assertFalse(any(call.args[0] == 'systemd-run' for call in commands.call_args_list))
             result = helper.tailscale_login('https://new.example', 'https://old.example')
@@ -959,7 +959,7 @@ class HelperTest(unittest.TestCase):
         lun.write_text('/var/lib/vim4-kvm/usb/disk.img\n')
         with patch.object(helper, 'PIKVM_USB_STATE', root / 'absent-state'), patch.object(helper, 'PIKVM_LUN_FILE', lun):
             for args in (['select', 'pikvm'], ['restart', 'vim4-pikvm.service']):
-                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'disk.img.*安全弹出'):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'disk.img.*Safely eject'):
                     helper.main(args)
             self.assertEqual(self.calls, [])
             lun.write_text('\n')
@@ -975,7 +975,7 @@ class HelperTest(unittest.TestCase):
         with patch.object(helper, 'PIKVM_USB_STATE', state), patch.object(helper, 'PIKVM_LUN_FILE', lun):
             for args in (['select', 'nanokvm'], ['restart', 'vim4-pikvm.service'],
                          ['restart', 'vim4-kvm-hdmi.service']):
-                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'disk.img.*安全弹出'):
+                with self.subTest(args=args), self.assertRaisesRegex(ValueError, 'disk.img.*Safely eject'):
                     helper.main(args)
         self.assertEqual(self.calls, [])
 
@@ -1222,7 +1222,7 @@ class HelperTest(unittest.TestCase):
 
     def test_update_rejects_unsafe_packages_before_dpkg(self):
         for name, kwargs, message in (
-                ('checksum', dict(checksum='0' * 64), 'SHA256'),
+                ('checksum', dict(checksum='0' * 64), 'checksum'),
                 ('downgrade', dict(installed='2.5.1+vim4.20261017.1'), 'not newer'),
                 ('missing', dict(installed=''), 'not installed'),
                 ('platform', dict(plan='Inst vim4-amlvenc [1] (2)\nInst vim4-pikvm [1] (2)\n'), 'platform'),
@@ -1231,7 +1231,7 @@ class HelperTest(unittest.TestCase):
                 self.update(**kwargs)
 
     def test_update_refuses_mounted_media(self):
-        with self.assertRaisesRegex(ValueError, 'disk.img.*安全弹出'):
+        with self.assertRaisesRegex(ValueError, 'disk.img.*Safely eject'):
             self.update(mounted=True)
 
     def test_update_preserves_pikvm_settings_but_rejects_missing_or_damaged_programs(self):
@@ -1239,7 +1239,7 @@ class HelperTest(unittest.TestCase):
         for verification in ('missing   c /etc/kvmd/nginx/vim4.conf',
                              '??5??????   /usr/libexec/vim4-pikvm-media',
                              '??5?????? c /etc/sudoers.d/vim4-pikvm-media'):
-            with self.subTest(verification=verification), self.assertRaisesRegex(ValueError, 'verification failed'):
+            with self.subTest(verification=verification), self.assertRaisesRegex(ValueError, 'failed verification'):
                 self.update(verification=verification)
 
     def test_update_rejects_other_packages_and_linked_downloads(self):

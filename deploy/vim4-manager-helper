@@ -206,7 +206,7 @@ def tailscale_auth_url(url):
     parsed = urllib.parse.urlsplit(url)
     if url and (parsed.scheme not in ('http', 'https') or not parsed.hostname or
                 parsed.username is not None or any(c.isspace() for c in url)):
-        raise ValueError('invalid Tailscale authorization URL')
+        raise ValueError("The Tailscale sign-in URL is invalid. Request a new link.")
     return url
 
 
@@ -240,7 +240,7 @@ def tailscale_package(action):
     try:
         (tailscale_install if action == 'install' else tailscale_uninstall)()
     except BaseException as failure:
-        error = str(failure) or 'Package operation interrupted'
+        error = str(failure) or "The Tailscale package operation was interrupted. Try again."
         raise
     finally:
         tailscale_write_job(action, False, error)
@@ -280,7 +280,7 @@ def tailscale_status():
     if not result.stdout.strip():
         if result.returncode:
             return state
-        raise ValueError('tailscale returned empty state')
+        raise ValueError("Tailscale returned no status. Try again.")
     # NeedsLogin can return a nonzero exit code with valid daemon state.
     status = json.loads(result.stdout)
     peer = status.get('Peer') or {}
@@ -333,14 +333,14 @@ def tailscale_ping_output(output):
 def tailscale_ping(ip):
     address = ipaddress.ip_address(ip)
     if '%' in ip or not any(address in network for network in TAILSCALE_NETWORKS):
-        raise ValueError('ping requires a Tailscale IP address')
+        raise ValueError("Enter a valid Tailscale IP address for the connection test.")
     # Read Peer directly: Self and arbitrary addresses in the tailnet ranges
     # must never become probe targets, even when called outside the Go API.
     status = tailscale_run('tailscale', 'status', '--json', timeout=4, check=False)
     peers = (json.loads(status.stdout).get('Peer') or {}).values()
     if not any(address == ipaddress.ip_address(peer_ip)
                for peer in peers for peer_ip in (peer.get('TailscaleIPs') or [])):
-        raise ValueError('ping target is not a current Tailscale peer')
+        raise ValueError("The device is no longer a Tailscale peer. Refresh and try again.")
     result = tailscale_run('tailscale', 'ping', '--until-direct=false', '--c', '4', '--timeout', '3s',
                           str(address), timeout=20, check=False)
     return tailscale_ping_output(result.stdout + '\n' + result.stderr)
@@ -353,7 +353,7 @@ def tailscale_install():
             if line.startswith('VERSION_CODENAME='):
                 release = line.split('=', 1)[1].strip('"')
         if not re.fullmatch(r'[a-z]+', release):
-            raise ValueError('unknown Ubuntu release')
+            raise ValueError("Couldn't identify the Ubuntu release. Check /etc/os-release.")
         with urllib.request.urlopen(f'{TAILSCALE_REPOSITORY}/{release}.noarmor.gpg', timeout=30) as response:
             key = response.read(65536)
         TAILSCALE_KEYRING.write_bytes(key)
@@ -380,7 +380,7 @@ def tailscale_login(url, previous=''):
     current = tailscale_status()
     if (current['backendState'] in ('Running', 'Stopped', 'Starting', 'NeedsMachineAuth') and
             current['controlURL'] != url and previous != current['controlURL']):
-        raise ValueError('请确认切换控制服务器，并重新提交当前 controlURL')
+        raise ValueError("Confirm the control server change and submit its current URL again.")
     # A fixed unit bounds login to one process, including retries after a timeout.
     tailscale_run('systemctl', 'stop', TAILSCALE_LOGIN_UNIT, check=False)
     tailscale_run('systemd-run', '--unit=' + TAILSCALE_LOGIN_UNIT, '--collect',
@@ -402,7 +402,7 @@ def tailscale_login(url, previous=''):
         except subprocess.TimeoutExpired:
             pass
         time.sleep(min(0.5, max(0, deadline - time.monotonic())))
-    raise ValueError('tailscale did not provide an authorization URL within 30 seconds')
+    raise ValueError("Tailscale didn't provide a sign-in link within 30 seconds. Try again.")
 
 
 def tailscale_command(argv):
@@ -423,7 +423,7 @@ def tailscale_command(argv):
         case _:
             raise ValueError('usage: tailscale-status|install|uninstall|up|down|logout | tailscale-login URL [PREVIOUS_URL] | tailscale-ping IP')
     if action not in ('status', 'install', 'uninstall') and not tailscale_installed():
-        raise ValueError('tailscale is not installed')
+        raise ValueError("Tailscale is not installed.")
     if action == 'status':
         return tailscale_status()
     if action == 'ping':
@@ -432,7 +432,7 @@ def tailscale_command(argv):
         job = json.loads(TAILSCALE_JOB.read_text())
         if job.get('running') and tailscale_run('systemctl', 'is-active', '--quiet',
                                                TAILSCALE_PACKAGE_UNIT, check=False).returncode == 0:
-            raise ValueError('Another tailscale package operation is in progress')
+            raise ValueError("Another Tailscale package operation is in progress. Try again shortly.")
     if action != 'login':
         tailscale_run('systemctl', 'stop', TAILSCALE_LOGIN_UNIT, check=False)
     if action in ('install', 'uninstall'):
@@ -449,14 +449,14 @@ def tailscale_command(argv):
 
 def disk_name(name):
     if not vim4media.valid_disk_name(name):
-        raise ValueError('数据盘名称无效（需以 .img 结尾）')
+        raise ValueError('Use a valid data disk name ending in .img.')
     return name
 
 
 def disk_label(label):
     label = label.strip()
     if not re.fullmatch(r'[A-Z0-9 _-]{1,11}', label):
-        raise ValueError('卷标需为 1–11 个大写字母、数字、空格、下划线或连字符')
+        raise ValueError('Use 1–11 uppercase letters, numbers, spaces, underscores, or hyphens for the volume label.')
     return label
 
 
@@ -468,7 +468,7 @@ def fat_path(path, root=True):
             any(p in ('', '.', '..') or len(p) > 255 or
                 any(ord(c) < 32 or 127 <= ord(c) < 160 or c in '\\:*?"<>|' for c in p)
                 for p in parts)):
-        raise ValueError('FAT 路径无效')
+        raise ValueError('The FAT path is invalid.')
     return path
 
 
@@ -484,7 +484,7 @@ def disk_tool(fd, command, *args, check=True, stdout=subprocess.PIPE):
                             env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LC_ALL': 'C.UTF-8',
                                  'TZ': 'UTC', 'MTOOLS_SKIP_CHECK': '1'})
     if check and result.returncode:
-        raise ValueError(result.stderr.decode(errors='replace')[:16384].strip() or '磁盘操作失败')
+        raise ValueError(result.stderr.decode(errors='replace')[:16384].strip() or 'Couldn\'t complete the disk operation.')
     return result
 
 
@@ -502,7 +502,7 @@ def allocation_lock():
 
 def reserve_space(path, size):
     if shutil.disk_usage(path).free - size < RESERVE_BYTES:
-        raise ValueError('操作后系统需保留至少 2 GiB 可用空间')
+        raise ValueError('Keep at least 2 GiB available on the system disk after this operation.')
 
 
 def disk_info(fd):
@@ -574,7 +574,7 @@ def format_disk(fd, label, *, preserve_label=False):
         # Existing NanoKVM disks use "Vim4KVM". Preserve that spelling on resize;
         # new labels still follow the manager's uppercase convention.
         if not re.fullmatch(r'[A-Za-z0-9 _-]{1,11}', label):
-            raise ValueError('无法安全保留此卷标')
+            raise ValueError('This volume label can\'t be preserved safely.')
     else:
         label = disk_label(label)
     subprocess.run(['mkfs.vfat', '-F', '32', '-n', label, f'/proc/self/fd/{fd}'],
@@ -589,11 +589,11 @@ def disk_create(name, size, label):
     label = disk_label(label)
     size = int(size)
     if not 64 <= size <= 32768:
-        raise ValueError('数据盘容量需在 64–32768 MiB 之间')
+        raise ValueError('Choose a data disk capacity between 64 and 32768 MiB.')
     vim4media.DATA_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     with allocation_lock():
         if len(vim4media.catalog(['data'])) >= 8:
-            raise ValueError('最多创建 8 个数据盘')
+            raise ValueError('Up to eight data disks can be created.')
         reserve_space(vim4media.DATA_DIR, size << 20)
         with vim4media.edit_disk(name, create=True) as fd:
             try:
@@ -624,14 +624,14 @@ def disk_ls(fd, path):
 def disk_put(fd, path, size, overwrite, source):
     size = int(size)
     if not 0 <= size <= (1 << 32) - 1 or overwrite not in ('0', '1'):
-        raise ValueError('上传大小或覆盖选项无效（FAT32 单文件最大 4 GiB-1）')
+        raise ValueError('The upload size or overwrite option is invalid. Files must be smaller than 4 GiB.')
     _, free = disk_info(fd)
     if free is None or size > free:
-        raise ValueError('数据盘可用空间不足')
+        raise ValueError('The data disk doesn\'t have enough available space.')
     parent, name = path.rsplit('/', 1)
     existing = next((e for e in disk_ls(fd, parent or '/') if e['name'].casefold() == name.casefold()), None)
     if existing and (overwrite == '0' or existing['dir']):
-        raise ValueError('目标已存在')
+        raise ValueError('The destination already exists.')
     DISK_STAGING.mkdir(mode=0o700, parents=True, exist_ok=True)
     with allocation_lock(), ExitStack() as stack:
         directory = os.open(DISK_STAGING, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -647,11 +647,11 @@ def disk_put(fd, path, size, overwrite, source):
             while remaining:
                 chunk = source.read(min(1 << 20, remaining))
                 if not chunk:
-                    raise ValueError('上传未完成')
+                    raise ValueError('The upload didn\'t finish.')
                 staged.write(chunk)
                 remaining -= len(chunk)
             if source.read(1):
-                raise ValueError('上传超过声明大小')
+                raise ValueError('The upload exceeded its declared size.')
             staged.flush()
             # The staging file has no name and is inherited only by mcopy.
             result = subprocess.run(['mcopy', '-i', f'/proc/self/fd/{fd}', '-o' if overwrite == '1' else '-n',
@@ -698,9 +698,9 @@ def publish_disk(name, original, directory, temporary, target):
         current = os.stat(name, dir_fd=directory, follow_symlinks=False)
         old = os.fstat(original)
         if (current.st_dev, current.st_ino) != (old.st_dev, old.st_ino):
-            raise ValueError('数据盘已改变，请重试')
+            raise ValueError('The data disk has changed. Refresh and try again.')
         if vim4media.is_attached(original):
-            raise ValueError('数据盘已挂载到被控电脑，请先安全弹出')
+            raise ValueError('The data disk is mounted on the target computer. Safely eject it before continuing.')
         fcntl.flock(target, fcntl.LOCK_EX | fcntl.LOCK_NB)
         os.replace(temporary, name, src_dir_fd=directory, dst_dir_fd=directory)
         os.fsync(directory)
@@ -712,7 +712,7 @@ def snapshot_disk(name, fd, *, allocation_held=False):
             stack.enter_context(allocation_lock())
         directory = stack.enter_context(snapshot_directory(name, create=True))
         if len(snapshot_list(name)) >= 3:
-            raise ValueError('每个数据盘最多保留 3 个快照，请先删除旧快照')
+            raise ValueError('Each disk supports three snapshots. Delete an old snapshot before creating another.')
         size = os.fstat(fd).st_size
         reserve_space(f'/proc/self/fd/{directory}', size)
         identifier = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ.img')
@@ -726,7 +726,7 @@ def snapshot_disk(name, fd, *, allocation_held=False):
 
 def snapshot_action(name, identifier, fd=None):
     if not SNAPSHOT_ID.fullmatch(identifier):
-        raise ValueError('快照标识无效')
+        raise ValueError('The snapshot ID is invalid.')
     with snapshot_directory(name) as directory:
         if fd is None:
             os.unlink(identifier, dir_fd=directory)
@@ -738,7 +738,7 @@ def snapshot_action(name, identifier, fd=None):
                 # one deliberately restores that capacity as well as its bytes.
                 if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or
                         not 512 <= info.st_size <= 32768 << 20):
-                    raise ValueError('快照类型或容量不匹配')
+                    raise ValueError('The snapshot type or capacity doesn\'t match.')
                 with allocation_lock(), vim4media._directory('data') as data:
                     reserve_space(f'/proc/self/fd/{data}', info.st_size)
                     with staged_image(data) as (target, temporary):
@@ -753,27 +753,27 @@ def check_fat(fd):
     result = subprocess.run(['fsck.vfat', '-n', f'/proc/self/fd/{fd}'], pass_fds=(fd,),
                             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if result.returncode:
-        raise ValueError('FAT 检查失败: ' + result.stdout.decode(errors='replace')[:16384])
+        raise ValueError('FAT check failed: ' + result.stdout.decode(errors='replace')[:16384])
 
 
 def resize_disk(name, fd, size):
     size = int(size)
     old_size = os.fstat(fd).st_size
     if not 64 <= size <= 32768 or size << 20 <= old_size:
-        raise ValueError('只能扩容到 64–32768 MiB，且必须大于当前容量')
+        raise ValueError('Choose a larger capacity between 64 and 32768 MiB.')
     boot = os.pread(fd, 512, 0)
     # Support whole-image FAT32 only, not partition tables or FAT12/16.
     if (boot[82:90] != b'FAT32   ' or boot[510:512] != b'\x55\xaa' or
             int.from_bytes(boot[17:19], 'little') != 0 or
             int.from_bytes(boot[22:24], 'little') != 0):
-        raise ValueError('仅支持无分区表的 FAT32 数据盘')
+        raise ValueError('Only FAT32 data disks without a partition table are supported.')
     check_fat(fd)
     label, free = disk_info(fd)
     if label is None or free is None:
-        raise ValueError('无法读取 FAT32 卷标或可用空间')
+        raise ValueError('Couldn\'t read the FAT32 volume label or available space.')
     # Refuse labels we cannot round-trip through mkfs's locale safely.
     if label and not re.fullmatch(r'[A-Za-z0-9 _-]{1,11}', label):
-        raise ValueError('无法安全保留此卷标')
+        raise ValueError('This volume label can\'t be preserved safely.')
     with allocation_lock(), vim4media._directory('data') as directory:
         reserve_space(f'/proc/self/fd/{directory}', size << 20)
         with staged_image(directory) as (target, temporary):
@@ -800,7 +800,7 @@ def resize_disk(name, fd, size):
             check_fat(target)
             new_label, new_free = disk_info(target)
             if new_label != label or new_free is None or new_free <= free:
-                raise ValueError('扩容后的卷标或可用空间校验失败')
+                raise ValueError('Couldn\'t verify the volume label or available space after expansion.')
             snapshot = snapshot_disk(name, fd, allocation_held=True)
             publish_disk(name, fd, directory, temporary, target)
             return dict(ok=True, snapshot=snapshot['id'])
@@ -830,7 +830,7 @@ def disk_command(argv):
                 with media_locks():
                     fd, attached = stack.enter_context(vim4media.read_disk(disk_name(name)))
                     if attached and vim4media.LUN_FILE.with_name('ro').read_text().strip() != '1':
-                        raise ValueError('数据盘已可写挂载，请先安全弹出')
+                        raise ValueError('The data disk is mounted with write access. Safely eject it before continuing.')
                     # Prevent a new writable attachment without holding global locks during export.
                     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 with os.fdopen(os.dup(fd), 'rb') as source:
@@ -869,42 +869,42 @@ def disk_command(argv):
                         # crashes on missing targets; only same-directory renames are offered.
                         source, target = fat_path(source, False), fat_path(target, False)
                         if source.rsplit('/', 1)[0] != target.rsplit('/', 1)[0]:
-                            raise ValueError('只能在同一文件夹内重命名')
+                            raise ValueError('Files can only be renamed within the same folder.')
                         disk_tool(fd, 'mren', fat_arg(source), '::' + target)
                     case ['disk-snapshot']:
                         return snapshot_disk(name, fd)
                     case ['disk-restore', identifier]:
                         snapshot_action(name, identifier, fd)
                     case _:
-                        raise ValueError('数据盘命令参数无效')
+                        raise ValueError('The data disk command arguments are invalid.')
                 os.fsync(fd)
         case _:
-            raise ValueError('数据盘命令参数无效')
+            raise ValueError('The data disk command arguments are invalid.')
     return {'ok': True}
 
 
 
 def media_active(app):
     if app not in APPS:
-        raise ValueError('请选择正在运行的 KVM')
+        raise ValueError('Choose the running KVM interface.')
     result = subprocess.run(['systemctl', 'show', '--property=ActiveState', '--value', *APPS.values()],
                             check=True, capture_output=True, text=True, timeout=10)
     states = [line for line in result.stdout.splitlines() if line]
     if len(states) != len(APPS) or [key for key, state in zip(APPS, states) if state == 'active'] != [app]:
-        raise ValueError('运行中的 KVM 已改变，请刷新后重试')
+        raise ValueError('The running KVM interface has changed. Refresh and try again.')
     if PIKVM_USB_STATE.exists() != (app == 'pikvm'):
-        raise ValueError('USB 配置正在切换，请稍后重试')
+        raise ValueError('USB settings are changing. Try again shortly.')
 
 
 def media_mount(app, identifier, cdrom, readonly):
     with media_locks():
         media_active(app)
         if PIKVM_LUN_FILE.read_text().strip():
-            raise ValueError('已有虚拟磁盘挂载，请先在被控电脑安全弹出；不会替换现有磁盘')
+            raise ValueError('A virtual disk is already mounted. Safely eject it on the target computer before continuing; it won\'t be replaced.')
         cdrom = cdrom or identifier.lower().endswith('.iso')
         readonly = readonly or cdrom
         if app == 'jetkvm' and not readonly:
-            raise ValueError('JetKVM 仅支持只读介质')
+            raise ValueError('JetKVM supports read-only media only.')
         fd = media_image(identifier, readonly)
         try:
             attach_media(fd, app, cdrom, readonly)
@@ -926,7 +926,7 @@ def attach_media(fd, app, cdrom, readonly):
              and not (remove_network and p == network)]
     endpoints = 1 + sum(2 if name.startswith(('ncm.', 'ecm.', 'rndis.')) else 1 for name in links)
     if endpoints > 5:
-        raise ValueError('USB 端点不足，请先在当前 KVM 关闭 USB 网卡、麦克风或一个 HID 功能')
+        raise ValueError('There aren\'t enough USB endpoints. Disable a USB network adapter, microphone, or HID function in the current KVM interface.')
     old = {key: (lun / key).read_text() for key in ('ro', 'cdrom')}
     udc = gadget / 'UDC'
     controller = udc.read_text().strip()
@@ -962,14 +962,14 @@ def media_eject(expected):
         if not current['inserted']:
             return
         if not expected or current['token'] != expected:
-            raise ValueError('挂载的磁盘已改变，请刷新后重试')
+            raise ValueError('The mounted disk has changed. Refresh and try again.')
         try:
             # file_store honors SCSI PREVENT REMOVAL. Never unbind UDC or write
             # forced_eject: both would bypass the host's protection.
             PIKVM_LUN_FILE.write_text('\n')
         except OSError as error:
             if error.errno == errno.EBUSY:
-                raise ValueError('被控电脑仍锁定磁盘，请先安全弹出后重试') from error
+                raise ValueError('The target computer still locks the disk. Safely eject it and try again.') from error
             raise
 
 
@@ -980,24 +980,24 @@ def validate_edid(data):
     if (len(data) not in (128, 256, 384, 512) or data[:8] != bytes.fromhex('00ffffffffffff00') or
             data[126] != len(data) // 128 - 1 or
             any(sum(data[i:i + 128]) % 256 for i in range(0, len(data), 128))):
-        raise ValueError('EDID 长度、扩展块或校验和无效')
+        raise ValueError("The EDID length, extension blocks, or checksum is invalid.")
     return data + bytes(max(256 - len(data), 0))
 
 
 def edid_catalog():
     presets = json.loads(EDID_CATALOG.read_text())
     if not isinstance(presets, list) or not presets:
-        raise ValueError('EDID 预设清单无效')
+        raise ValueError("The EDID preset manifest is invalid.")
     ids = set()
     for item in presets:
         if not isinstance(item, dict) or any(not isinstance(item.get(k), str) for k in ('id', 'name', 'description', 'file')):
-            raise ValueError('EDID 预设字段无效')
+            raise ValueError("The EDID preset fields are invalid.")
         if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,63}', item['id']) or item['id'] in ids:
-            raise ValueError('EDID 预设标识无效或重复')
+            raise ValueError("EDID preset IDs must be valid and unique.")
         ids.add(item['id'])
         item['data'] = validate_edid(Path(item['file']).read_bytes())
     if 'VIM4-4K60' not in ids:
-        raise ValueError('EDID 清单缺少 VIM4-4K60 默认预设')
+        raise ValueError("The EDID manifest is missing the VIM4-4K60 default preset.")
     return presets
 
 
@@ -1026,7 +1026,7 @@ def edid_status():
     loaded = loaded_edid()
     config = json.loads(JETKVM_CONFIG.read_text()) if JETKVM_CONFIG.exists() else {}
     if not isinstance(config, dict):
-        raise ValueError('JetKVM 配置不是 JSON 对象')
+        raise ValueError("JetKVM settings must be a JSON object.")
     jet_edid = config.get('hdmi_edid_string', '')
     if jet_edid:
         try:
@@ -1075,7 +1075,7 @@ def select_edid(preset_id):
     presets = edid_catalog()
     preset = next((p for p in presets if p['id'] == preset_id), None)
     if preset is None:
-        raise ValueError('未知 EDID 预设')
+        raise ValueError("Choose a registered EDID preset.")
     old_name, old_saved = saved_edid(presets)
     old_loaded = loaded_edid()
     candidates = list(APPS.values()) if platform.release().startswith('7.') else [APPS['jetkvm']]
@@ -1084,7 +1084,7 @@ def select_edid(preset_id):
     # Read once before stopping to reject malformed configuration without disruption.
     config = json.loads(JETKVM_CONFIG.read_text()) if JETKVM_CONFIG.exists() else {}
     if not isinstance(config, dict):
-        raise ValueError('JetKVM 配置不是 JSON 对象')
+        raise ValueError("JetKVM settings must be a JSON object.")
     if (old_saved == preset['data'] and old_loaded == preset['data'] and
             str(config.get('hdmi_edid_string', '')).upper() == preset['data'].hex().upper()):
         return
@@ -1124,8 +1124,8 @@ def select_edid(preset_id):
                 systemctl('start', unit)
             os.sync()
         except Exception:
-            recovery.append('恢复原配置失败，请检查 HDMI 和 JetKVM 服务')
-        raise ValueError('EDID 切换失败；' + ('；'.join(recovery) if recovery else '已恢复原配置')) from error
+            recovery.append("Couldn't restore the previous settings. Check the HDMI and JetKVM services.")
+        raise ValueError("Couldn't change EDID or restore the previous settings. Check the HDMI and JetKVM services." if recovery else "Couldn't change EDID. The previous settings were restored.") from error
 
 
 def media_status():
@@ -1153,7 +1153,7 @@ def check_pikvm_media(entering=False):
     if (entering or PIKVM_USB_STATE.exists()) and PIKVM_LUN_FILE.exists():
         image = PIKVM_LUN_FILE.read_text().strip()
         if image:
-            raise ValueError(f'虚拟磁盘「{Path(image).name}」仍已挂载。请在被控电脑安全弹出后重试；原界面保持运行')
+            raise ValueError(f'Virtual disk “{Path(image).name}” is still mounted. Safely eject it on the target computer and try again. The current interface will keep running.')
 
 
 def systemctl(*args):
@@ -1211,7 +1211,7 @@ def restart(unit):
 def wifi(enabled):
     device = wifi_device()
     if not device:
-        raise ValueError('没有可用的 Wi-Fi 设备')
+        raise ValueError("No Wi-Fi adapter is available.")
     subprocess.run(['nmcli', 'radio', 'wifi', enabled], check=True, timeout=15, env=WIFI_ENV)
     if enabled == 'on':
         # On VIM4 NetworkManager can report enabled while the primary link is
@@ -1231,7 +1231,7 @@ def nmcli(*args, timeout=10):
         return subprocess.run(['nmcli', *args], check=True, capture_output=True,
                               text=True, timeout=timeout, env=WIFI_ENV).stdout
     except (OSError, subprocess.SubprocessError):
-        raise ValueError('无线网络操作失败，请检查网络、密码和 NetworkManager 状态') from None
+        raise ValueError("Couldn't change Wi-Fi settings. Check the network, password, and NetworkManager status.") from None
 
 
 def nm_fields(line):
@@ -1259,7 +1259,7 @@ def nm_values(fields, *args, secret=False):
     lines = output[:-1].split('\n') if output.endswith('\n') else output.split('\n')
     values = [nm_fields(line)[0] for line in lines]
     if len(values) != len(fields):
-        raise ValueError('无法识别无线网络配置')
+        raise ValueError("Couldn't identify the Wi-Fi profile.")
     return dict(zip(fields, values))
 
 
@@ -1305,10 +1305,10 @@ def wifi_profiles():
 def wifi_context(device=None):
     device = device or wifi_device()
     if not device:
-        raise ValueError('没有可用的 Wi-Fi 设备')
+        raise ValueError("No Wi-Fi adapter is available.")
     radio = nm_fields(nmcli('-t', '-f', 'WIFI-HW,WIFI', 'general').strip())
     if len(radio) != 2 or any(value not in ('enabled', 'disabled') for value in radio):
-        raise ValueError('无法识别 Wi-Fi 开关状态')
+        raise ValueError("Couldn't read the Wi-Fi radio state.")
     return device, radio, wifi_device_info(device), wifi_profiles()
 
 
@@ -1421,47 +1421,47 @@ def wifi_status():
 def wifi_validate_ssid(ssid):
     if (not isinstance(ssid, str) or not 1 <= len(ssid.encode('utf-8')) <= 32 or
             any(ord(c) < 32 or 127 <= ord(c) <= 159 for c in ssid)):
-        raise ValueError('SSID 必须为 1–32 字节 UTF-8，且不能包含控制字符')
+        raise ValueError("Use 1–32 UTF-8 bytes without control characters for the SSID.")
 
 
 def wifi_validate_password(password, hotspot=False):
     if not isinstance(password, str):
-        raise ValueError('密码格式错误')
+        raise ValueError("The password format is invalid.")
     if password == '' or (8 <= len(password) <= 63 and all(32 <= ord(c) <= 126 for c in password)):
         return
     if not hotspot and re.fullmatch(r'[0-9a-fA-F]{64}', password):
         return
-    raise ValueError('密码必须为 8–63 位可打印 ASCII 字符' + ('' if hotspot else '，或 64 位十六进制'))
+    raise ValueError(('Use 8–63 printable ASCII characters for the password.' if hotspot else 'Use 8–63 printable ASCII characters or a 64-digit hexadecimal key for the password.'))
 
 
 def wifi_read_request(hotspot=False):
     try:
         raw = sys.stdin.read(4097)
         if len(raw) > 4096:
-            raise ValueError('无线网络请求过大')
+            raise ValueError("The Wi-Fi request is too large.")
         data = json.loads(raw)
         if not isinstance(data, dict):
-            raise ValueError('无线网络请求格式错误')
+            raise ValueError("Couldn't read the Wi-Fi request. Check the settings and try again.")
         wifi_validate_ssid(data.get('ssid'))
         wifi_validate_password(data.get('password', ''), hotspot)
         if hotspot:
             if type(data.get('channel')) is not int or not 0 <= data['channel'] <= 11:
-                raise ValueError('热点信道必须为 0–11')
+                raise ValueError("Choose a hotspot channel from 0 to 11.")
             if type(data.get('autostart')) is not bool:
-                raise ValueError('需要 autostart 布尔值')
+                raise ValueError("autostart must be a boolean.")
         elif type(data.get('hidden', False)) is not bool:
-            raise ValueError('需要 hidden 布尔值')
+            raise ValueError("hidden must be a boolean.")
         return data
     except (TypeError, UnicodeError, json.JSONDecodeError):
-        raise ValueError('无线网络请求格式错误') from None
+        raise ValueError("Couldn't read the Wi-Fi request. Check the settings and try again.") from None
 
 
 def wifi_saved(identifier, profiles):
     if not WIFI_UUID.fullmatch(identifier):
-        raise ValueError('无线连接 UUID 格式错误')
+        raise ValueError("The Wi-Fi connection UUID is invalid.")
     profile = next((p for p in wifi_client_profiles(profiles) if p['id'].lower() == identifier.lower()), None)
     if not profile:
-        raise ValueError('找不到已保存的无线连接')
+        raise ValueError("The saved Wi-Fi connection was not found. Refresh and try again.")
     return profile
 
 
@@ -1471,7 +1471,7 @@ def wifi_dbus(action, identifier=None, settings=None):
     try:
         import dbus
     except ImportError:
-        raise ValueError('无线网络配置需要 python3-dbus') from None
+        raise ValueError("Wi-Fi configuration requires python3-dbus. Reinstall the manager package.") from None
     # dbus-python logs rejected arguments, PSK included, to stderr.
     logging.getLogger('dbus').disabled = True
     logging.getLogger('dbus.connection').disabled = True
@@ -1515,10 +1515,10 @@ def wifi_dbus(action, identifier=None, settings=None):
         elif action == 'add':
             manager.AddConnection(config)
         else:
-            raise ValueError('未知无线配置操作')
+            raise ValueError("This Wi-Fi configuration action isn't supported.")
     except dbus.DBusException:
         # D-Bus errors may quote settings, including the PSK.
-        raise ValueError('无线网络配置失败，请检查 NetworkManager 状态') from None
+        raise ValueError("Couldn't configure Wi-Fi. Check NetworkManager and try again.") from None
 
 
 def wifi_key_management(device, ssid, existing=None):
@@ -1538,9 +1538,9 @@ def wifi_key_management(device, ssid, existing=None):
             ['wpa_cli', '-i', device, 'get_capability', 'key_mgmt'],
             text=True, stderr=subprocess.DEVNULL, timeout=3, env=WIFI_ENV)
     except (OSError, subprocess.SubprocessError):
-        raise ValueError('无法确认 WPA3 支持，原无线连接未改动') from None
+        raise ValueError("Couldn't confirm WPA3 support. The existing Wi-Fi connection was kept.") from None
     if 'SAE' not in capabilities.split():
-        raise ValueError('该网络仅支持 WPA3，当前无线驱动未提供 SAE；请使用 WPA2/WPA3 混合模式或 WPA2 网络。原无线连接未改动')
+        raise ValueError("This WPA3-only network requires SAE, which the Wi-Fi driver doesn't support. Use a WPA2/WPA3 mixed network or WPA2. The existing connection was kept.")
     return 'sae'
 
 
@@ -1627,7 +1627,7 @@ def wifi_apply_profile(device, data, existing, active, hotspot=False):
                 recover()
             except (ValueError, OSError):
                 recovery_failed = True
-        raise ValueError('无线连接失败，' + ('恢复原连接失败，请通过有线网络检查' if recovery_failed else '已恢复原连接')) from None
+        raise ValueError(('Couldn\'t connect or restore the previous Wi-Fi connection. Connect over Ethernet to check the settings.' if recovery_failed else 'Couldn\'t connect to Wi-Fi. The previous connection was restored.')) from None
     return identifier
 
 
@@ -1675,8 +1675,8 @@ def wifi_change_mode(mode, force, device, info, profiles):
                 wifi_disconnect(device)
                 wifi_restore(active, device)
             except ValueError:
-                raise ValueError('热点启动失败，恢复原连接失败，请通过有线网络检查') from None
-            raise ValueError('热点启动失败，已恢复原连接') from None
+                raise ValueError("Couldn't start the hotspot or restore the previous connection. Connect over Ethernet to check the settings.") from None
+            raise ValueError("Couldn't start the hotspot. The previous connection was restored.") from None
         return
     wifi_disable_hotspot_autostart(hotspot)
     if not hotspot or active != hotspot['id']:
@@ -1689,7 +1689,7 @@ def wifi_change_mode(mode, force, device, info, profiles):
         wifi_disconnect(device)
         deadline = time.monotonic() + 30
         if not wifi_client_profiles(profiles):
-            raise ValueError('没有已保存的无线连接')
+            raise ValueError("No saved Wi-Fi networks are available.")
         # Re-enable device autoconnection after device disconnect. Let NM try
         # eligible saved networks; device up could create an unwanted profile.
         nmcli('device', 'set', device, 'autoconnect', 'yes')
@@ -1699,7 +1699,7 @@ def wifi_change_mode(mode, force, device, info, profiles):
             if current.get('GENERAL.CON-UUID') in clients and current.get('GENERAL.STATE', '').startswith('100 '):
                 return
             time.sleep(min(0.5, remaining))
-        raise ValueError('30 秒内未连接到已保存网络')
+        raise ValueError("Couldn't connect to a saved network within 30 seconds.")
     except ValueError as error:
         reason = str(error)
         try:
@@ -1708,8 +1708,8 @@ def wifi_change_mode(mode, force, device, info, profiles):
             if hotspot['autoconnect']:
                 nmcli('connection', 'modify', 'uuid', hotspot['id'], 'connection.autoconnect', 'yes')
         except ValueError:
-            raise ValueError('客户端连接失败，恢复热点失败，请通过有线网络检查') from None
-        raise ValueError(reason + '，已恢复热点') from None
+            raise ValueError("Couldn't connect to Wi-Fi or restore the hotspot. Connect over Ethernet to check the settings.") from None
+        raise ValueError(reason + ' The hotspot was restored.') from None
 
 
 def wifi_command(argv):
@@ -1723,16 +1723,16 @@ def wifi_command(argv):
             data = wifi_read_request(argv[0] == 'wifi-hotspot')
         case ['wifi-activate', identifier] | ['wifi-forget', identifier]:
             if not WIFI_UUID.fullmatch(identifier):
-                raise ValueError('无线连接 UUID 格式错误')
+                raise ValueError("The Wi-Fi connection UUID is invalid.")
         case ['wifi-autoconnect', identifier, enabled] if enabled in ('yes', 'no'):
             if not WIFI_UUID.fullmatch(identifier):
-                raise ValueError('无线连接 UUID 格式错误')
+                raise ValueError("The Wi-Fi connection UUID is invalid.")
         case ['wifi-disconnect']:
             pass
         case ['wifi-mode', mode] | ['wifi-mode', mode, 'force'] if mode in ('client', 'hotspot'):
             pass
         case _:
-            raise ValueError('无线网络操作参数错误')
+            raise ValueError("The Wi-Fi action arguments are invalid.")
     if argv[0] == 'wifi-scan' and not wifi_device():
         return {'networks': []}
     device, radio, info, profiles = wifi_context()
@@ -1743,7 +1743,7 @@ def wifi_command(argv):
         return {'networks': [] if radio != ['enabled', 'enabled'] or hotspot and active == hotspot['id'] else
                 wifi_networks(device, profiles, argv[1] == '1')}
     if action in ('wifi-connect', 'wifi-activate', 'wifi-mode') and radio != ['enabled', 'enabled']:
-        raise ValueError('请先开启 Wi-Fi 并解除硬件禁用')
+        raise ValueError("Turn on Wi-Fi and enable the wireless hardware before continuing.")
     if action == 'wifi-connect':
         existing = next((p for p in wifi_client_profiles(profiles) if p['ssid'] == data['ssid']), None)
         wifi_apply_profile(device, data, existing, active)
@@ -1754,7 +1754,7 @@ def wifi_command(argv):
         wifi_change_mode(argv[1], len(argv) == 3, device, info, profiles)
     elif action == 'wifi-disconnect':
         if hotspot and active == hotspot['id']:
-            raise ValueError('请通过模式切换停止热点')
+            raise ValueError("Switch to Wi-Fi mode to stop the hotspot.")
         wifi_disconnect(device)
     else:
         profile = wifi_saved(argv[1], profiles)
@@ -1773,8 +1773,8 @@ def wifi_command(argv):
                     wifi_disconnect(device)
                     wifi_restore(active, device)
                 except ValueError:
-                    raise ValueError('无线连接失败，恢复原连接失败，请通过有线网络检查') from None
-                raise ValueError('无线连接失败，已恢复原连接') from None
+                    raise ValueError("Couldn't connect or restore the previous Wi-Fi connection. Connect over Ethernet to check the settings.") from None
+                raise ValueError("Couldn't connect to Wi-Fi. The previous connection was restored.") from None
             wifi_disable_hotspot_autostart(hotspot)
     return {'ok': True}
 
@@ -1899,17 +1899,17 @@ def open_download(package):
     info = os.fstat(fd)
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or not 0 < info.st_size <= UPDATE_LIMIT:
         os.close(fd)
-        raise ValueError('Invalid update package type or size')
+        raise ValueError("The update package type or size is invalid. Download it again.")
     return os.fdopen(fd, 'rb')
 
 
 def update(package, checksum, version):
     if package not in UPDATES:
-        raise ValueError('Package is not updated by the manager')
+        raise ValueError("This package must be updated in its own interface.")
     if not re.fullmatch(r'[0-9a-f]{64}', checksum):
-        raise ValueError('Invalid SHA256')
+        raise ValueError("The package checksum is invalid. Download it again.")
     if not re.fullmatch(r'\d+\.\d+\.\d+\+vim4\.\d{8}\.\d+', version):
-        raise ValueError('Expected a VIM4 Ubuntu package version')
+        raise ValueError("Choose a VIM4 Ubuntu package version.")
     UPDATE_STAGING.mkdir(mode=0o700, exist_ok=True)
     # The caller cannot replace this snapshot after validation.
     with tempfile.TemporaryDirectory(dir=UPDATE_STAGING) as directory:
@@ -1918,20 +1918,20 @@ def update(package, checksum, version):
             shutil.copyfileobj(incoming, output)
         with deb.open('rb') as stream:
             if hashlib.file_digest(stream, 'sha256').hexdigest() != checksum:
-                raise ValueError('Package SHA256 mismatch')
+                raise ValueError("The package checksum doesn't match. Download it again.")
         for field, expected in (('Package', package), ('Architecture', 'arm64'), ('Version', version)):
             if update_run('dpkg-deb', '-f', str(deb), field) != expected:
-                raise ValueError('Package metadata does not match the requested update')
+                raise ValueError("The package metadata doesn't match the requested update. Download it again.")
         current = subprocess.run(['dpkg-query', '-W', '-f=${Version}', package], capture_output=True, text=True,
                                  timeout=30, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'}).stdout.strip()
         if not current:
             raise ValueError(f'{package} is not installed; deploy it with the component packages')
         if subprocess.run(['dpkg', '--compare-versions', version, 'gt', current], timeout=30).returncode:
-            raise ValueError('Update is not newer than the installed version')
+            raise ValueError("The update is not newer than the installed version.")
         # Never let a web update pull platform upgrades or remove packages.
         for line in update_run('apt-get', '--simulate', '--no-remove', 'install', str(deb)).splitlines():
             if line.startswith('Remv ') or (line.startswith('Inst ') and line.split()[1] != package):
-                raise ValueError('Deploy the platform components before this update')
+                raise ValueError("Install the platform components before this update.")
         if package == 'vim4-pikvm':
             check_pikvm_media(entering=True)
         update_run('dpkg', '--force-confdef', '--force-confold', '-i', str(deb))
@@ -1940,7 +1940,7 @@ def update(package, checksum, version):
             # Missing files, executables and sudoers must still verify exactly.
             if package == 'vim4-pikvm' and re.fullmatch(r'\?\?5\?{6} c /etc/kvmd/.+', line):
                 continue
-            raise ValueError('Installed package verification failed')
+            raise ValueError("The installed package failed verification. Reinstall it before continuing.")
         os.sync()
     unit = UPDATES[package]
     if subprocess.run(['systemctl', 'is-active', '--quiet', unit], timeout=10).returncode == 0:
@@ -1960,26 +1960,26 @@ NAS_VERSIONS = {'smb': ('auto', '3.1.1', '3.0', '2.1', '2.0', '1.0'),
 
 def storage_id(value):
     if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,31}', value):
-        raise ValueError('网络存储 ID 无效')
+        raise ValueError('The network storage ID is invalid.')
     return value
 
 
 def storage_validate(data, testing=False):
     if not isinstance(data, dict):
-        raise ValueError('网络存储参数必须为 JSON 对象')
+        raise ValueError('Network storage settings must be a JSON object.')
     kind = data.get('type')
     if not isinstance(kind, str) or kind not in NAS_VERSIONS:
-        raise ValueError('网络存储类型必须为 smb 或 nfs')
+        raise ValueError('The network storage type must be smb or nfs.')
     result = {}
     for key in ('id', 'name', 'server', 'share', 'domain', 'username', 'version'):
         value = data.get(key, 'auto' if key == 'version' else '')
         if not isinstance(value, str) or len(value) > 1024:
-            raise ValueError('网络存储字段无效：' + key)
+            raise ValueError('Invalid network storage field: ' + key)
         result[key] = value
     if result['id']:
         storage_id(result['id'])
     if (not testing and not result['name']) or len(result['name']) > 80 or any(ord(c) < 32 or ord(c) == 127 for c in result['name']):
-        raise ValueError('名称需为 1–80 个可显示字符')
+        raise ValueError('Use 1–80 printable characters for the name.')
     server = result['server']
     try:
         ipaddress.ip_address(server)
@@ -1988,27 +1988,27 @@ def storage_validate(data, testing=False):
     except ValueError:
         if len(server) > 253 or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', server) or any(
                 not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?', label) for label in server.split('.')):
-            raise ValueError('服务器必须为主机名、IPv4 或 IPv6 地址') from None
+            raise ValueError('Use a hostname, IPv4 address, or IPv6 address for the server.') from None
     share = result['share']
     if share.startswith('/') != (kind == 'nfs'):
-        raise ValueError('SMB 使用共享名；NFS 使用以 / 开头的导出路径')
+        raise ValueError('Use a share name for SMB or an export path starting with / for NFS.')
     # NAS shares are often named in Chinese or with spaces. The value lands in a
     # unit's What= (systemd expands % and trims outer blanks) and a mount argument.
     segments = share[1:].split('/') if kind == 'nfs' else share.split('/')
     if share != '/' and (any(not part or part in ('.', '..') or part != part.strip() for part in segments) or
                          re.search(r'[\x00-\x1f\x7f\\"*?<>|:%]', share)):
-        raise ValueError('共享路径包含不支持的字符或路径段')
+        raise ValueError('The share path contains unsupported characters or path segments.')
     for key in ('domain', 'username'):
         value = result[key]
         if value != value.strip() or re.search(r'[\x00-\x1f\x7f\\/"\[\]:;|=,+*?<>%]', value) or value in ('.', '..'):
-            raise ValueError('用户名或域包含不支持的字符')
+            raise ValueError('The username or domain contains unsupported characters.')
     if result['version'] not in NAS_VERSIONS[kind]:
-        raise ValueError('协议版本不支持')
+        raise ValueError('This protocol version isn\'t supported.')
     if type(data.get('autoMount', False)) is not bool:
-        raise ValueError('autoMount 必须为布尔值')
+        raise ValueError('autoMount must be a boolean.')
     if 'password' in data and (not isinstance(data['password'], str) or len(data['password']) > 4096 or
                                any(c in data['password'] for c in '\r\n\0')):
-        raise ValueError('密码不能包含换行或 NUL，最长 4096 字符')
+        raise ValueError('The password can\'t contain newlines or NUL and must be no longer than 4096 characters.')
     result.update(type=kind, autoMount=data.get('autoMount', False))
     return result
 
@@ -2023,7 +2023,7 @@ def storage_read_request():
             raise ValueError()
         return data
     except (ValueError, UnicodeError):
-        raise ValueError('网络存储 JSON 参数无效') from None
+        raise ValueError('Couldn\'t read the network storage JSON settings.') from None
 
 
 def storage_atomic(path, content, mode):
@@ -2045,9 +2045,9 @@ def storage_load(identifier):
     try:
         data = storage_validate(json.loads((NAS_CONFIG / (identifier + '.json')).read_text()))
     except FileNotFoundError:
-        raise ValueError('网络存储不存在') from None
+        raise ValueError('This network storage connection doesn\'t exist.') from None
     if data['id'] != identifier:
-        raise ValueError('网络存储配置 ID 不匹配')
+        raise ValueError('The network storage configuration ID doesn\'t match.')
     return data
 
 
@@ -2060,7 +2060,7 @@ def storage_credentials(config, request):
             saved = (NAS_CONFIG / (storage_id(config['id']) + '.cred')).read_text()
             password = next(line[len('password='):] for line in saved.split('\n') if line.startswith('password='))
         except (ValueError, FileNotFoundError, StopIteration):
-            raise ValueError('SMB 首次保存或测试需要密码（可为空）') from None
+            raise ValueError('Provide a password for the first SMB save or connection test. It may be empty.') from None
     return f"username={config['username']}\npassword={password}\ndomain={config['domain']}\n"
 
 
@@ -2090,15 +2090,15 @@ def storage_options(config, credentials, unit=True):
 def storage_error(error):
     # Never relay command output: mount helpers can echo credentials or user input.
     text = str(error).lower()
-    for terms, message in ((('permission', 'access denied', 'errno 13', 'error(13)'), '权限被拒'),
+    for terms, message in ((('permission', 'access denied', 'errno 13', 'error(13)'), 'Permission denied'),
                            (('unreachable', 'no route', 'resolve', 'host is down', 'could not connect', 'connection refused',
-                             'errno 113', 'error(113)', 'error(112)', 'error(111)'), '主机不可达'),
-                           (('no such file', 'not found', 'errno 2', 'error(2)'), '共享不存在'),
-                           (('protocol', 'not supported', 'errno 95', 'error(95)'), '协议版本不匹配'),
-                           (('timeout', 'timed out', '超时'), '超时')):
+                             'errno 113', 'error(113)', 'error(112)', 'error(111)'), 'Server unreachable'),
+                           (('no such file', 'not found', 'errno 2', 'error(2)'), 'Share not found'),
+                           (('protocol', 'not supported', 'errno 95', 'error(95)'), 'Protocol version mismatch'),
+                           (('timeout', 'timed out', 'Timed out'), 'Timed out')):
         if any(term in text for term in terms):
             return message
-    return '网络存储操作失败，请检查服务器、共享和凭据'
+    return 'Couldn\'t complete the network storage operation. Check the server, share, and credentials.'
 
 
 def storage_run(args, timeout=35):
@@ -2119,7 +2119,7 @@ def storage_run(args, timeout=35):
             process.stdout.close()
             process.stderr.close()
         if isinstance(error, subprocess.TimeoutExpired):
-            raise ValueError('网络存储操作超时') from None
+            raise ValueError('The network storage operation timed out.') from None
         raise
     if process.returncode:
         raise ValueError(storage_error(stderr))
@@ -2179,7 +2179,7 @@ def storage_bounded(function, timeout):
         os.close(write_fd)
         try:
             if not io_select.select([read_fd], [], [], timeout)[0] or not os.read(read_fd, 1):
-                raise TimeoutError('网络存储操作超时')
+                raise TimeoutError('The network storage operation timed out.')
             result.seek(0)
             payload = json.load(result)
             if 'error' in payload:
@@ -2201,7 +2201,7 @@ def storage_capacity(path):
 
 def storage_probe(path):
     if not storage_mounted(path):
-        raise ValueError('网络存储尚未挂载')
+        raise ValueError('Network storage isn\'t mounted.')
     capacity = storage_capacity(path)
     user = pwd.getpwnam('khadas')
     os.initgroups('khadas', user.pw_gid)
@@ -2263,7 +2263,7 @@ def storage_status(config):
                                       'error' if active == 'failed' else 'unmounted')
     data = dict(config, path=str(path), mounted=mounted, state=state,
                 error='' if result in ('', 'success') else
-                ('连接超时，NAS 无响应' if result == 'timeout' else '连接失败'),
+                ('The connection timed out. The NAS isn\'t responding.' if result == 'timeout' else 'Couldn\'t connect'),
                 totalBytes=None, freeBytes=None, stale=False, writable=None, busy=False,
                 insecure=config['type'] == 'smb' and config['version'] == '1.0')
     try:
@@ -2295,12 +2295,12 @@ def storage_unmount(config):
     path = NAS_ROOT / config['id']
     try:
         if storage_bounded(lambda: storage_busy(path), 2):
-            raise ValueError('挂载点正被进程或 USB 虚拟介质使用，请先停止使用并弹出介质')
+            raise ValueError('The mount is in use by a process or virtual media. Stop using it and eject the media before continuing.')
     except TimeoutError:
-        raise ValueError('无法确认挂载点是否空闲，请稍后重试') from None
+        raise ValueError('Couldn\'t confirm that the mount is available. Try again shortly.') from None
     storage_run(['systemctl', 'stop', storage_unit_name(config['id'])])
     if storage_mounted(path):
-        raise ValueError('挂载点仍在使用，卸载失败')
+        raise ValueError('Couldn\'t unmount storage because it is still in use.')
 
 
 def storage_save(request):
@@ -2309,10 +2309,10 @@ def storage_save(request):
     if config['id']:
         existing = storage_load(config['id'])
         if existing['type'] != config['type']:
-            raise ValueError('已有网络存储不能更改 ID 或类型')
+            raise ValueError('The ID or type of an existing network storage connection can\'t be changed.')
     else:
         if len(list(NAS_CONFIG.glob('*.json'))) >= 8:
-            raise ValueError('最多添加 8 个网络存储')
+            raise ValueError('Up to eight network storage connections can be added.')
         base = re.sub('[^a-z0-9-]+', '-', config['name'].lower()).strip('-')[:23] or 'nas'
         config['id'] = base + '-' + secrets.token_hex(4)
         while (NAS_CONFIG / (config['id'] + '.json')).exists():
@@ -2348,7 +2348,7 @@ def storage_test(request):
     if config['id']:
         existing = storage_load(config['id'])
         if existing['type'] != config['type']:
-            raise ValueError('已有网络存储不能更改类型')
+            raise ValueError('The type of an existing network storage connection can\'t be changed.')
     credentials = storage_credentials(config, request)
     NAS_TEST.mkdir(parents=True, exist_ok=True, mode=0o755)
     NAS_TEST.chmod(0o755)
@@ -2366,7 +2366,7 @@ def storage_test(request):
         answer.update(storage_bounded(lambda: storage_probe(path), 3))
         answer['ok'] = True
         if not answer['writable']:
-            answer['error'] = 'khadas 权限被拒：共享不可写'
+            answer['error'] = 'The khadas account doesn\'t have write access to this share.'
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         answer['error'] = str(error) if isinstance(error, ValueError) else storage_error(error)
     finally:
@@ -2375,7 +2375,7 @@ def storage_test(request):
                 storage_run(['umount', str(path)], 3)
             path.rmdir()
         except (OSError, ValueError) as error:
-            answer.update(ok=False, error='测试挂载清理失败：' + storage_error(error))
+            answer.update(ok=False, error='Couldn\'t clean up the test mount: ' + storage_error(error))
         # Never recursively remove the temporary directory: it may still be a NAS mount.
         cred.unlink(missing_ok=True)
         try:
@@ -2395,13 +2395,13 @@ def storage_migrate():
     messages = []
     for file in sorted(NAS_CONFIG.glob('*.json')):
         if time.monotonic() >= deadline:
-            messages.append('storage-migrate: 总预算已用尽，剩余存储下次启动处理')
+            messages.append('storage-migrate: time limit reached; remaining connections will be handled at the next boot')
             break
         item_deadline = min(deadline, time.monotonic() + 5)
         def budget(limit):
             remaining = item_deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError('网络存储操作超时')
+                raise TimeoutError('The network storage operation timed out.')
             return min(limit, remaining)
         try:
             config = storage_load(file.stem)
@@ -2414,21 +2414,21 @@ def storage_migrate():
             mount = NAS_ROOT / config['id']
             if storage_mounted(mount):
                 if storage_bounded(lambda: storage_busy(mount), budget(1)):
-                    messages.append(config['id'] + ': 存储忙，保留当前挂载，新参数下次启动生效')
+                    messages.append(config['id'] + ': storage busy; keeping the current mount and applying new settings at the next boot')
                 else:
                     storage_run(['systemctl', 'restart', unit], budget(3))
         except (ValueError, OSError) as error:
-            messages.append(file.stem + ': ' + (str(error) if isinstance(error, ValueError) else storage_error(error)) + '，下次启动重试')
+            messages.append(file.stem + ': ' + (str(error) if isinstance(error, ValueError) else storage_error(error)) + '; will retry at the next boot')
     return messages
 
 
 def storage_path_parts(path, private=False):
     if not isinstance(path, str) or not path.startswith('/') or len(path) > 4096 or '\\' in path or any(ord(c) < 32 or ord(c) == 127 for c in path):
-        raise ValueError('目录路径无效')
+        raise ValueError('The folder path is invalid.')
     parts = path[1:].split('/') if path != '/' else []
     if len(parts) > 32 or any(p in ('', '.', '..') or len(p.encode('utf-8')) > 255 or
                               private and p == '.vim4-nasdisk' for p in parts):
-        raise ValueError('目录路径不能包含空段、. 或 ..')
+        raise ValueError('Folder paths can\'t contain empty segments, . or ..')
     return parts
 
 
@@ -2437,7 +2437,7 @@ def storage_open_directory(config, path, private=False):
     parts = storage_path_parts(path, private)
     root = NAS_ROOT / config['id']
     if not storage_mounted(root):
-        raise ValueError('网络存储尚未挂载')
+        raise ValueError('Network storage isn\'t mounted.')
     fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         for part in parts:
@@ -2456,13 +2456,13 @@ def storage_mkdir(request):
     if (not isinstance(name, str) or not name or name in ('.', '..', '.vim4-nasdisk') or
             name != name.strip() or len(name.encode('utf-8')) > 255 or
             re.search(r'[\x00-\x1f\x7f\\/"*?<>|:%]', name)):
-        raise ValueError('文件夹名称包含不支持的字符或路径段')
+        raise ValueError('The folder name contains unsupported characters or path segments.')
     def create():
         with storage_open_directory(config, path, private=True) as fd:
             try:
                 os.mkdir(name, mode=0o770, dir_fd=fd)
             except FileExistsError:
-                raise ValueError('已有同名文件夹') from None
+                raise ValueError('A folder with this name already exists.') from None
         return {'path': (path.rstrip('/') + '/' + name)}
     return storage_bounded(create, 3)
 
@@ -2511,7 +2511,7 @@ def storage_command(argv):
         case ['storage-delete', identifier]:
             config = storage_load(identifier)
             if storage_read_request().get('confirm') != config['name']:
-                raise ValueError('请确认完整的网络存储名称')
+                raise ValueError('Enter the full network storage name to confirm.')
             storage_unmount(config)
             # Refuse misplaced local data before removing a recoverable unit/config.
             path = NAS_ROOT / identifier
@@ -2526,7 +2526,7 @@ def storage_command(argv):
             (NAS_RUNTIME / (identifier + '.json')).unlink(missing_ok=True)
             return {'ok': True}
         case _:
-            raise ValueError('不支持的网络存储操作')
+            raise ValueError('This network storage operation isn\'t supported.')
 
 
 NASDISK_RUNTIME = Path('/run/vim4-nasdisk')
@@ -2541,7 +2541,7 @@ def nasdisk_read(name):
 
 def nasdisk_session_id(value):
     if not isinstance(value, str) or not re.fullmatch(r'[a-f0-9]{32}', value):
-        raise ValueError('会话 ID 无效')
+        raise ValueError('The session ID is invalid.')
     return value
 
 
@@ -2565,7 +2565,7 @@ def nasdisk_pending(timeout=3):
             for directory, dirs, files in os.walk(mount, followlinks=False):
                 remaining -= len(dirs) + len(files) + 1
                 if remaining < 0:
-                    raise ValueError('恢复扫描条目过多')
+                    raise ValueError('The recovery scan has too many entries.')
                 dirs[:] = [d for d in dirs if not (Path(directory) / d).is_symlink()]
                 if '.vim4-nasdisk' not in dirs:
                     continue
@@ -2600,7 +2600,7 @@ def nasdisk_cleanup_mount():
         if len(fields) < 10 or re.sub(r'\\([0-7]{3})', lambda m: chr(int(m[1], 8)), fields[4]) != str(mount):
             continue
         if ' - fuse.nasdisk ' not in line:
-            raise ValueError('U 盘镜像目录被其他文件系统占用')
+            raise ValueError('The USB image directory is occupied by another file system.')
         minor = int(fields[2].split(':')[1])
         try:
             Path(f'/sys/fs/fuse/connections/{minor}/abort').write_text('1\n')
@@ -2626,18 +2626,18 @@ def nasdisk_trash(last, empty=False, timeout=3):
             def walk(parent, depth):
                 nonlocal remaining
                 if depth > 64:
-                    raise ValueError('回收目录层级过深')
+                    raise ValueError('The recovery folder exceeds the nesting limit.')
                 with os.scandir(parent) as entries:
                     for entry in entries:
                         remaining -= 1
                         if remaining < 0:
-                            raise ValueError('回收目录条目过多')
+                            raise ValueError('The recovery folder has too many entries.')
                         info = os.stat(entry.name, dir_fd=parent, follow_symlinks=False)
                         if stat.S_ISDIR(info.st_mode):
                             child = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
                             try:
                                 if os.fstat(child).st_dev != device:
-                                    raise ValueError('回收目录包含其他挂载')
+                                    raise ValueError('The recovery folder contains another mount.')
                                 walk(child, depth + 1)
                             finally:
                                 os.close(child)
@@ -2658,11 +2658,11 @@ def nasdisk_trash_empty(request):
     identifier = nasdisk_session_id(request.get('id'))
     last = nasdisk_read('last.json')
     if not last or last.get('id') != identifier:
-        raise ValueError('最后会话已改变')
+        raise ValueError('The last session has changed. Refresh and try again.')
     if request.get('confirm') != identifier:
-        raise ValueError('请确认完整会话 ID')
+        raise ValueError('Enter the full session ID to confirm.')
     if nasdisk_active():
-        raise ValueError('已有运行中的 NAS U 盘会话')
+        raise ValueError('A NAS folder drive session is already running.')
     last['trash'] = nasdisk_trash(last, empty=True)
     storage_atomic(NASDISK_RUNTIME / 'last.json', json.dumps(last), 0o600)
     return dict(ok=True, trash=last['trash'])
@@ -2690,7 +2690,7 @@ def nasdisk_command(argv):
             def remaining():
                 budget = deadline - time.monotonic()
                 if budget <= 0:
-                    raise TimeoutError('网络存储状态查询超时')
+                    raise TimeoutError('The network storage status request timed out.')
                 return budget
             session = nasdisk_read('status.json')
             last = nasdisk_read('last.json')
@@ -2718,25 +2718,25 @@ def nasdisk_command(argv):
             request = storage_read_request()
             utc_offset = request.get('utcOffsetMinutes', time.localtime().tm_gmtoff // 60)
             if type(utc_offset) is not int or not -720 <= utc_offset <= 840:
-                raise ValueError('时区偏移必须是 -720 到 840 之间的整数分钟')
+                raise ValueError('Use a time zone offset between -720 and 840 whole minutes.')
             config = storage_load(request.get('storage'))
             root = nasdisk_folder(config, request.get('path', '/'))
             mode = request.get('mode')
             if mode not in ('ro', 'rw'):
-                raise ValueError('请选择只读或可写模式')
+                raise ValueError('Choose read-only or writable mode.')
             label = request.get('label', '')
             if not isinstance(label, str):
-                raise ValueError('卷标无效')
+                raise ValueError('The volume label is invalid.')
             label = label.strip()
             if label and not re.fullmatch(r'[A-Z0-9 _-]{1,11}', label):
-                raise ValueError('卷标最多 11 个大写字母数字空格下划线连字符')
+                raise ValueError('Use up to 11 uppercase letters, numbers, spaces, underscores, or hyphens for the volume label.')
             if not label:
                 label = re.sub('[^A-Z0-9 _-]', '', Path(root).name.upper())[:11].strip() or 'NAS'
             with media_locks():
                 if nasdisk_active():
-                    raise ValueError('已有运行中的 NAS U 盘会话')
+                    raise ValueError('A NAS folder drive session is already running.')
                 if PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
-                    raise ValueError('已有虚拟磁盘挂载，请先安全弹出')
+                    raise ValueError('A virtual disk is already mounted. Safely eject it before continuing.')
                 nasdisk_cleanup_mount()
                 import uuid
                 session = dict(id=uuid.uuid4().hex, storage=config['id'], storageName=config['name'],
@@ -2749,26 +2749,26 @@ def nasdisk_command(argv):
             return dict(ok=True, id=session['id'])
         case ['nasdisk-lun-attach', identifier]:
             if os.environ.get('SUDO_UID', '0') != '0':
-                raise ValueError('此操作仅供 NAS U 盘守护进程调用')
+                raise ValueError('This operation is reserved for the NAS folder drive service.')
             nasdisk_session_id(identifier)
             session = nasdisk_read('session.json')
             if not session or session['id'] != identifier or not nasdisk_active():
-                raise ValueError('会话已改变')
+                raise ValueError('The session has changed. Refresh and try again.')
             with media_locks():
                 if PIKVM_LUN_FILE.read_text().strip():
-                    raise ValueError('已有虚拟磁盘挂载，请先安全弹出')
+                    raise ValueError('A virtual disk is already mounted. Safely eject it before continuing.')
                 active = [app for app, unit in APPS.items() if storage_run(['systemctl', 'show', '--property=ActiveState', '--value', unit], 3).strip() == 'active']
                 if len(active) != 1:
-                    raise ValueError('请选择正在运行的 KVM')
+                    raise ValueError('Choose the running KVM interface.')
                 app = active[0]
                 media_active(app)
                 if app == 'jetkvm' and session['mode'] != 'ro':
-                    raise ValueError('JetKVM 仅支持只读介质')
+                    raise ValueError('JetKVM supports read-only media only.')
                 fd = os.open(NASDISK_RUNTIME / 'fs' / ('disk-' + identifier + '.img'),
                              (os.O_RDONLY if session['mode'] == 'ro' else os.O_RDWR) | os.O_NOFOLLOW)
                 try:
                     if not stat.S_ISREG(os.fstat(fd).st_mode):
-                        raise ValueError('FUSE 镜像不是普通文件')
+                        raise ValueError('The FUSE image must be a regular file.')
                     attach_media(fd, app, False, session['mode'] == 'ro')
                 finally:
                     os.close(fd)
@@ -2779,17 +2779,17 @@ def nasdisk_command(argv):
             nasdisk_session_id(identifier)
             action = argv[0].removeprefix('nasdisk-')
             if options and (action != 'commit' or options != ['force']):
-                raise ValueError('操作参数无效')
+                raise ValueError('The operation arguments are invalid.')
             confirm = storage_read_request().get('confirm', '') if action == 'discard' else ''
             if action == 'discard' and confirm != identifier:
-                raise ValueError('请确认完整会话 ID')
+                raise ValueError('Enter the full session ID to confirm.')
             if nasdisk_active():
                 return nasdisk_control(action, identifier, bool(options), confirm)
             if action == 'reattach':
-                raise ValueError('恢复会话只能回写或放弃')
+                raise ValueError('A recovered session can only be written back or discarded.')
             pending = [item for item in nasdisk_pending() if item['id'] == identifier]
             if len(pending) != 1:
-                raise ValueError('未找到唯一的待恢复会话')
+                raise ValueError('Couldn\'t identify a unique session to recover.')
             item = pending[0]
             config = storage_load(item['storage'])
             root = nasdisk_folder(config, item['path'])
@@ -2798,14 +2798,14 @@ def nasdisk_command(argv):
                          path=item['path'], mode='rw', recover=action, force=bool(options))
             with media_locks():
                 if PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
-                    raise ValueError('已有虚拟磁盘挂载，请先安全弹出')
+                    raise ValueError('A virtual disk is already mounted. Safely eject it before continuing.')
                 nasdisk_cleanup_mount()
                 storage_atomic(NASDISK_RUNTIME / 'session.json', json.dumps(saved), 0o600)
                 (NASDISK_RUNTIME / 'control.sock').unlink(missing_ok=True)
                 storage_run(['systemctl', 'start', 'vim4-nasdisk.service'], 5)
             return dict(ok=True)
         case _:
-            raise ValueError('不支持的 NAS U 盘操作')
+            raise ValueError('This NAS folder drive operation isn\'t supported.')
 
 
 def main(argv):
@@ -2859,13 +2859,13 @@ def main(argv):
             result = subprocess.run(['/usr/libexec/vim4-passthrough', 'status'],
                                     capture_output=True, text=True, timeout=10)
             if result.returncode:
-                raise ValueError(result.stderr.strip() or '透传状态读取失败')
+                raise ValueError(result.stderr.strip() or "Couldn't read passthrough status. Try again.")
             print(result.stdout.strip())
         case ['passthrough-set', enabled, audio, hdr] if all(value in ('true', 'false') for value in (enabled, audio, hdr)):
             result = subprocess.run(['/usr/libexec/vim4-passthrough', 'set', enabled, audio, hdr],
                                     capture_output=True, text=True, timeout=10)
             if result.returncode:
-                raise ValueError(result.stderr.strip() or '透传设置失败')
+                raise ValueError(result.stderr.strip() or "Couldn't change passthrough settings. Try again.")
             print(result.stdout.strip())
         case ['kernel-select', identifier, reboot] if reboot in ('true', 'false'):
             import vim4boot
@@ -2947,7 +2947,11 @@ def operation_lock(argv):
 
 def interrupted(signum, frame):
     # Unwind allocation/staging cleanup when the HTTP streaming runner cancels.
-    raise InterruptedError('操作已取消')
+    if len(sys.argv) > 1 and sys.argv[1].startswith(('disk-', 'storage-', 'nasdisk-', 'media-')):
+        raise InterruptedError('Storage operation canceled.')
+    if len(sys.argv) > 1 and (sys.argv[1].startswith(('wifi', 'tailscale-', 'kernel-')) or sys.argv[1] == 'update'):
+        raise InterruptedError('Operation canceled.')
+    raise InterruptedError("Operation canceled.")
 
 
 if __name__ == '__main__':
@@ -2957,11 +2961,11 @@ if __name__ == '__main__':
             main(sys.argv[1:])
     except BlockingIOError:
         action = sys.argv[1] if len(sys.argv) > 1 else ''
-        busy = ('Another package operation is in progress' if action in ('update', 'tailscale-package') else
-                '另一个 NAS U 盘操作正在进行，请稍后重试' if action.startswith('nasdisk-') else
-                '另一个网络存储操作正在进行，请稍后重试' if action.startswith('storage-') else
-                '另一个数据盘操作正在进行，请稍后重试' if action.startswith('disk-') else
-                'Another tailscale operation is in progress' if action.startswith('tailscale-') else
+        busy = ("Another package operation is in progress. Try again shortly." if action in ('update', 'tailscale-package') else
+                'Another NAS folder drive operation is in progress. Try again shortly.' if action.startswith('nasdisk-') else
+                'Another network storage operation is in progress. Try again shortly.' if action.startswith('storage-') else
+                'Another data disk operation is in progress. Try again shortly.' if action.startswith('disk-') else
+                "Another Tailscale action is in progress. Try again shortly." if action.startswith('tailscale-') else
                 'Another switch is in progress')
         if action == 'tailscale-package':
             tailscale_write_job(sys.argv[2], False, busy)

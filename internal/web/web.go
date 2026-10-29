@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/vim4-kvm/vim4-manager/internal/board"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // Handler builds the HTTP routes. assets is the built frontend (index.html at its root).
@@ -28,7 +29,7 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 	mux.HandleFunc("GET /api/media", func(w http.ResponseWriter, r *http.Request) {
 		images, err := service.MediaImages(r.Context())
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, images)
@@ -44,10 +45,10 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 			return
 		}
 		if request.CDROM == nil || request.ReadOnly == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 cdrom 和 readOnly 布尔值"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("media.flagsRequired", nil))
 			return
 		}
-		respond(w, service.MountMedia(r.Context(), request.App, request.Image, *request.CDROM, *request.ReadOnly))
+		respond(w, r, service.MountMedia(r.Context(), request.App, request.Image, *request.CDROM, *request.ReadOnly))
 	})
 	mux.HandleFunc("POST /api/media/eject", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -58,19 +59,20 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 			return
 		}
 		if !request.Confirmed {
-			writeError(w, http.StatusBadRequest, errors.New("请确认被控电脑已停止使用磁盘并安全卸载"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("media.confirmEjection", nil))
 			return
 		}
-		respond(w, service.EjectMedia(r.Context(), request.Token))
+		respond(w, r, service.EjectMedia(r.Context(), request.Token))
 	})
 	mux.HandleFunc("GET /api/edid", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 		defer cancel()
 		state, err := service.EDID(ctx)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
+		state.LocalizeLabels(i18n.RequestLocale(r))
 		writeJSON(w, http.StatusOK, state)
 	})
 	mux.HandleFunc("POST /api/edid", func(w http.ResponseWriter, r *http.Request) {
@@ -80,14 +82,14 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.SetEDID(r.Context(), request.ID))
+		respond(w, r, service.SetEDID(r.Context(), request.ID))
 	})
 	mux.HandleFunc("GET /api/wifi", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		defer cancel()
 		state, err := service.Wifi(ctx)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		if local, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok {
@@ -105,10 +107,10 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 			return
 		}
 		if request.Enabled == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 布尔值"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("common.enabledRequired", nil))
 			return
 		}
-		respond(w, service.SetWifi(r.Context(), *request.Enabled))
+		respond(w, r, service.SetWifi(r.Context(), *request.Enabled))
 	})
 	wifiRoutes(mux, service)
 	mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
@@ -116,9 +118,11 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		defer cancel()
 		status, err := service.Status(ctx)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
+		status.Events = service.Events.List(i18n.RequestLocale(r))
+		status.LocalizeLabels(i18n.RequestLocale(r))
 		writeJSON(w, http.StatusOK, status)
 	})
 	mux.HandleFunc("POST /api/select", func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +132,7 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.Select(r.Context(), request.App))
+		respond(w, r, service.Select(r.Context(), request.App))
 	})
 	mux.HandleFunc("POST /api/restart", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -137,14 +141,14 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.Restart(r.Context(), request.Unit))
+		respond(w, r, service.Restart(r.Context(), request.Unit))
 	})
 	mux.HandleFunc("POST /api/hdr-curve", func(w http.ResponseWriter, r *http.Request) {
 		var curve board.HDRCurve
 		if !decode(w, r, &curve) {
 			return
 		}
-		respond(w, service.SetHDRCurve(r.Context(), curve))
+		respond(w, r, service.SetHDRCurve(r.Context(), curve))
 	})
 	mux.HandleFunc("POST /api/hdr-mapping", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -154,29 +158,29 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 			return
 		}
 		if request.Enabled == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 布尔值"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("common.enabledRequired", nil))
 			return
 		}
-		respond(w, service.SetHDRMapping(r.Context(), *request.Enabled))
+		respond(w, r, service.SetHDRMapping(r.Context(), *request.Enabled))
 	})
 	mux.HandleFunc("POST /api/hdr-curve/preview", func(w http.ResponseWriter, r *http.Request) {
 		var curve board.HDRCurve
 		if !decode(w, r, &curve) {
 			return
 		}
-		respond(w, service.PreviewHDRCurve(r.Context(), curve))
+		respond(w, r, service.PreviewHDRCurve(r.Context(), curve))
 	})
 	mux.HandleFunc("POST /api/fan-curve", func(w http.ResponseWriter, r *http.Request) {
 		var triggers board.FanTriggers
 		if !decode(w, r, &triggers) {
 			return
 		}
-		respond(w, service.SetFanCurve(r.Context(), triggers))
+		respond(w, r, service.SetFanCurve(r.Context(), triggers))
 	})
 	mux.HandleFunc("GET /api/updates", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		writeJSON(w, http.StatusOK, service.Updates(ctx))
+		writeJSON(w, http.StatusOK, service.Updates(ctx, i18n.RequestLocale(r)))
 	})
 	mux.HandleFunc("POST /api/updates", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -185,7 +189,7 @@ func Handler(service *board.Service, assets fs.FS) http.Handler {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.Update(r.Context(), request.Package))
+		respond(w, r, service.Update(r.Context(), request.Package))
 	})
 	files := http.FileServerFS(assets)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +208,7 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 	mux.HandleFunc("GET /api/wifi/networks", func(w http.ResponseWriter, r *http.Request) {
 		networks, err := service.WifiNetworks(r.Context(), r.URL.Query().Get("rescan") == "1")
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"networks": networks})
@@ -214,7 +218,7 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.ConnectWifi(r.Context(), request))
+		respond(w, r, service.ConnectWifi(r.Context(), request))
 	})
 	mux.HandleFunc("POST /api/wifi/activate", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -223,14 +227,14 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.ActivateWifi(r.Context(), request.ID))
+		respond(w, r, service.ActivateWifi(r.Context(), request.ID))
 	})
 	mux.HandleFunc("POST /api/wifi/disconnect", func(w http.ResponseWriter, r *http.Request) {
 		var request struct{}
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.DisconnectWifi(r.Context()))
+		respond(w, r, service.DisconnectWifi(r.Context()))
 	})
 	mux.HandleFunc("POST /api/wifi/forget", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -239,7 +243,7 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.ForgetWifi(r.Context(), request.ID))
+		respond(w, r, service.ForgetWifi(r.Context(), request.ID))
 	})
 	mux.HandleFunc("POST /api/wifi/autoconnect", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -250,10 +254,10 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 			return
 		}
 		if request.Enabled == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 enabled 布尔值"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("common.enabledRequired", nil))
 			return
 		}
-		respond(w, service.SetWifiAutoconnect(r.Context(), request.ID, *request.Enabled))
+		respond(w, r, service.SetWifiAutoconnect(r.Context(), request.ID, *request.Enabled))
 	})
 	mux.HandleFunc("POST /api/wifi/hotspot", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
@@ -266,10 +270,10 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 			return
 		}
 		if request.Channel == nil || request.Autostart == nil {
-			writeError(w, http.StatusBadRequest, errors.New("需要 channel 整数和 autostart 布尔值"))
+			writeError(w, r, http.StatusBadRequest, i18n.New("wifi.hotspotFieldsRequired", nil))
 			return
 		}
-		respond(w, service.SetWifiHotspot(r.Context(), board.WifiHotspotRequest{
+		respond(w, r, service.SetWifiHotspot(r.Context(), board.WifiHotspotRequest{
 			SSID: request.SSID, Password: request.Password, Channel: *request.Channel, Autostart: *request.Autostart,
 		}))
 	})
@@ -281,7 +285,7 @@ func wifiRoutes(mux *http.ServeMux, service *board.Service) {
 		if !decode(w, r, &request) {
 			return
 		}
-		respond(w, service.SetWifiMode(r.Context(), request.Mode, request.Force))
+		respond(w, r, service.SetWifiMode(r.Context(), request.Mode, request.Force))
 	})
 }
 
@@ -290,7 +294,7 @@ func requireJSON(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		media, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if r.Method == http.MethodPost && media != "application/json" {
-			writeError(w, http.StatusUnsupportedMediaType, errors.New("需要 application/json"))
+			writeError(w, r, http.StatusUnsupportedMediaType, i18n.New("common.jsonRequired", nil))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -299,26 +303,34 @@ func requireJSON(next http.Handler) http.Handler {
 
 func decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(target); err != nil {
-		writeError(w, http.StatusBadRequest, errors.New("请求格式错误"))
+		writeError(w, r, http.StatusBadRequest, i18n.New("common.invalidRequest", nil))
 		return false
 	}
 	return true
 }
 
-func respond(w http.ResponseWriter, err error) {
+func respond(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, board.ErrBusy):
-		writeError(w, http.StatusConflict, err)
+		writeError(w, r, http.StatusConflict, err)
 	case err != nil:
-		writeError(w, http.StatusBadRequest, err)
+		writeError(w, r, http.StatusBadRequest, err)
 	default:
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	}
 }
 
-func writeError(w http.ResponseWriter, code int, err error) {
+func writeError(w http.ResponseWriter, r *http.Request, code int, err error) {
+	if errors.Is(err, board.ErrBusy) {
+		err = i18n.New("common.busy", nil)
+	}
 	slog.Warn("request failed", "status", code, "error", err)
-	writeJSON(w, code, map[string]string{"error": err.Error()})
+	writeJSON(w, code, map[string]string{"error": i18n.RenderError(i18n.RequestLocale(r), err)})
+}
+
+func writeLocalizedError(w http.ResponseWriter, r *http.Request, code int, err error) {
+	slog.Warn("request failed", "status", code, "error", err)
+	writeJSON(w, code, map[string]string{"error": i18n.RenderError(i18n.RequestLocale(r), err)})
 }
 
 func writeJSON(w http.ResponseWriter, code int, value any) {

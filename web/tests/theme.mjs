@@ -15,6 +15,18 @@ async function expectTheme(page, theme) {
   assert.equal(await page.locator("html").evaluate((el) => getComputedStyle(el).colorScheme), theme);
   assert.equal(await page.locator("html").evaluate((el) => el.classList.contains("dark")), theme === "dark", "Tailwind dark class follows the theme");
 }
+async function choose(page,name) {
+ await page.getByRole("menu", {name:"Appearance"}).waitFor({state:"hidden"});
+ await page.getByRole("button",{name:"Change appearance"}).click();
+ const item = page.getByRole("menuitemradio",{name,exact:true});
+ await item.focus();
+ await page.keyboard.press("Enter");
+ await menuClosed(page);
+}
+async function menuClosed(page) {
+  await page.getByRole("menu", { name: "Appearance" }).waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Change appearance");
+}
 async function context(options = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", ...options });
   await context.route("**/api/**", (route) => route.fulfill({ status: 404, json: { error: "Unexpected test API" } }));
@@ -28,50 +40,59 @@ try {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(url);
   await expectTheme(page, "dark");
-  const appearance = page.getByRole("radiogroup", { name: "外观" });
-  assert.equal(await appearance.count(), 1, "only the desktop control is accessible");
+  const appearance = page.getByRole("menu", { name: "Appearance" });
+  assert.equal(await page.getByRole("button", { name: "Change appearance" }).count(), 1, "one shared header control is accessible");
   await page.emulateMedia({ colorScheme: "light" });
   await expectTheme(page, "light");
-  await appearance.getByRole("radio", { name: "深色", exact: true }).click();
+  await choose(page, "Dark");
   await expectTheme(page, "dark");
   await page.reload();
   await expectTheme(page, "dark");
-  assert.equal(await appearance.getByRole("radio", { name: "深色" }).getAttribute("aria-checked"), "true");
-  await appearance.getByRole("radio", { name: "系统", exact: true }).click();
+  await page.getByRole("button", {name:"Change appearance"}).click();
+  assert.equal(await appearance.getByRole("menuitemradio", { name: "Dark" }).getAttribute("aria-checked"), "true");
+  await page.keyboard.press("Escape");
+  await menuClosed(page);
+  await choose(page, "System");
   await expectTheme(page, "light");
   await page.emulateMedia({ colorScheme: "dark" });
   await expectTheme(page, "dark");
   await page.emulateMedia({ colorScheme: "light" });
   await expectTheme(page, "light");
 
-  // Roving tab stops, immediate selection, and wrapping at both ends.
-  await appearance.getByRole("radio", { name: "系统", exact: true }).focus();
-  for (const [arrow, name, theme] of [["ArrowLeft", "深色", "dark"], ["ArrowRight", "系统", "light"],
-    ["ArrowRight", "浅色", "light"], ["ArrowLeft", "系统", "light"]]) {
-    await page.keyboard.press(arrow);
-    await expectTheme(page, theme);
-    assert.equal(await appearance.getByRole("radio", { name, exact: true }).evaluate((el) =>
-      el === document.activeElement && el.tabIndex === 0 && el.getAttribute("aria-checked") === "true"), true);
-    assert.equal(await appearance.locator('[tabindex="0"]').count(), 1);
-  }
-
+  // Keyboard navigation wraps within the menu before selection.
+  await page.getByRole('button',{name:'Change appearance'}).focus();
+  await page.keyboard.press('Enter');
+  const waitFocus = async name => { await page.waitForFunction(name => document.activeElement?.textContent.trim() === name, name); };
+  await waitFocus('Light');
+  await page.keyboard.press('End'); await waitFocus('System');
+  await page.keyboard.press('ArrowDown'); await waitFocus('Light');
+  await page.keyboard.press('ArrowUp'); await waitFocus('System');
+  await page.keyboard.press('Enter');
+  await menuClosed(page);
   const other = await session.newPage();
   await other.goto(url);
-  await appearance.getByRole("radio", { name: "深色", exact: true }).click();
+  await choose(page, "Dark");
   await expectTheme(other, "dark");
-  await other.getByRole("radio", { name: "浅色", exact: true }).click();
+  await choose(other,"Light");
   await expectTheme(page, "light");
   await other.evaluate((key) => localStorage.removeItem(key), key);
-  await appearance.getByRole("radio", { name: "系统", exact: true, checked: true }).waitFor();
+  await page.getByRole("button",{name:"Change appearance"}).click();
+  await appearance.getByRole("menuitemradio",{name:"System",exact:true,checked:true}).waitFor();
+  await page.keyboard.press("Escape");
+  await menuClosed(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Open menu", exact: true }).waitFor();
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  assert.equal(await appearance.count(), 0, "the phone control lives in the closed menu sheet");
-  await page.getByRole("button", { name: "打开菜单", exact: true }).click();
+  assert.equal(await page.getByRole("button",{name:"Change appearance"}).count(),1,"mobile shares the header control");
+  await page.getByRole("button", { name: "Change appearance", exact: true }).click();
+  await appearance.waitFor({ state: "visible" });
   assert.equal(await appearance.count(), 1, "only the menu sheet control is accessible");
-  assert.equal(await appearance.locator("svg").count(), 3);
-  await appearance.getByRole("radio", { name: "系统", exact: true }).click();
-  await appearance.getByRole("radio", { name: "深色", exact: true }).click();
+  assert.equal(await appearance.getByRole("menuitemradio").count(), 3);
+  await page.keyboard.press("Escape");
+  await menuClosed(page);
+  await choose(page, "System");
+  await choose(page, "Dark");
   await expectTheme(page, "dark");
   await page.waitForFunction(() => !document.documentElement.classList.contains("theme-switching"));
   await session.close();
@@ -106,7 +127,7 @@ try {
     const errors = [];
     restrictedPage.on("pageerror", (error) => errors.push(error.message));
     await restrictedPage.goto(url);
-    await restrictedPage.getByRole("radio", { name: "深色", exact: true }).click();
+    await choose(restrictedPage,"Dark");
     await expectTheme(restrictedPage, "light");
     await restrictedPage.emulateMedia({ colorScheme: "dark" });
     await expectTheme(restrictedPage, "dark");

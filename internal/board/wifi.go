@@ -3,7 +3,7 @@ package board
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"io"
 	"net"
 	"regexp"
@@ -86,7 +86,7 @@ type WifiHotspotRequest struct {
 func (s *Service) helperOutput(ctx context.Context, args ...string) (string, error) {
 	data, err := s.Run(ctx, "sudo", append([]string{"-n", Helper}, args...)...)
 	if err != nil {
-		return "", fmt.Errorf("读取无线网络失败：%w", err)
+		return "", i18n.Wrap(err, "wifi.readFailed", map[string]any{"p0": networkHelperError(err)})
 	}
 	return data, nil
 }
@@ -117,7 +117,7 @@ func (s *Service) helperInput(ctx context.Context, input io.Reader, args ...stri
 		if strings.Contains(err.Error(), "Another switch is in progress") {
 			return ErrBusy
 		}
-		return fmt.Errorf("无线网络操作失败：%s", strings.TrimPrefix(err.Error(), "sudo: "))
+		return i18n.Wrap(err, "wifi.operationFailed", map[string]any{"p0": networkHelperError(err)})
 	}
 	return nil
 }
@@ -129,7 +129,7 @@ func (s *Service) Wifi(ctx context.Context) (WifiState, error) {
 	}
 	state := WifiState{Saved: []WifiSaved{}, Hotspot: WifiHotspot{Clients: []WifiStation{}}}
 	if err := json.Unmarshal([]byte(data), &state); err != nil {
-		return WifiState{}, fmt.Errorf("无线网络状态无效")
+		return WifiState{}, i18n.New("wifi.invalidState", nil)
 	}
 	return state, nil
 }
@@ -149,7 +149,7 @@ func (s *Service) WifiNetworks(ctx context.Context, rescan bool) ([]WifiNetwork,
 		Networks []WifiNetwork `json:"networks"`
 	}{Networks: []WifiNetwork{}}
 	if err := json.Unmarshal([]byte(data), &response); err != nil {
-		return nil, fmt.Errorf("无线网络扫描结果无效")
+		return nil, i18n.New("wifi.invalidScan", nil)
 	}
 	return response.Networks, nil
 }
@@ -188,7 +188,7 @@ func (s *Service) WifiUsesAddress(ctx context.Context, device, address string) b
 
 func validateWifiSSID(ssid string) error {
 	if !utf8.ValidString(ssid) || len(ssid) < 1 || len(ssid) > 32 || strings.ContainsFunc(ssid, unicode.IsControl) {
-		return fmt.Errorf("SSID 必须为 1–32 字节 UTF-8，且不能包含控制字符")
+		return i18n.New("wifi.invalidSSID", nil)
 	}
 	return nil
 }
@@ -203,22 +203,22 @@ func validateWifiPassword(password string, hotspot bool) error {
 	if len(password) >= 8 && len(password) <= 63 && !strings.ContainsFunc(password, func(r rune) bool { return r < 32 || r > 126 }) {
 		return nil
 	}
-	return fmt.Errorf("密码必须为 8–63 位可打印 ASCII 字符（客户端也支持 64 位十六进制）")
+	return i18n.New("wifi.invalidPassword", nil)
 }
 
 func validateWifiID(id string) error {
 	if !wifiUUID.MatchString(id) {
-		return fmt.Errorf("无线连接 UUID 格式错误")
+		return i18n.New("wifi.invalidId", nil)
 	}
 	return nil
 }
 
 func (s *Service) SetWifi(ctx context.Context, enabled bool) error {
-	value, label := "off", "关闭 Wi-Fi"
+	value, key := "off", "events.wifiDisabled"
 	if enabled {
-		value, label = "on", "开启 Wi-Fi"
+		value, key = "on", "events.wifiEnabled"
 	}
-	return s.record(s.helperInput(ctx, nil, "wifi", value), "%s", label)
+	return s.recordMessage(s.helperInput(ctx, nil, "wifi", value), i18n.Message{Key: key})
 }
 
 func (s *Service) ConnectWifi(ctx context.Context, request WifiConnectRequest) error {
@@ -229,25 +229,25 @@ func (s *Service) ConnectWifi(ctx context.Context, request WifiConnectRequest) e
 		return err
 	}
 	data, _ := json.Marshal(request)
-	return s.record(s.helperInput(ctx, strings.NewReader(string(data)), "wifi-connect"), "连接无线网络 %s", request.SSID)
+	return s.recordMessage(s.helperInput(ctx, strings.NewReader(string(data)), "wifi-connect"), i18n.Message{Key: "events.wifiConnected", Args: map[string]any{"name": request.SSID}})
 }
 
 func (s *Service) ActivateWifi(ctx context.Context, id string) error {
 	if err := validateWifiID(id); err != nil {
 		return err
 	}
-	return s.record(s.helperInput(ctx, nil, "wifi-activate", id), "连接已保存的无线网络")
+	return s.recordMessage(s.helperInput(ctx, nil, "wifi-activate", id), i18n.Message{Key: "events.wifiActivated"})
 }
 
 func (s *Service) DisconnectWifi(ctx context.Context) error {
-	return s.record(s.helperInput(ctx, nil, "wifi-disconnect"), "断开无线网络")
+	return s.recordMessage(s.helperInput(ctx, nil, "wifi-disconnect"), i18n.Message{Key: "events.wifiDisconnected"})
 }
 
 func (s *Service) ForgetWifi(ctx context.Context, id string) error {
 	if err := validateWifiID(id); err != nil {
 		return err
 	}
-	return s.record(s.helperInput(ctx, nil, "wifi-forget", id), "删除已保存的无线网络")
+	return s.recordMessage(s.helperInput(ctx, nil, "wifi-forget", id), i18n.Message{Key: "events.wifiForgotten"})
 }
 
 func (s *Service) SetWifiAutoconnect(ctx context.Context, id string, enabled bool) error {
@@ -258,7 +258,11 @@ func (s *Service) SetWifiAutoconnect(ctx context.Context, id string, enabled boo
 	if enabled {
 		value = "yes"
 	}
-	return s.record(s.helperInput(ctx, nil, "wifi-autoconnect", id, value), "设置无线网络自动连接：%t", enabled)
+	key := "events.wifiAutoDisabled"
+	if enabled {
+		key = "events.wifiAutoEnabled"
+	}
+	return s.recordMessage(s.helperInput(ctx, nil, "wifi-autoconnect", id, value), i18n.Message{Key: key})
 }
 
 func (s *Service) SetWifiHotspot(ctx context.Context, request WifiHotspotRequest) error {
@@ -269,23 +273,23 @@ func (s *Service) SetWifiHotspot(ctx context.Context, request WifiHotspotRequest
 		return err
 	}
 	if request.Channel < 0 || request.Channel > 11 {
-		return fmt.Errorf("热点信道必须为 0–11")
+		return i18n.New("wifi.invalidChannel", nil)
 	}
 	data, _ := json.Marshal(request)
-	return s.record(s.helperInput(ctx, strings.NewReader(string(data)), "wifi-hotspot"), "保存无线热点 %s", request.SSID)
+	return s.recordMessage(s.helperInput(ctx, strings.NewReader(string(data)), "wifi-hotspot"), i18n.Message{Key: "events.hotspotSaved", Args: map[string]any{"name": request.SSID}})
 }
 
 func (s *Service) SetWifiMode(ctx context.Context, mode string, force bool) error {
 	if mode != "client" && mode != "hotspot" {
-		return fmt.Errorf("无线模式必须为 client 或 hotspot")
+		return i18n.New("wifi.invalidMode", nil)
 	}
 	args := []string{"wifi-mode", mode}
 	if force {
 		args = append(args, "force")
 	}
-	label := "客户端"
+	key := "events.wifiClientMode"
 	if mode == "hotspot" {
-		label = "热点"
+		key = "events.wifiHotspotMode"
 	}
-	return s.record(s.helperInput(ctx, nil, args...), "切换无线模式为%s", label)
+	return s.recordMessage(s.helperInput(ctx, nil, args...), i18n.Message{Key: key})
 }

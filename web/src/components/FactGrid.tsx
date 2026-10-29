@@ -3,6 +3,7 @@ import { ChevronRight, type LucideIcon } from "lucide-react";
 import { FadeText } from "@/components/Motion";
 import { StatusDot, type Tone } from "@/components/StatusDot";
 import { cn } from "@/lib/utils";
+import { t } from "@/i18n";
 
 const columns = {
   1: "",
@@ -54,7 +55,7 @@ export function Fact({ label, value, valueKey, detail, tone, href, destination, 
             className="flex items-center justify-between gap-2 rounded-sm outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-3 focus-visible:after:ring-ring/50">
             {valueLine}
             <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-hover/fact:translate-x-0.5" />
-            <span id={`${id}-to`} className="sr-only">，查看{destination}</span>
+            <span id={`${id}-to`} className="sr-only">{t("common.viewDestination", { destination: destination ?? "" })}</span>
           </a>
         ) : valueLine}
       </dd>

@@ -6,6 +6,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useT } from "@/i18n";
 
 export function Avatar({ username, className }: { username: string; className?: string }) {
   const initial = [...username][0] || "";
@@ -21,6 +22,7 @@ export function Avatar({ username, className }: { username: string; className?: 
  * Closes on route change and Tab; a failed logout keeps it open.
  */
 export function AccountMenu({ compact = false }: { compact?: boolean }) {
+  const t = useT();
   const { username } = useAccount();
   const [open, setOpen] = useState(false);
   const [address, setAddress] = useState("");
@@ -51,7 +53,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
     try {
       await logout();
     } catch {
-      setError("退出失败，请重试");
+      setError(t("account.signOutFailed"));
       setOpen(true);
     } finally {
       setBusy(false);
@@ -61,7 +63,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const current = location.hash === "#/account";
   return (
     <DropdownMenu modal={false} open={open} onOpenChange={(next) => { if (next) setError(""); setOpen(next); }}>
-      <DropdownMenuTrigger ref={trigger} aria-label="账户菜单"
+      <DropdownMenuTrigger ref={trigger} aria-label={t("account.menu")}
         className={cn("flex items-center gap-2 rounded-md text-left outline-none transition-colors hover:bg-sidebar-accent focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:bg-sidebar-accent",
           compact ? "size-9 justify-center" : "w-full p-1.5", current && "bg-sidebar-accent")}>
         <Avatar username={username} />
@@ -69,7 +71,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
           <>
             <span className="flex min-w-0 flex-1 flex-col leading-tight">
               <strong className="truncate text-sm font-medium text-foreground">{username}</strong>
-              <small className="text-xs text-muted-foreground">管理员</small>
+              <small className="text-xs text-muted-foreground">{t("account.administrator")}</small>
             </span>
             <ChevronsUpDown aria-hidden="true" className="size-4 text-muted-foreground" />
           </>
@@ -82,16 +84,16 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
         onPointerDownOutside={(event) => { if (trigger.current?.contains(event.target as Node)) event.preventDefault(); }}>
         <DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
           <strong className="truncate text-sm font-medium text-foreground">{username}</strong>
-          {address && <small className="text-xs text-muted-foreground">本设备 {address}</small>}
+          {address && <small className="text-xs text-muted-foreground">{t("account.currentAddress", { address })}</small>}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => { location.hash = "/account"; }}>
           <UserRound />
-          账户与登录设备
+          {t("account.devices")}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onSelect={(event) => { event.preventDefault(); void signOut(); }}>
           <LogOut />
-          {busy ? "正在退出…" : "退出登录"}
+          {busy ? t("account.signingOut") : t("account.signOut")}
         </DropdownMenuItem>
         {error && <p role="alert" className="px-2 py-1.5 text-xs text-destructive">{error}</p>}
       </DropdownMenuContent>

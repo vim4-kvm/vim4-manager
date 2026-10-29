@@ -16,6 +16,7 @@ import (
 
 	"github.com/vim4-kvm/vim4-manager/internal/auth"
 	"github.com/vim4-kvm/vim4-manager/internal/board"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // KVMHandler serves the application's unbounded streams and uploads. The
@@ -82,7 +83,7 @@ func KVMHandler(service *board.Service, assets fs.FS, sessions *auth.Store, back
 		if mcp {
 			app, err := service.SelectedApp(r.Context())
 			if err != nil || (app != "nanokvm" && app != "onekvm") {
-				writeError(w, http.StatusUnauthorized, errors.New("MCP 不可用"))
+				writeLocalizedError(w, r, http.StatusUnauthorized, i18n.New("gateway.mcpUnavailable", nil))
 				return
 			}
 			// Only the transport enforces a Bearer key. Its siblings expose
@@ -125,7 +126,7 @@ func kvmOrigin(next http.Handler) http.Handler {
 			if values, present := r.Header["Origin"]; present {
 				u, err := url.Parse(r.Header.Get("Origin"))
 				if len(values) != 1 || err != nil || u.Scheme != requestScheme(r) || !strings.EqualFold(u.Host, r.Host) || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
-					writeError(w, http.StatusForbidden, errors.New("不允许跨站请求"))
+					writeLocalizedError(w, r, http.StatusForbidden, i18n.New("access.crossSite", nil))
 					return
 				}
 			}
@@ -136,7 +137,7 @@ func kvmOrigin(next http.Handler) http.Handler {
 
 func kvmUnavailable(w http.ResponseWriter, r *http.Request, _ error) {
 	if !htmlRequest(r) {
-		writeError(w, http.StatusBadGateway, errors.New("KVM 界面未运行"))
+		writeLocalizedError(w, r, http.StatusBadGateway, i18n.New("gateway.unavailable", nil))
 		return
 	}
 	host := r.Host
@@ -149,9 +150,12 @@ func kvmUnavailable(w http.ResponseWriter, r *http.Request, _ error) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusBadGateway)
-	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>KVM 界面未运行</title>
+	locale := i18n.RequestLocale(r)
+	_, _ = fmt.Fprintf(w, `<!doctype html><html lang="%s"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>VIM4 KVM</title>
 <style>:root{color-scheme:light;--page:#f4f5f7;--surface:#fff;--ink:#1d2025;--rule:#e6e8eb;--accent-ink:#005bd1}@media(prefers-color-scheme:dark){:root{color-scheme:dark;--page:#121315;--surface:#1c1d21;--ink:#e9eaec;--rule:#2a2c31;--accent-ink:#6aa6ff}}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.55 system-ui,sans-serif;display:grid;place-items:center;min-height:100vh}main{box-sizing:border-box;width:min(360px,calc(100%% - 32px));padding:24px;background:var(--surface);border:1px solid var(--rule);border-radius:10px}a{color:var(--accent-ink)}</style>
-<main><h1>VIM4 KVM</h1><p>KVM 界面未运行，可在管理面板启用或重启</p><a href="http://%s/#/apps">打开管理面板</a></main></html>`, html.EscapeString(host))
+<main><h1>VIM4 KVM</h1><p>%s</p><a href="http://%s/#/apps">%s</a></main></html>`, locale,
+		html.EscapeString(i18n.Message{Key: "gateway.unavailable"}.Render(locale)), html.EscapeString(host),
+		html.EscapeString(i18n.Message{Key: "gateway.openManager"}.Render(locale)))
 }
 
 // ServeKVM retries a legacy application's occupied port without delaying the
@@ -167,7 +171,7 @@ func ServeKVM(ctx context.Context, address string, handler http.Handler, events 
 		listener, err := net.Listen("tcp", address)
 		if err == nil {
 			defer listener.Close()
-			events.Add("good", "KVM 网关已启动")
+			events.AddMessage("good", i18n.Message{Key: "events.gatewayStarted"})
 			stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 			defer stop()
 			err = server.Serve(listener)
@@ -177,7 +181,7 @@ func ServeKVM(ctx context.Context, address string, handler http.Handler, events 
 			return err
 		}
 		if !waiting {
-			events.Add("warning", "KVM 网关等待 8080 端口释放")
+			events.AddMessage("warning", i18n.Message{Key: "events.gatewayWaiting"})
 			waiting = true
 		}
 		timer := time.NewTimer(2 * time.Second)

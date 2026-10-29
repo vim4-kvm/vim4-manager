@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // App is a web KVM application. Only one may own HDMI capture, the hardware
@@ -24,21 +26,52 @@ type App struct {
 // Apps keeps the IDs in sync with deploy/vim4-manager-helper.
 var Apps = []App{
 	{ID: "pikvm", Name: "PiKVM", Unit: "vim4-pikvm.service", Port: 8080,
-		Description: "PiKVM 界面：H.264、MJPEG、声音、键鼠与虚拟介质"},
+		Description: i18n.Message{Key: "apps.pikvm"}.Render(i18n.English)},
 	{ID: "onekvm", Name: "One-KVM", Unit: "one-kvm.service", Port: 8080,
-		Description: "H.264/H.265、声音、键鼠与虚拟介质"},
+		Description: i18n.Message{Key: "apps.onekvm"}.Render(i18n.English)},
 	{ID: "nanokvm", Name: "NanoKVM", Unit: "nanokvm.service", Port: 8080,
-		Description: "完整界面：H.264/H.265、声音、虚拟介质、网络、账户与更新"},
+		Description: i18n.Message{Key: "apps.nanokvm"}.Render(i18n.English)},
 	{ID: "jetkvm", Name: "JetKVM", Unit: "vim4-kvm.service", Port: 8080,
-		Description: "精简界面：H.264 视频、键盘与鼠标"},
+		Description: i18n.Message{Key: "apps.jetkvm"}.Render(i18n.English)},
 }
 
 // PlatformUnits are owned by the board package and shared by both applications.
 var PlatformUnits = []struct{ Unit, Name string }{
-	{"vim4-kvm-hdmi.service", "HDMI 采集"},
-	{"vim4-kvm-gadget.service", "USB 键鼠"},
-	{"vim4-kvm-pd.service", "USB-C 供电协商"},
-	{"vim4-kvm-cpufreq.service", "CPU 性能模式"},
+	{"vim4-kvm-hdmi.service", i18n.Message{Key: "services.hdmi"}.Render(i18n.English)},
+	{"vim4-kvm-gadget.service", i18n.Message{Key: "services.gadget"}.Render(i18n.English)},
+	{"vim4-kvm-pd.service", i18n.Message{Key: "services.pd"}.Render(i18n.English)},
+	{"vim4-kvm-cpufreq.service", i18n.Message{Key: "services.cpufreq"}.Render(i18n.English)},
+}
+
+// LocalizeLabels changes only manager-owned copy, never device or user names.
+// Copy slices before translating so callers cannot change the service baseline.
+func (status *Status) LocalizeLabels(locale i18n.Locale) {
+	if status.Passthrough != nil {
+		copy := *status.Passthrough
+		copy.Reason = i18n.HelperText(locale, copy.Reason)
+		status.Passthrough = &copy
+	}
+	status.Apps = append([]AppState(nil), status.Apps...)
+	for index := range status.Apps {
+		app := &status.Apps[index]
+		switch app.ID {
+		case "pikvm", "onekvm", "nanokvm", "jetkvm":
+			app.Description = i18n.Message{Key: "apps." + app.ID}.Render(locale)
+		}
+	}
+	status.Platform = append([]Platform(nil), status.Platform...)
+	for index := range status.Platform {
+		platform := &status.Platform[index]
+		key := map[string]string{
+			"vim4-kvm-hdmi.service":    "services.hdmi",
+			"vim4-kvm-gadget.service":  "services.gadget",
+			"vim4-kvm-pd.service":      "services.pd",
+			"vim4-kvm-cpufreq.service": "services.cpufreq",
+		}[platform.Unit.Name]
+		if key != "" {
+			platform.Name = i18n.Message{Key: key}.Render(locale)
+		}
+	}
 }
 
 // Unit is the subset of systemd unit properties the dashboard shows.
@@ -60,7 +93,7 @@ func Exec(ctx context.Context, name string, args ...string) (string, error) {
 	cmd.Env = []string{"LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
 	output, err := cmd.Output()
 	if exit, ok := err.(*exec.ExitError); ok {
-		return string(output), fmt.Errorf("%s: %s", name, strings.TrimSpace(string(exit.Stderr)))
+		return string(output), i18n.HelperError(fmt.Errorf("%s: %s", name, strings.TrimSpace(string(exit.Stderr))))
 	}
 	return string(output), err
 }

@@ -261,7 +261,7 @@ func TestPlanSkippedIgnoredAndConflicts(t *testing.T) {
 	if plan.Summary.PendingConflicts != 1 || plan.Preconditions[0].SourceID != "small" {
 		t.Fatal(plan)
 	}
-	if got := ConflictName("hello.txt", testTime); got != "hello (冲突 20261017-123456).txt" {
+	if got := ConflictName("hello.txt", testTime); got != "hello (conflict 20261017-123456).txt" {
 		t.Fatal(got)
 	}
 	out.Safe = false

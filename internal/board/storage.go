@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // StorageRequest keeps secrets in the JSON body passed to the helper's stdin.
@@ -32,14 +33,14 @@ func (s *Service) StorageCommand(ctx context.Context, action string, request *St
 	switch action {
 	case "storage-list", "storage-dirs", "storage-mkdir", "storage-test", "storage-save", "storage-mount", "storage-unmount", "storage-delete":
 	default:
-		return nil, fmt.Errorf("不支持的网络存储操作")
+		return nil, i18n.New("storage.unsupported", nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	var input, output bytes.Buffer
 	if request != nil {
 		if err := json.NewEncoder(&input).Encode(request); err != nil {
-			return nil, fmt.Errorf("网络存储参数无效")
+			return nil, i18n.New("storage.invalidParameters", nil)
 		}
 	}
 	run := s.Stream
@@ -49,15 +50,15 @@ func (s *Service) StorageCommand(ctx context.Context, action string, request *St
 	command := append([]string{"-n", Helper, action}, args...)
 	if err := run(ctx, &input, &output, "sudo", command...); err != nil {
 		if request != nil && request.Password != nil && *request.Password != "" && strings.Contains(err.Error(), *request.Password) {
-			return nil, fmt.Errorf("网络存储操作失败（敏感错误内容已隐藏）")
+			return nil, i18n.New("storage.failedPrivate", nil)
 		}
-		if err.Error() == "另一个网络存储操作正在进行，请稍后重试" {
-			return nil, ErrBusy
+		if err.Error() == (i18n.Message{Key: "storage.busy"}).Render(i18n.English) || err.Error() == (i18n.Message{Key: "storage.busy"}).Render(i18n.Chinese) {
+			return nil, i18n.Wrap(ErrBusy, "storage.busy", nil)
 		}
-		return nil, err
+		return nil, storageHelperError(err)
 	}
 	if !json.Valid(output.Bytes()) {
-		return nil, fmt.Errorf("网络存储响应无效")
+		return nil, i18n.New("storage.invalidResponse", nil)
 	}
 	return json.RawMessage(output.Bytes()), nil
 }

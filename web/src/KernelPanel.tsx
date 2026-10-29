@@ -12,6 +12,7 @@ import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
 import { request } from "./api";
 import { Notice } from "@/components/Notice";
+import { t, useLocale } from "@/i18n";
 
 interface Kernel {
   id: string;
@@ -24,6 +25,7 @@ interface Kernel {
 interface KernelState { running: string; kernels: Kernel[] }
 
 export function KernelPanel() {
+  const locale = useLocale();
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const [state, setState] = useState<KernelState>();
@@ -37,35 +39,35 @@ export function KernelPanel() {
       .then(value => { setState(value); setError(undefined); })
       .catch(e => { if (!controller.signal.aborted) setError(String(e)); });
     return () => controller.abort();
-  }, [busy, rebooting]);
+  }, [busy, rebooting, locale]);
 
   const apply = async () => {
     if (!choice) return;
-    const ok = await run("切换内核", () => request("/api/kernel", {
+    const ok = await run(t("kernel.switchingKernel"), () => request("/api/kernel", {
       id: choice.id, reboot: true,
-    }), "已保存默认内核，设备即将重启");
+    }), t("kernel.defaultKernelSavedTheDeviceWill"));
     if (ok) { setRebooting(true); setChoice(undefined); }
   };
 
   return <div className="flex flex-col gap-4">
-    <p className="text-sm text-muted-foreground">当前运行 <span className="font-mono">{state?.running ?? "正在读取…"}</span> · 同一应用的账户、设置和镜像共用</p>
+    <p className="text-sm text-muted-foreground">{t("kernel.runningSummary", { release: state?.running ?? t("common.loading") })}</p>
     {error && <InlineError>{error}</InlineError>}
-    {!state && !error && <PanelSkeleton label="正在读取…" />}
-    {state && state.kernels.length === 0 && <EmptyState icon={Cpu}>尚未登记可切换的内核。</EmptyState>}
+    {!state && !error && <PanelSkeleton label={t("common.loading")} />}
+    {state && state.kernels.length === 0 && <EmptyState icon={Cpu}>{t("kernel.noSwitchableKernelsRegisteredYet")}</EmptyState>}
     {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="grid gap-4 lg:grid-cols-2" itemClassName="min-w-0">{kernel => <div className={`h-full rounded-lg border p-5 ${kernel.release === state.running ? "border-chart-1/30 bg-chart-1/4" : "bg-muted/20"}`}>
       <SettingRow title={kernel.name} badges={<>
-        {kernel.release === "7.3.0-vim4kvm-uhd1+" && <Badge variant="secondary">正式版</Badge>}
-        {kernel.selected && <Badge variant="secondary">默认启动</Badge>}
-        {kernel.release === state.running && <Badge variant="outline" className="border-success/20 bg-success/10 text-success-foreground">当前运行</Badge>}
+        {kernel.release === "7.3.0-vim4kvm-uhd1+" && <Badge variant="secondary">{t("kernel.stable")}</Badge>}
+        {kernel.selected && <Badge variant="secondary">{t("kernel.defaultBoot")}</Badge>}
+        {kernel.release === state.running && <Badge variant="outline" className="border-success/20 bg-success/10 text-success-foreground">{t("kernel.running")}</Badge>}
       </>} description={<span className="font-mono break-all">{kernel.release}</span>}
-        status={kernel.error || (kernel.release === state.running ? "正在运行" : kernel.available ? "可切换" : "不可用")}
+        status={kernel.error || (kernel.release === state.running ? t("kernel.running226") : kernel.available ? t("kernel.available") : t("kernel.unavailable"))}
         control={<Button variant="outline" disabled={busy || rebooting || !kernel.available || !!choice}
-          onClick={() => setChoice(kernel)}>{kernel.release === state.running ? "重启此内核" : "切换并重启"}</Button>} />
+          onClick={() => setChoice(kernel)}>{kernel.release === state.running ? t("kernel.restartThisKernel") : t("kernel.switchAndRestart")}</Button>} />
     </div>}</AnimatedList></FadeIn>}
-    <Notice>切换需要重启，共用当前系统数据；已挂载的虚拟磁盘需先安全弹出。</Notice>
-    {choice && <ConfirmDialog open title={`切换到 ${choice.name}`} confirm="确认重启" busy={busy}
-      description={<>将默认启动设为 {choice.name} 并重启，当前连接会断开。请先安全弹出虚拟磁盘；启动失败时需通过串口或 OOWOW 恢复。</>}
+    <Notice>{t("kernel.switchingKernelsRestartsTheBoardAnd")}</Notice>
+    {choice && <ConfirmDialog open title={t("kernel.switchTo", { p0: String(choice.name) })} confirm={t("kernel.restart")} busy={busy}
+      description={t("kernel.restartHelp", { name: choice.name })}
       onOpenChange={(open) => { if (!open) setChoice(undefined); }} closeOnConfirm={false} onConfirm={() => void apply()} />}
-    {rebooting && <p role="status" className="text-sm text-muted-foreground">设备正在重启，启动完成后请刷新此页面。</p>}
+    {rebooting && <p role="status" className="text-sm text-muted-foreground">{t("kernel.theDeviceIsRestartingRefreshThis")}</p>}
   </div>;
 }

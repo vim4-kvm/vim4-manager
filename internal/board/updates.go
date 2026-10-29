@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 	"io"
 	"net/http"
 	"net/url"
@@ -54,7 +54,7 @@ var Updatable = []Released{
 	{"vim4-jetkvm", "JetKVM", "kvm", true},
 	{"vim4-onekvm", "One-KVM", "One-KVM", true},
 	{"vim4-pikvm", "PiKVM", "kvmd", false},
-	{"vim4-manager", "管理面板", "vim4-manager", false},
+	{"vim4-manager", "Manager", "vim4-manager", false},
 }
 
 // UpdateDir is where the unprivileged manager downloads packages; the root
@@ -83,7 +83,7 @@ type Updater struct {
 func newerVersion(candidate, current string) (bool, error) {
 	a, b := versionPattern.FindStringSubmatch(candidate), versionPattern.FindStringSubmatch(current)
 	if a == nil {
-		return false, fmt.Errorf("版本格式无效：%s", candidate)
+		return false, i18n.New("updates.invalidVersion", map[string]any{"p0": candidate})
 	}
 	if b == nil {
 		b = developmentPattern.FindStringSubmatch(current)
@@ -112,17 +112,17 @@ func (u *Updater) latest(ctx context.Context, repo, pkg string) (Release, error)
 	}
 	response, err := u.Client.Do(request)
 	if err != nil {
-		return release, errors.New("无法连接 GitHub")
+		return release, i18n.New("updates.githubUnavailable", nil)
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
-		return release, errors.New("尚未发布")
+		return release, i18n.New("updates.notPublished", nil)
 	}
 	if response.StatusCode != http.StatusOK {
-		return release, fmt.Errorf("GitHub 返回 %d", response.StatusCode)
+		return release, i18n.New("updates.githubStatus", map[string]any{"p0": response.StatusCode})
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 64<<10)).Decode(&release); err != nil {
-		return release, errors.New("发布信息格式错误")
+		return release, i18n.New("updates.invalidReleaseJSON", nil)
 	}
 	asset, err := url.Parse(release.URL)
 	expectedPath := fmt.Sprintf("/vim4-kvm/%s/releases/download/%s/%s_%s_arm64.deb", repo, release.Version, pkg, release.Version)
@@ -130,13 +130,17 @@ func (u *Updater) latest(ctx context.Context, repo, pkg string) (Release, error)
 		asset.Path != expectedPath || asset.RawQuery != "" || asset.Fragment != "" ||
 		release.Package != pkg || !versionPattern.MatchString(release.Version) || !digestPattern.MatchString(release.SHA256) ||
 		release.Size <= 0 || release.Size > maxUpdateSize {
-		return release, errors.New("发布信息无效")
+		return release, i18n.New("updates.invalidRelease", nil)
 	}
 	return release, nil
 }
 
 // Updates reports installed and latest versions for every released package.
-func (s *Service) Updates(ctx context.Context) []Update {
+func (s *Service) Updates(ctx context.Context, locales ...i18n.Locale) []Update {
+	locale := i18n.English
+	if len(locales) > 0 {
+		locale = locales[0]
+	}
 	installed := map[string]string{}
 	for _, p := range s.installed() {
 		installed[p.Name] = p.Version
@@ -146,6 +150,9 @@ func (s *Service) Updates(ctx context.Context) []Update {
 	for i, item := range Updatable {
 		updates[i] = Update{Package: item.Package, Name: item.Name, Repo: item.Repo,
 			Installed: installed[item.Package], SelfService: item.SelfService}
+		if item.Package == "vim4-manager" {
+			updates[i].Name = (i18n.Message{Key: "updates.manager"}).Render(locale)
+		}
 		if updates[i].Installed == "" {
 			continue
 		}
@@ -154,13 +161,13 @@ func (s *Service) Updates(ctx context.Context) []Update {
 			defer wg.Done()
 			release, err := s.Updater.latest(ctx, update.Repo, update.Package)
 			if err != nil {
-				update.Error = err.Error()
+				update.Error = i18n.RenderError(locale, err)
 				return
 			}
 			update.Latest = release.Version
 			update.Available, err = newerVersion(release.Version, update.Installed)
 			if err != nil {
-				update.Error = err.Error()
+				update.Error = i18n.RenderError(locale, err)
 			}
 		}(&updates[i])
 	}
@@ -173,7 +180,7 @@ func (s *Service) Updates(ctx context.Context) []Update {
 func (s *Service) Update(ctx context.Context, pkg string) error {
 	index := slices.IndexFunc(Updatable, func(item Released) bool { return item.Package == pkg })
 	if index < 0 || Updatable[index].SelfService {
-		return fmt.Errorf("%s 请在其自身界面中更新", pkg)
+		return i18n.New("updates.selfService", map[string]any{"p0": pkg})
 	}
 	if !s.Updater.mu.TryLock() {
 		return ErrBusy
@@ -186,21 +193,25 @@ func (s *Service) Update(ctx context.Context, pkg string) error {
 		}
 	}
 	if installed == "" {
-		return fmt.Errorf("%s 未安装", pkg)
+		return i18n.New("updates.notInstalled", map[string]any{"p0": pkg})
 	}
 	release, err := s.Updater.latest(ctx, Updatable[index].Repo, pkg)
 	if err != nil {
 		return err
 	}
 	if newer, err := newerVersion(release.Version, installed); err != nil || !newer {
-		return errors.New("已是最新版本")
+		return i18n.New("updates.current", nil)
 	}
 	if err := s.Updater.download(ctx, release); err != nil {
 		return err
 	}
 	// Installation continues if the browser disconnects.
 	ctx = context.WithoutCancel(ctx)
-	return s.record(s.helper(ctx, "update", pkg, release.SHA256, release.Version), "更新 %s 至 %s", Updatable[index].Name, release.Version)
+	var name any = Updatable[index].Name
+	if pkg == "vim4-manager" {
+		name = i18n.Message{Key: "updates.manager"}
+	}
+	return s.recordMessage(networkHelperError(s.helper(ctx, "update", pkg, release.SHA256, release.Version)), i18n.Message{Key: "events.componentUpdated", Args: map[string]any{"name": name, "version": release.Version}})
 }
 
 func (u *Updater) download(ctx context.Context, release Release) error {
@@ -212,11 +223,11 @@ func (u *Updater) download(ctx context.Context, release Release) error {
 	}
 	response, err := u.Client.Do(request)
 	if err != nil {
-		return errors.New("下载失败")
+		return i18n.New("updates.downloadFailed", nil)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("下载失败：HTTP %d", response.StatusCode)
+		return i18n.New("updates.downloadStatus", map[string]any{"p0": response.StatusCode})
 	}
 	if err := os.MkdirAll(u.Dir, 0o700); err != nil {
 		return err
@@ -232,10 +243,10 @@ func (u *Updater) download(ctx context.Context, release Release) error {
 		err = closeErr
 	}
 	if err != nil {
-		return errors.New("下载中断")
+		return i18n.Wrap(err, "updates.downloadInterrupted", nil)
 	}
 	if written != release.Size || hex.EncodeToString(hash.Sum(nil)) != release.SHA256 {
-		return errors.New("下载的安装包校验失败")
+		return i18n.New("updates.checksumFailed", nil)
 	}
 	return os.Rename(temporary.Name(), filepath.Join(u.Dir, release.Package+".deb"))
 }

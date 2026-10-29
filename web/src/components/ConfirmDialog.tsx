@@ -1,11 +1,12 @@
 import { useRef, type ReactNode } from "react";
+import { useT } from "@/i18n";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
 /** Confirmation for destructive or disruptive actions; labels come from each caller. */
-export function ConfirmDialog({ open, onOpenChange, title, description, confirm, cancel = "取消", destructive = false, onConfirm, children, disabled = false, busy = false, closeOnConfirm = true }: {
+export function ConfirmDialog({ open, onOpenChange, title, description, confirm, cancel, destructive = false, onConfirm, children, disabled = false, busy = false, closeOnConfirm = true }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
@@ -19,6 +20,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirm,
   busy?: boolean;
   closeOnConfirm?: boolean;
 }) {
+  const t = useT();
   const trigger = useRef<HTMLElement | null>(null);
   const wasOpen = useRef(false);
   // Capture before the portal moves focus; dialogs can be mounted while closed.
@@ -34,7 +36,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirm,
         </AlertDialogHeader>
         {children}
         <AlertDialogFooter>
-          <AlertDialogCancel disabled={busy}>{cancel}</AlertDialogCancel>
+          <AlertDialogCancel disabled={busy}>{cancel ?? t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction disabled={busy || disabled} variant={destructive ? "destructive" : "default"}
             onClick={(event) => { if (!closeOnConfirm) event.preventDefault(); onConfirm(); }}>{confirm}</AlertDialogAction>
         </AlertDialogFooter>

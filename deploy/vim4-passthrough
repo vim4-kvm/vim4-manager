@@ -91,10 +91,10 @@ def select_mode(input_state, modes, preferred=None):
             fractional = preferred[1]
     hz = rate / (1.001 if fractional else 1)
     if abs(input_state['refreshHz'] - hz) > 0.2:
-        raise ValueError('输入刷新率尚未验证，保持黑屏')
+        raise ValueError("The input refresh rate hasn't been verified. The display stays black.")
     candidates = [height for height, frequency in modes if frequency == rate and height <= input_state['height']]
     if not candidates:
-        raise ValueError('显示器没有与输入刷新率匹配的已验证模式')
+        raise ValueError("The display has no verified mode matching the input refresh rate.")
     height = max(candidates)
     return modes[(height, rate)], {720: 1280, 1080: 1920, 2160: 3840}[height], height, fractional
 
@@ -185,7 +185,7 @@ class VendorPassthrough:
 
     def prepare(self):
         if not self.qualified():
-            raise ValueError('未验证的运行模块，保留独立 KVM 采集')
+            raise ValueError("The running module hasn't been verified. Independent KVM capture was kept.")
         self.write('/sys/class/vfm/map', 'rm tvpath')
         route = 'vdin0 vfm_cap amvideo'
         self.write('/sys/class/vfm/map', 'add tvpath ' + route)
@@ -196,7 +196,7 @@ class VendorPassthrough:
         captures = [path for path in self.path('/sys/class/video4linux').glob('video*')
                     if (path / 'name').read_text().strip() == 'vfm_cap']
         if len(captures) != 1:
-            raise ValueError('无法唯一识别 VFM 采集端点')
+            raise ValueError("Couldn't identify a unique VFM capture endpoint.")
         capture = parse_fields((captures[0] / 'status').read_text())
         native = self.native_path()
         self.capture_ready = capture.get('sm_state') == '5' if native else capture.get('fmt_valid') == '1'
@@ -209,7 +209,7 @@ class VendorPassthrough:
         if width <= 0 or height <= 0 or rate <= 0:
             return None
         if fields.get('Interlace') != '0':
-            raise ValueError('隔行输入尚未验证')
+            raise ValueError("Interlaced input hasn't been verified.")
         return {'width': width, 'height': height, 'refreshHz': rate,
                 'colorFormat': fields.get('Color Space', '').partition('-')[2],
                 'hdr': input_hdr(fields),
@@ -230,14 +230,14 @@ class VendorPassthrough:
             return None
         modes = display_modes(self.read(TX + 'disp_cap'))
         if not modes:
-            raise ValueError('显示器没有已验证的逐行模式')
+            raise ValueError("The display has no verified progressive mode.")
         height, rate = max(modes, key=lambda item: (item[0], item[1]))
         name = 'HDMI'
         edid = bytes.fromhex(self.read(TX + 'rawedid'))
         if (len(edid) < 128 or edid[:8] != bytes.fromhex('00ffffffffffff00')
                 or len(edid) < (edid[126] + 1) * 128
                 or any(sum(edid[offset:offset + 128]) % 256 for offset in range(0, (edid[126] + 1) * 128, 128))):
-            raise ValueError('显示器 EDID 无效')
+            raise ValueError("The display EDID is invalid.")
         for offset in range(54, 126, 18):
             descriptor = edid[offset:offset + 18]
             if descriptor[:5] == b'\0\0\0\xfc\0':
@@ -270,16 +270,16 @@ class VendorPassthrough:
         if blank and saved is None:
             saved = {name: scalar(self.read(name)) for name in OSD_BLANKS}
             if any(value not in (0, 1) for value in saved.values()):
-                raise ValueError('无法读取持久 OSD blank 状态')
+                raise ValueError("Couldn't read the saved OSD blank state.")
             atomic_json(self.path(OSD_SAVED), saved)
         if saved is not None:
             if set(saved) != set(OSD_BLANKS) or any(type(value) is not int or value not in (0, 1) for value in saved.values()):
-                raise ValueError('OSD 恢复状态无效')
+                raise ValueError("The OSD recovery state is invalid.")
             for name in OSD_BLANKS:
                 target = 1 if blank else saved[name]
                 current = scalar(self.read(name))
                 if current not in (0, 1):
-                    raise ValueError('无法读取持久 OSD blank 状态')
+                    raise ValueError("Couldn't read the saved OSD blank state.")
                 if current != target:
                     self.write(name, target)
             if not blank:
@@ -295,7 +295,7 @@ class VendorPassthrough:
     def observe_hpd(self):
         hpd = scalar(self.read(TX + 'hpd_state'))
         if hpd not in (0, 1):
-            raise ValueError('无法读取 HDMI OUT HPD')
+            raise ValueError("Couldn't read HDMI OUT connection status.")
         if self.last_hpd is not None and hpd != self.last_hpd:
             self.sink_changed()
         self.last_hpd = hpd
@@ -408,14 +408,14 @@ class VendorPassthrough:
         if input_state['hdr'] in ('Dolby Vision', 'Unknown HDR'):
             self.update(VIDEO + 'disable_video', 1)
             state['state'] = 'unsupported-format'
-            state['reason'] = ('Dolby Vision 信号无法透传，请在信号源中选择 HDR10、HLG 或 SDR。'
+            state['reason'] = ("Dolby Vision cannot pass through. Select HDR10, HLG, or SDR on the source."
                                if input_state['hdr'] == 'Dolby Vision'
-                               else '此 HDR 输入格式无法识别，请在信号源中选择 HDR10、HLG 或 SDR。')
+                               else "This HDR format isn't recognized. Select HDR10, HLG, or SDR on the source.")
             return state
         if not self.capture_ready:
             self.update(VIDEO + 'disable_video', 1)
             state['state'] = 'video-error'
-            state['reason'] = '请检查 HDMI 输入线或信号源设置。'
+            state['reason'] = "Check the HDMI input cable and source settings."
             return state
         native = self.native_path()
         hdr = input_state['hdr'] != 'SDR'
@@ -433,7 +433,7 @@ class VendorPassthrough:
             if not mapping.exists() or mapping.read_text().strip() != '1':
                 self.update(VIDEO + 'disable_video', 1)
                 state['state'] = 'video-error'
-                state['reason'] = 'HDR 映射尚未就绪，请在更新中切换到支持 HDR 映射的内核，或将信号源设为 SDR。'
+                state['reason'] = "HDR mapping isn't ready. Select a supported kernel in Updates or set the source to SDR."
                 return state
         actual = self.read_tx()
         preferred = self.rate_choice
@@ -448,7 +448,7 @@ class VendorPassthrough:
         mode, width, height, fractional = select_mode(stable_input, display_modes(self.read(TX + 'disp_cap')), preferred)
         color = f'{self.output_color[0]},{self.output_color[1]}bit'
         if color not in self.read(TX + 'dc_cap').splitlines():
-            raise ValueError('显示器不支持当前输入所需的颜色格式')
+            raise ValueError("The display doesn't support the input color format.")
         actual = self.follow_mode(input_state, mode, fractional, actual)
         if actual is None:
             return state
@@ -486,7 +486,7 @@ class VendorPassthrough:
             return dict(self.snapshot(False), hdr=True)
         observed = self.load(RUNTIME + 'state.json')
         if not observed or observed.get('revision') != requested['revision'] or time.monotonic() - observed['heartbeat'] > 4:
-            raise ValueError('透传控制服务未响应')
+            raise ValueError("The passthrough service didn't respond. Try again.")
         state = dict(observed['state'], audio=requested.get('audio', False), hdr=requested.get('hdr', True))
         audio = self.load(RUNTIME + 'audio-state.json', {})
         fallback = 'starting' if time.monotonic() - requested['revision'] / 1e9 < 4 else 'error'
@@ -497,9 +497,9 @@ class VendorPassthrough:
 
     def set(self, enabled, audio, hdr=True):
         if not self.supported():
-            raise ValueError('当前内核或 VFM 路由未通过透传资格验证')
+            raise ValueError("This kernel or VFM route hasn't been verified for passthrough.")
         if audio and not self.path('/usr/libexec/vim4_passthrough_audio.py').is_file():
-            raise ValueError('音频控制服务未安装，未更改当前设置')
+            raise ValueError("The audio service isn't installed. The current settings were kept.")
         request = {'enabled': enabled, 'audio': audio, 'hdr': hdr, 'revision': time.monotonic_ns()}
         previous = self.load(RUNTIME + 'request.json')
         atomic_json(self.path(RUNTIME + 'request.json'), request)
@@ -514,7 +514,7 @@ class VendorPassthrough:
                         raise ValueError(observed['error'])
                     return self.status()
                 time.sleep(.05)
-            raise ValueError('等待透传控制超时')
+            raise ValueError("Passthrough timed out. Try again.")
         except Exception:
             rollback = dict(previous or {'enabled': False})
             rollback['revision'] = time.monotonic_ns()
@@ -546,7 +546,7 @@ class VendorPassthrough:
                 state = {'supported': True, 'enabled': request['enabled'], 'audio': False,
                          'state': 'starting' if request['enabled'] else 'off'}
             if request['enabled'] and state.get('input'):
-                state.update(state='video-error', reason='请检查 HDMI 输入线或信号源设置。')
+                state.update(state='video-error', reason="Check the HDMI input cable and source settings.")
             observed['state'] = state
             if str(error) != self.last_error:
                 print(str(error), file=sys.stderr, flush=True)

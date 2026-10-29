@@ -16,6 +16,7 @@ import { request } from "./api";
 import { CopyButton } from "@/components/CopyButton";
 import { TailscaleDevices, type TailscaleDevice } from "./TailscaleDevices";
 import { Network } from "lucide-react";
+import { t, useLocale } from "@/i18n";
 
 export const OFFICIAL_CONTROL = "https://controlplane.tailscale.com";
 
@@ -39,15 +40,15 @@ export interface TailscaleState {
 
 type Action = "install" | "uninstall" | "up" | "down" | "login" | "logout";
 
-const JOB_LABEL: Record<string, string> = { install: "正在安装 Tailscale", uninstall: "正在卸载 Tailscale" };
+const JOB_LABEL: Record<string, string> = { get install() { return t("tailscale.installingTailscale"); }, get uninstall() { return t("tailscale.uninstallingTailscale"); } };
 const CONTROL_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/;
 
 function accessURLs(state: TailscaleState) {
   const ip = state.ips?.find((a) => !a.includes(":"));
   const urls: { label: string; url: string }[] = [];
-  if (ip) urls.push({ label: "KVM 界面", url: `http://${ip}:8080` });
+  if (ip) urls.push({ label: t("nav.apps"), url: `http://${ip}:8080` });
   if (state.dnsName) urls.push({ label: "MagicDNS", url: `http://${state.dnsName}:8080` });
-  if (ip) urls.push({ label: "管理面板", url: `http://${ip}` });
+  if (ip) urls.push({ label: t("nav.manager"), url: `http://${ip}` });
   return urls;
 }
 
@@ -69,6 +70,7 @@ function phase(state: TailscaleState) {
 }
 
 export function TailscalePanel() {
+  const locale = useLocale();
   const busy = useActionStore((s) => !!s.busy);
   const [reading, setReading] = useState(true);
   const [state, setState] = useState<TailscaleState>();
@@ -102,7 +104,7 @@ export function TailscalePanel() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending]);
+  }, [pending, locale]);
 
   const current = state ? phase(state) : undefined;
   const job = state?.job;
@@ -152,37 +154,36 @@ export function TailscalePanel() {
   const connected = current === "online";
   const switchable = current === "online" || current === "offline" || current === "daemon-off";
   const label = jobRunning
-    ? `${JOB_LABEL[job!.action] ?? "正在处理"}…`
+    ? JOB_LABEL[job!.action] ?? t("tailscale.working64")
     : pending
-      ? "正在处理…"
+      ? t("tailscale.working64")
       : stale
-        ? "状态暂不可用"
+        ? t("wifi.statusUnavailable")
         : {
-            absent: "未安装",
-            "daemon-off": "服务未运行",
-            offline: "已断开",
-            online: "已连接",
-            approval: "等待批准",
-            starting: "正在连接…",
-            login: "未登录",
+            absent: t("tailscale.notInstalled"),
+            "daemon-off": t("tailscale.serviceStopped"),
+            offline: t("tailscale.disconnected"),
+            online: t("tailscale.connected"),
+            approval: t("tailscale.awaitingApproval"),
+            starting: t("wifi.connecting"),
+            login: t("tailscale.signedOut"),
           }[current ?? "absent"];
 
   if (reading && !state) return <SettingsCard label="Tailscale"><PanelSkeleton label={label} /></SettingsCard>;
 
   return (
     <SettingsCard label="Tailscale"><FadeIn className="flex min-w-0 flex-col gap-5">
-        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Network className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Tailscale" description="通过 Tailscale 安全地访问管理面板和 KVM 界面。"
+        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Network className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Tailscale" description={t("tailscale.securelyAccessTheManagerAndKvm")}
           status={label} pending={jobRunning || !!pending}
-          control={switchable && <Switch aria-label="Tailscale 连接" checked={connected} disabled={locked}
+          control={switchable && <Switch aria-label={t("tailscale.tailscaleConnection")} checked={connected} disabled={locked}
             onCheckedChange={() => connected ? setConfirming("down") : void act("up")} />} /></div></div>
 
         {state && !stale && current === "absent" && !jobRunning && (
           <div className="flex min-w-0 flex-col gap-4">
-            <p className="text-muted-foreground">从 Tailscale 官方签名软件源下载安装，通常需要半分钟到几分钟。</p>
+            <p className="text-muted-foreground">{t("tailscale.installsFromTailscaleSOfficialSigned")}</p>
             <div>
               <Button variant="default" disabled={locked} onClick={() => void act("install")}>
-                安装 Tailscale
-              </Button>
+                {t("tailscale.installTailscale")}</Button>
             </div>
           </div>
         )}
@@ -191,14 +192,14 @@ export function TailscalePanel() {
         {state && (current === "login" || changing) && !jobRunning && (
           <div className="flex min-w-0 flex-col gap-4">
             <fieldset className="flex min-w-0 flex-col gap-3 text-sm [&_legend]:mb-2 [&_legend]:font-medium" disabled={locked}>
-              <legend>控制服务器</legend>
-              <Segmented label="控制服务器" className="max-sm:grid-cols-1">
-                <SegmentedOption title="Tailscale 官方" detail="login.tailscale.com" pressed={!custom} onClick={() => setCustom(false)} />
-                <SegmentedOption title="自建" detail="Headscale 等兼容服务" pressed={custom} onClick={() => setCustom(true)} />
+              <legend>{t("tailscale.controlServer")}</legend>
+              <Segmented label={t("tailscale.controlServer")} className="max-sm:grid-cols-1">
+                <SegmentedOption title={t("tailscale.tailscale")} detail="login.tailscale.com" pressed={!custom} onClick={() => setCustom(false)} />
+                <SegmentedOption title={t("tailscale.custom")} detail={t("tailscale.headscaleOrACompatibleServer")} pressed={custom} onClick={() => setCustom(true)} />
               </Segmented>
               {custom && (
                 <Input
-                  aria-label="控制服务器地址"
+                  aria-label={t("tailscale.controlServerUrl")}
                   placeholder="https://headscale.example.com"
                   value={control}
                   spellCheck={false}
@@ -207,14 +208,13 @@ export function TailscalePanel() {
                   onChange={(e) => setControl(e.target.value)}
                 />
               )}
-              {custom && !controlValid && <span className="text-xs text-muted-foreground">只填协议、域名和端口，例如 https://hs.example.com:8443</span>}
+              {custom && !controlValid && <span className="text-xs text-muted-foreground">{t("tailscale.enterOnlyTheProtocolDomainAnd")}</span>}
             </fieldset>
             {link ? (
               <div className="flex flex-col items-start gap-3">
-                <span>在浏览器中打开登录页面并授权此设备，完成后这里会自动更新。</span>
+                <span>{t("tailscale.openTheSignInPageAnd")}</span>
                 <Button asChild variant="default"><a href={link} target="_blank" rel="noreferrer noopener">
-                  打开登录页面
-                </a></Button>
+                  {t("tailscale.openSignInPage")}</a></Button>
                 <code className="font-mono break-all max-w-full break-all text-xs">{link}</code>
               </div>
             ) : (
@@ -226,15 +226,14 @@ export function TailscalePanel() {
                     ? setConfirming("login") : void act("login")}
                 >
                   {pending === "login" && <Spinner />}
-                  获取登录链接
-                </Button>
+                  {t("tailscale.getSignInLink")}</Button>
               </div>
             )}
           </div>
         )}
 
         {state && current === "approval" && (
-          <p className="flex min-w-0 flex-col gap-4 text-muted-foreground">已登录，等待 tailnet 管理员在控制台批准此设备。</p>
+          <p className="flex min-w-0 flex-col gap-4 text-muted-foreground">{t("tailscale.signedInATailnetAdministratorNeeds")}</p>
         )}
 
         {state && (current === "online" || current === "offline") && (
@@ -242,12 +241,12 @@ export function TailscalePanel() {
             {state.tailnet && (
               <Fact label="Tailnet" value={state.tailnet} className="@md:col-span-2" />
             )}
-            <Fact label="控制服务器" value={state.controlURL || OFFICIAL_CONTROL} />
-            <Fact label="在线设备" value={state.peersOnline != null && state.peers != null ? `${state.peersOnline} / ${state.peers}` : "未知"} />
+            <Fact label={t("tailscale.controlServer")} value={state.controlURL || OFFICIAL_CONTROL} />
+            <Fact label={t("tailscale.onlineDevices")} value={state.peersOnline != null && state.peers != null ? t("tailscaleDevices.onlineCount", { online: state.peersOnline, total: state.peers }) : t("common.unknown")} />
             {state.version && (
-              <Fact label="版本" value={state.version} />
+              <Fact label={t("tailscale.version")} value={state.version} />
             )}
-            <Fact label="访问地址" className="@md:col-span-2" value={<div className="flex flex-col gap-2 text-sm font-normal">
+            <Fact label={t("tailscale.accessUrls")} className="@md:col-span-2" value={<div className="flex flex-col gap-2 text-sm font-normal">
                 {accessURLs(state).length ? (
                   <ul className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 rounded-lg bg-muted/50 p-3 [&_li]:contents">
                     {accessURLs(state).map(({ label, url }) => (
@@ -256,14 +255,14 @@ export function TailscalePanel() {
                         <a className="font-mono [overflow-wrap:anywhere]" href={url} target="_blank" rel="noreferrer noopener">
                           {url}
                         </a>
-                        <span className="justify-self-start"><CopyButton text={url} label={`${label}地址`} /></span>
+                        <span className="justify-self-start"><CopyButton text={url} label={t("tailscale.url", { p0: String(label) })} /></span>
                       </li>
                     ))}
                   </ul>
                 ) : (
                   <span className="font-mono break-all">—</span>
                 )}
-                <span className="text-xs text-muted-foreground">从同一 tailnet 中的设备打开；MagicDNS 名称需该设备启用 MagicDNS。</span>
+                <span className="text-xs text-muted-foreground">{t("tailscale.openFromADeviceOnThe")}</span>
               </div>} />
           </FactGrid>
         )}
@@ -272,35 +271,32 @@ export function TailscalePanel() {
 
         {connected && (
           <p className="text-xs text-muted-foreground">
-            管理面板与 KVM 界面使用统一登录；MCP、VNC 等接口使用各自的密钥。请用 Tailscale ACL 限制可访问此设备的成员。
-          </p>
+            {t("tailscale.theManagerAndKvmInterfaceShare")}</p>
         )}
 
         {state?.installed && !jobRunning && !stale && (
           <div className="flex flex-wrap items-center justify-end gap-2">
             {(current === "online" || current === "offline" || current === "approval") && (
               <Button variant="outline" disabled={locked} onClick={() => setChanging(!changing)}>
-                {changing ? "取消切换" : "切换控制服务器"}
+                {changing ? t("tailscale.cancelChange") : t("tailscale.changeControlServer")}
               </Button>
             )}
             {(current === "online" || current === "offline" || current === "approval") && (
               <Button variant="outline" disabled={locked} onClick={() => setConfirming("logout")}>
-                退出登录
-              </Button>
+                {t("account.signOut")}</Button>
             )}
             <Button variant="destructive" disabled={locked} onClick={() => setConfirming("uninstall")}>
-              卸载
-            </Button>
+              {t("tailscale.uninstall")}</Button>
           </div>
         )}
 
         {confirming && (
-          <ConfirmDialog open title={{ down: "断开 Tailscale", login: "切换控制服务器", logout: "退出 Tailscale 登录", uninstall: "卸载 Tailscale" }[confirming]}
-            description={confirming === "down" ? "断开后，通过 Tailscale 的远程会话会立即中断，需要通过局域网重新连接。"
-              : confirming === "login" ? `将控制服务器从 ${state?.controlURL} 切换为 ${custom ? control.trim() : OFFICIAL_CONTROL}，需要重新授权设备。`
-              : confirming === "logout" ? "退出后此设备从 tailnet 中移除，通过 Tailscale 地址的会话会断开，需要重新登录授权。"
-              : "卸载会停止 Tailscale 并删除软件包，通过 Tailscale 地址的会话会断开。"}
-            confirm={{ down: "断开", login: "确认切换", logout: "退出登录", uninstall: "卸载" }[confirming]}
+          <ConfirmDialog open title={{ down: t("tailscale.disconnectTailscale"), login: t("tailscale.changeControlServer"), logout: t("tailscale.signOutOfTailscale"), uninstall: t("tailscale.uninstallTailscale") }[confirming]}
+            description={confirming === "down" ? t("tailscale.remoteSessionsOverTailscaleWillDisconnect")
+              : confirming === "login" ? t("tailscale.changeTheControlServerFromTo", { p0: String(state?.controlURL), p1: String(custom ? control.trim() : OFFICIAL_CONTROL) })
+              : confirming === "logout" ? t("tailscale.thisDeviceWillLeaveTheTailnet")
+              : t("tailscale.tailscaleWillStopAndItsPackage")}
+            confirm={{ down: t("wifi.disconnect"), login: t("tailscale.changeServer"), logout: t("account.signOut"), uninstall: t("tailscale.uninstall") }[confirming]}
             destructive disabled={locked} onOpenChange={(open) => { if (!open) setConfirming(undefined); }} onConfirm={() => void act(confirming)} />
         )}
 

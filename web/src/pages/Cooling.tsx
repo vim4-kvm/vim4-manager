@@ -7,8 +7,11 @@ import { StatusLabel } from "@/components/StatusDot";
 import { celsius, tempTone } from "@/lib/units";
 import { useActionStore } from "@/stores/action";
 import { useStatusStore } from "@/stores/status";
+import { useT } from "@/i18n";
+import { number } from "@/i18n/format";
 
 export function Cooling() {
+  const t = useT();
   const hw = useStatusStore((s) => s.status?.hardware);
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
@@ -16,17 +19,17 @@ export function Cooling() {
   const zones = hw.zones.filter((z) => !/soc/i.test(z.name));
   return <>
     <PageHeading page="cooling" />
-    <section aria-label="当前温度" className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-4 text-sm">
-      <StatusLabel tone={tempTone(hw.tempC)}><strong>{hw.tempC >= 85 ? "温度较高" : hw.tempC >= 70 ? "注意温度" : "温度正常"}</strong></StatusLabel>
+    <section aria-label={t("cooling.temperatures")} className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-4 text-sm">
+      <StatusLabel tone={tempTone(hw.tempC)}><strong>{hw.tempC >= 85 ? t("cooling.hot") : hw.tempC >= 70 ? t("cooling.warm") : t("cooling.normal")}</strong></StatusLabel>
       <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
         <div className="flex items-baseline gap-2"><dt className="text-muted-foreground">SoC</dt><dd className="text-base font-semibold tabular-nums">{celsius(hw.tempC)}</dd></div>
         {zones.map((z) => <div key={z.name} className="flex items-baseline gap-2"><dt className="text-muted-foreground">{z.name.toUpperCase()}</dt><dd className="tabular-nums">{celsius(z.tempC)}</dd></div>)}
-        <div className="flex items-baseline gap-2"><dt className="text-muted-foreground">风扇</dt><dd className="tabular-nums">{hw.fanPercent > 0 ? `${hw.fanPercent}%` : "停转"}<span className="ml-1.5 text-muted-foreground">{hw.fanAuto ? "自动调速" : "手动模式"} · 占空比</span></dd></div>
+        <div className="flex items-baseline gap-2"><dt className="text-muted-foreground">{t("cooling.fan")}</dt><dd className="tabular-nums">{hw.fanPercent > 0 ? `${number(hw.fanPercent)}%` : t("cooling.stopped")}<span className="ml-1.5 text-muted-foreground">{hw.fanAuto ? t("cooling.autoDuty") : t("cooling.manualDuty")}</span></dd></div>
       </dl>
     </section>
-    {hw.fanTriggers ? <SettingsCard title="风扇曲线" description="拖动曲线上的三个温度点，或选一个预设。应用后立即生效，重启后保留。">
+    {hw.fanTriggers ? <SettingsCard title={t("cooling.curve")} description={t("cooling.help")}>
       <FanPanel saved={hw.fanTriggers} auto={hw.fanAuto} tempC={hw.tempC} percent={hw.fanPercent} busy={busy}
-        onApply={async (t) => { await run("正在应用风扇曲线…", () => setFanCurve(t), `风扇曲线已应用：${t.low} / ${t.mid} / ${t.high} °C`); }} />
-    </SettingsCard> : <p className="text-sm text-muted-foreground">未检测到 MCU 风扇控制接口。</p>}
+        onApply={async (curve) => { await run(t("cooling.applying"), () => setFanCurve(curve), t("cooling.applied", { low: number(curve.low), mid: number(curve.mid), high: number(curve.high) })); }} />
+    </SettingsCard> : <p className="text-sm text-muted-foreground">{t("cooling.unavailable")}</p>}
   </>;
 }

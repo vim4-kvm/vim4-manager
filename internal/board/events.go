@@ -2,16 +2,20 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/vim4-kvm/vim4-manager/internal/i18n"
 )
 
 // Event is one line of the overview's recent-events list.
 type Event struct {
-	UnixMs int64  `json:"t"`
-	Tone   string `json:"tone"`
-	Text   string `json:"text"`
+	UnixMs  int64  `json:"t"`
+	Tone    string `json:"tone"`
+	Text    string `json:"text"`
+	message *i18n.Message
 }
 
 // Events keeps recent events in memory; they restart empty with the service.
@@ -24,6 +28,20 @@ type Events struct {
 }
 
 func (e *Events) Add(tone, format string, args ...any) {
+	e.append(Event{Tone: tone, Text: fmt.Sprintf(format, args...)})
+}
+
+// AddMessage retains the template and arguments so each reader gets its locale.
+func (e *Events) AddMessage(tone string, message i18n.Message) {
+	args := make(map[string]any, len(message.Args))
+	for key, value := range message.Args {
+		args[key] = value
+	}
+	message.Args = args
+	e.append(Event{Tone: tone, message: &message})
+}
+
+func (e *Events) append(event Event) {
 	if e == nil {
 		return
 	}
@@ -33,21 +51,29 @@ func (e *Events) Add(tone, format string, args ...any) {
 	if e.now != nil {
 		clock = e.now
 	}
-	e.events = append(e.events, Event{clock().UnixMilli(), tone, fmt.Sprintf(format, args...)})
+	event.UnixMs = clock().UnixMilli()
+	e.events = append(e.events, event)
 	if over := len(e.events) - e.Capacity; over > 0 {
 		e.events = append(e.events[:0], e.events[over:]...)
 	}
 }
 
 // List returns a copy, newest first.
-func (e *Events) List() []Event {
+func (e *Events) List(locales ...i18n.Locale) []Event {
 	if e == nil {
 		return []Event{}
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	list := make([]Event, len(e.events))
+	locale := i18n.English
+	if len(locales) > 0 {
+		locale = locales[0]
+	}
 	for i, event := range e.events {
+		if event.message != nil {
+			event.Text = event.message.Render(locale)
+		}
 		list[len(e.events)-1-i] = event
 	}
 	return list
@@ -65,7 +91,7 @@ type snapshot struct {
 // Watch records state changes nobody asked for: HDMI signal, USB enumeration,
 // services stopping or failing, and SoC overheating.
 func (s *Service) Watch(ctx context.Context, interval time.Duration) {
-	s.Events.Add("idle", "管理服务启动")
+	s.Events.AddMessage("idle", i18n.Message{Key: "events.managerStarted", Args: nil})
 	var last *snapshot
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -106,26 +132,26 @@ const (
 func (s *Service) compare(old, now *snapshot) {
 	switch {
 	case old.hdmi.Signal && !now.hdmi.Signal:
-		s.Events.Add("warning", "HDMI 信号丢失")
+		s.Events.AddMessage("warning", i18n.Message{Key: "events.hdmiLost", Args: nil})
 	case !old.hdmi.Signal && now.hdmi.Signal:
-		s.Events.Add("good", "HDMI 信号恢复：%s", hdmiMode(now.hdmi))
+		s.Events.AddMessage("good", i18n.Message{Key: "events.hdmiRestored", Args: map[string]any{"p0": hdmiMode(now.hdmi)}})
 	case now.hdmi.Signal && hdmiMode(old.hdmi) != hdmiMode(now.hdmi):
-		s.Events.Add("idle", "HDMI 输入变为 %s", hdmiMode(now.hdmi))
+		s.Events.AddMessage("idle", i18n.Message{Key: "events.hdmiChanged", Args: map[string]any{"p0": hdmiMode(now.hdmi)}})
 	}
 	if old.usb != now.usb {
 		if now.usb == "configured" {
-			s.Events.Add("good", "被控机已枚举 USB 键鼠")
+			s.Events.AddMessage("good", i18n.Message{Key: "events.usbConnected", Args: nil})
 		} else if old.usb == "configured" {
-			s.Events.Add("warning", "USB 键鼠断开（%s）", orUnknown(now.usb))
+			s.Events.AddMessage("warning", i18n.Message{Key: "events.usbDisconnected", Args: map[string]any{"p0": orUnknown(now.usb)}})
 		}
 	}
 	now.hot = old.hot
 	if !old.hot && now.tempC >= hotC {
 		now.hot = true
-		s.Events.Add("critical", "SoC 温度超过 %d °C", hotC)
+		s.Events.AddMessage("critical", i18n.Message{Key: "events.overheat", Args: map[string]any{"p0": hotC}})
 	} else if old.hot && now.tempC < coolC {
 		now.hot = false
-		s.Events.Add("good", "SoC 温度回落到 %.0f °C", now.tempC)
+		s.Events.AddMessage("good", i18n.Message{Key: "events.cooled", Args: map[string]any{"p0": now.tempC}})
 	}
 	for _, name := range allUnits() {
 		before, after := old.units[name], now.units[name]
@@ -135,14 +161,14 @@ func (s *Service) compare(old, now *snapshot) {
 		label := unitName(name)
 		switch after.Active {
 		case "failed":
-			s.Events.Add("critical", "%s 失败", label)
+			s.Events.AddMessage("critical", i18n.Message{Key: "events.serviceFailed", Args: map[string]any{"p0": label}})
 		case "active":
 			// Oneshot board units finish quickly; only report long-running starts.
 			if after.Sub != "exited" {
-				s.Events.Add("good", "%s 已启动", label)
+				s.Events.AddMessage("good", i18n.Message{Key: "events.serviceStarted", Args: map[string]any{"p0": label}})
 			}
 		case "inactive":
-			s.Events.Add("idle", "%s 已停止", label)
+			s.Events.AddMessage("idle", i18n.Message{Key: "events.serviceStopped", Args: map[string]any{"p0": label}})
 		}
 	}
 }
@@ -155,14 +181,19 @@ func hdmiMode(h HDMI) string {
 	return mode
 }
 
-func orUnknown(state string) string {
+func orUnknown(state string) any {
 	if state == "" {
-		return "未知"
+		return i18n.Message{Key: "common.unknown"}
 	}
 	return state
 }
 
-func unitName(unit string) string {
+func unitName(unit string) any {
+	for name, key := range map[string]string{"vim4-kvm-hdmi.service": "services.hdmi", "vim4-kvm-gadget.service": "services.gadget", "vim4-kvm-pd.service": "services.pd", "vim4-kvm-cpufreq.service": "services.cpufreq"} {
+		if unit == name {
+			return i18n.Message{Key: key}
+		}
+	}
 	for _, app := range Apps {
 		if app.Unit == unit {
 			return app.Name
@@ -176,15 +207,14 @@ func unitName(unit string) string {
 	return unit
 }
 
-// record logs the outcome of a user action.
-func (s *Service) record(err error, format string, args ...any) error {
-	text := fmt.Sprintf(format, args...)
+// recordMessage logs the outcome while retaining its identity for each reader.
+func (s *Service) recordMessage(err error, message i18n.Message) error {
 	switch {
-	case err == ErrBusy:
+	case errors.Is(err, ErrBusy):
 	case err != nil:
-		s.Events.Add("critical", "%s失败", text)
+		s.Events.AddMessage("critical", i18n.Message{Key: "events.actionFailed", Args: map[string]any{"action": message}})
 	default:
-		s.Events.Add("good", "%s", text)
+		s.Events.AddMessage("good", message)
 	}
 	return err
 }
