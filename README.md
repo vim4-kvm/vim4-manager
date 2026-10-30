@@ -41,6 +41,8 @@ GPU 使用率每 5 秒读取厂商 Mali 驱动 `/sys/class/mpgpu/utilization`，
 采样周期的忙碌百分比，不代表整个 5 秒区间的平均值，也不包含独立的视频编码器。
 `history[].gpu` 为 null 时图表保留缺口；旧接口或未提供该读数的内核显示「暂无 GPU 数据」，
 不将缺失数据当作 0%。浏览器回归：`node web/tests/gpu.mjs`。
+Panfrost 内核则由受限 helper 开启 profiling，汇总全进程 fdinfo 引擎时间，计算相邻
+采样间的近似忙碌率；误差、权限、开销与板上自动验收见 [GPU 利用率](docs/gpu-utilization.md)。
 
 概览顶部显示本次开机的 PD 协商电压、电流与供电额度。
 API 中的实时电压存在检测依赖板级 `usb-pd-init --status`，按 AO-A 控制器识别 I²C 总线，

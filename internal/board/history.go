@@ -40,6 +40,7 @@ type History struct {
 	rx, tx   uint64
 	last     time.Time
 	cpuPower []cpuPowerDomain
+	gpu      *gpuSnapshot
 }
 
 // Run samples every interval until ctx is cancelled.
@@ -66,12 +67,6 @@ func (h *History) Sample(now time.Time) {
 	}
 	busy, total := cpuTimes(read("proc/stat"))
 	s := Sample{UnixMs: now.UnixMilli()}
-	// The vendor Mali driver publishes the last DVFS interval as 0–100 percent,
-	// not the 0–255 scale used internally by its clock-control callback.
-	if value, err := strconv.Atoi(read("sys/class/mpgpu/utilization")); err == nil && value >= 0 && value <= 100 {
-		percent := float64(value)
-		s.GPU = &percent
-	}
 	if total, avail := memInfo(read("proc/meminfo")); total > 0 {
 		s.Mem = 100 * float64(total-avail) / float64(total)
 	}
@@ -87,6 +82,7 @@ func (h *History) Sample(now time.Time) {
 
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	s.GPU = h.sampleGPU()
 	s.CPUPowerW = estimateCPUPower(h.cpuPower, currentPower)
 	s.CPUPowerAvailable = len(currentPower) > 0
 	h.cpuPower = currentPower

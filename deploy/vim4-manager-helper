@@ -82,6 +82,55 @@ TAILSCALE_PACKAGE_UNIT = 'vim4-manager-tailscale-package.service'
 TAILSCALE_LOGIN_UNIT = 'vim4-manager-tailscale-login.service'
 
 
+def gpu_snapshot(root=Path('/')):
+    """Enable profiling and read all clients of VIM4's single Panfrost GPU.
+
+    Root is needed for profiling and fdinfo of clients running as other users.
+    No caller-supplied path is accepted by the command dispatcher.
+    """
+    nodes = list((root / 'sys/bus/platform/drivers/panfrost').glob('*/profiling'))
+    if len(nodes) != 1:
+        return None
+    profiling = nodes[0]
+    if profiling.read_text().strip() != '1':
+        profiling.write_text('1\n')
+        # Counters from before enabling profiling are not a complete window.
+        return None
+    started = time.monotonic_ns()
+    clients = {}
+    for process in (root / 'proc').iterdir():
+        if not process.name.isdecimal():
+            continue
+        try:
+            entries = list((process / 'fdinfo').iterdir())
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        for entry in entries:
+            try:
+                fields = dict(line.split(':', 1) for line in entry.read_text().splitlines() if ':' in line)
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            if fields.get('drm-driver', '').strip() != 'panfrost':
+                continue
+            identifier = fields.get('drm-client-id', '').strip()
+            if not identifier.isdecimal():
+                raise ValueError('Missing Panfrost client identity')
+            engines = {}
+            for engine in ('fragment', 'vertex-tiler'):
+                value = fields.get(f'drm-engine-{engine}', '').split()
+                if len(value) != 2 or value[1] != 'ns' or not value[0].isdecimal():
+                    raise ValueError('Missing Panfrost engine counter')
+                counter = int(value[0])
+                if counter > (1 << 64) - 1:
+                    raise ValueError('Invalid Panfrost engine counter')
+                # dup/fork can expose one drm_file through several fdinfo files.
+                engines[engine] = max(counter, clients.get(identifier, {}).get(engine, 0))
+            clients[identifier] = engines
+    if profiling.read_text().strip() != '1':
+        return None
+    return dict(device=str(profiling.parent.resolve()), timeNs=started, clients=clients)
+
+
 def cpu_opp_domains():
     """Use the live, speed-bin-adjusted OPP voltage when EM is not registered."""
     domains = []
@@ -2831,6 +2880,8 @@ def main(argv):
             print(json.dumps(result))
         return
     match argv:
+        case ['gpu-snapshot']:
+            print(json.dumps(gpu_snapshot()))
         case ['cpu-power-snapshot']:
             print(json.dumps(cpu_power_snapshot()))
         case ['power-status']:
@@ -2916,7 +2967,7 @@ def main(argv):
 def operation_lock(argv):
     action = argv[0] if argv else ''
     if action.startswith('disk-') or action in ('nasdisk-status', 'nasdisk-lun-attach', 'storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
-                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'mainline-hardware', 'kernel-status', 'passthrough-status'):
+                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'gpu-snapshot', 'mainline-hardware', 'kernel-status', 'passthrough-status'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'
