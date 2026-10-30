@@ -44,29 +44,30 @@ func (h *History) sampleGPU() *float64 {
 	return estimateGPU(previous, current)
 }
 
-// Sum all clients and engines, then cap overlapping execution at 100%.
-// fdinfo lacks overlap timestamps: this is an upper approximation of busy
-// wall time, not frequency-weighted throughput. Client churn loses an interval
-// rather than mistaking lost counters for idle or a counter wrap for full load.
+// Sum clients within each engine, then use the busiest engine, capped at 100%.
+// Vertex/tiler and fragment work can overlap: their maximum is a lower-bound
+// approximation of GPU busy wall time; fdinfo cannot reconstruct the union.
+// Driver timing errors mean this is not a strict mathematical bound. Client
+// churn loses an interval rather than creating idle readings or wrap spikes.
 func estimateGPU(previous, current *gpuSnapshot) *float64 {
 	if previous == nil || current.Device != previous.Device || current.TimeNS <= previous.TimeNS || len(current.Clients) != len(previous.Clients) {
 		return nil
 	}
-	busy := 0.0
+	engineBusy := [2]float64{}
 	for id, engines := range current.Clients {
 		old, ok := previous.Clients[id]
 		if !ok || len(engines) != 2 || len(old) != 2 {
 			return nil
 		}
-		for _, engine := range []string{"fragment", "vertex-tiler"} {
+		for i, engine := range []string{"fragment", "vertex-tiler"} {
 			now, ok := engines[engine]
 			before, existed := old[engine]
 			if !ok || !existed || now < before {
 				return nil
 			}
-			busy += float64(now - before)
+			engineBusy[i] += float64(now - before)
 		}
 	}
-	percent := min(100, 100*busy/float64(current.TimeNS-previous.TimeNS))
+	percent := min(100, 100*max(engineBusy[0], engineBusy[1])/float64(current.TimeNS-previous.TimeNS))
 	return &percent
 }

@@ -23,12 +23,17 @@
   [Panfrost profiling 说明](https://docs.kernel.org/gpu/panfrost.html)定义来源及默认关闭原因。
 
 目前标准用户接口不能精确恢复全 GPU「至少一个作业忙」的时间并集。管理器采用
-全进程、全客户端、两个引擎的 ns 增量总和除以实际单调时钟窗口，再限制到 0–100%。
-这是面向整颗 GPU 的近似指标，通常比单一客户端或频率驻留更接近厂商 utilization。
+全进程、全客户端的 ns 增量，先分别求 fragment、vertex-tiler 的跨客户端总和，
+再取两个引擎总和的最大值，除以实际单调时钟窗口，最后限制到 0–100%。
+即 `min(100, 100 * max(sum(delta_fragment), sum(delta_vertex_tiler)) / delta_time)`。
+这是面向整颗 GPU 的下界近似：理想引擎时间的并集位于最大值与总和之间；
+Mali 的顶点与片元工作通常流水并行，取最大值避免重复计算重叠区间。
+例如 fragment 为 60%、vertex-tiler 为 40% 时显示 60%，而不是相加显示 100%。
 各进程共享/复制 fd 按 drm-client-id 去重，同一客户端的重复读数取各引擎最大值。
 VIM4 只支持一个绑定的 Panfrost GPU；发现多个设备时返回 null，避免混合身份。
 
-并行引擎、硬件流水线及中断延迟会高估忙碌时间，因此不能称为精确利用率或严格数学上界。
+两个引擎不重叠的忙碌区间会被低估；完全重叠时理想的最大值等于并集。
+驱动的硬件流水线计时和中断延迟仍可能高估单个引擎时间，所以这不是严格数学下界。
 未完成的长作业会把时间推迟到完成后的窗口，窗口间出现后又退出的客户端会漏计。
 逐文件读取不是原子快照，扫描耗时和先后顺序也会产生窗口误差。
 相邻快照客户端集合不同、计数倒退/回绕、设备变化、非正窗口均留空一个区间，然后重新采样。
@@ -48,6 +53,47 @@ profiling 开启后会增加每作业时间/周期计数读取和 cycle counter 
 程序为该命令设置 2 秒期限，失败留空，不让慢扫描产生旧值。
 profiling 保持开启直到重启或其他管理员关闭；管理器下次采样会重新开启。
 不在进程退出时关闭共享开关，以免破坏其他监控工具；停用本功能需停止管理器采样后再关闭。
+
+### 采样频率与离线开销估算（2026-10-30）
+
+`cmd/vim4-manager/main.go` 启动 `history.Run(ctx, 5*time.Second)`：启动立即采一次，
+随后约每分钟 12 次，独立于网页请求。已有 `cpu-power-snapshot` 每次采样同样调用
+`sudo -n` 启动 Python helper、读取计数、输出 JSON，超时也为 2 秒。
+Panfrost 增加每分钟 12 次同类调用，总共约 24 次；Vendor 路径不增加 GPU helper 调用。
+CPU helper 读取 `/proc/stat` 及 CPU EM/OPP/频率状态，GPU helper 则枚举所有进程及 fdinfo，
+后者工作量随进程数、fd 数及文本大小增长，不能用 CPU helper 的存在证明扫描总是廉价。
+
+在 OrbStack vim4-build ARM64、Python 3.12.3、内核 7.2.12 中分别测量 20 次新进程：
+以 `sudo -n /usr/bin/python3` 启动，导入当前 helper；完整扫描组额外调用
+`gpu_snapshot(root)`，root 中 profiling 为已开启的临时普通文件，proc 链接 VM 的真实
+`/proc`。没有访问板子或启用真实 GPU profiling。运行前枚举约 24 个进程、443 个 fdinfo。
+调用由 VM root 发起，不能代表板端 khadas 的 sudo/PAM 成本。
+
+| 测量内容 | 墙钟中位数 / 最大值 | 子进程 CPU 时间中位数 |
+|---|---|---|
+| sudo + Python + helper 导入，不扫描 | 41.6 / 51.1 ms | 41.3 ms |
+| 上述启动 + 完整 VM proc 扫描 | 54.0 / 75.8 ms | 53.7 ms |
+
+按 5 秒周期折算，完整 GPU 采样约占单核 `53.7/5000 = 1.07%`，其中扫描增量约
+0.25%；启动成本占主要部分。这个规模下作为低频趋势采样暂可接受，尚无证据需要引入
+常驻特权进程或合并 CPU/GPU helper。该测量不覆盖真实 Panfrost fdinfo 处理和内核
+profiling 开销，不是板端性能验收。2 秒超时也不是开销预算：它相当于周期的 40%，
+且 GPU 调用位于 history 锁内，慢扫描会阻塞历史读取；CPU/GPU 的两个超时串行合计可达
+4 秒。板上必须记录扫描耗时分布和 CPU 时间，若经常接近超时，应重新评估实现。
+
+### 基线失败复核
+
+在 detached 临时 worktree 的 `ab7fb63` 和当前 GPU 实现中，以同一 VM、同一命令
+`python3 -m unittest discover -s deploy -p 'test_*.py'` 复跑：基线 214 项、当前 216 项，
+均仅下列四项失败，异常文本和断言一致，确认为既有中文断言与英文错误信息不匹配：
+
+- `test_create_limits_and_snapshot_validation`
+- `test_real_fat_round_trip_snapshot_restore_and_delete`
+- `test_snapshot_limits_and_format_failure_preserve_data`
+- `test_upload_bounds_overwrite_and_attached_refusal`
+
+四项均属于 `test_disks.DiskRoundTripTest`，本次未改动磁盘行为或这些测试。
+原始日志与开销测量脚本保存在本地工作区 `build/gpu-manager-review-20261030/`，不随源码提交。
 
 ## 板上待验证清单
 

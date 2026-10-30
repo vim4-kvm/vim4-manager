@@ -69,8 +69,8 @@ func TestPanfrostAggregatesClientsAndEngines(t *testing.T) {
 	after := &gpuSnapshot{Device: "gpu", TimeNS: 6e9, Clients: map[string]map[string]uint64{
 		"1": {"fragment": 1e9, "vertex-tiler": 1e9}, "2": {"fragment": 1e9, "vertex-tiler": 0},
 	}}
-	if got := estimateGPU(before, after); got == nil || *got != 60 {
-		t.Fatal("all clients and both engines must contribute", got)
+	if got := estimateGPU(before, after); got == nil || *got != 40 {
+		t.Fatal("sum clients within each engine before selecting the busiest", got)
 	}
 	after.TimeNS = before.TimeNS
 	if estimateGPU(before, after) != nil {
@@ -81,6 +81,28 @@ func TestPanfrostAggregatesClientsAndEngines(t *testing.T) {
 	delete(after.Clients, "2")
 	if estimateGPU(before, after) != nil {
 		t.Fatal("same-sized client replacement must invalidate the window")
+	}
+}
+
+func TestPanfrostOverlappingEnginesDoNotAddUtilization(t *testing.T) {
+	before := &gpuSnapshot{Device: "gpu", TimeNS: 1e9, Clients: map[string]map[string]uint64{
+		"1": {"fragment": 10e9, "vertex-tiler": 20e9},
+		"2": {"fragment": 30e9, "vertex-tiler": 40e9},
+	}}
+	// Over a five-second window, the clients together use fragment for three
+	// seconds (60%) and vertex/tiler for two (40%). Overlapping execution must
+	// not turn this into 100%, nor should we sum each client's maximum (80%).
+	after := &gpuSnapshot{Device: "gpu", TimeNS: 6e9, Clients: map[string]map[string]uint64{
+		"1": {"fragment": 12e9, "vertex-tiler": 20e9},
+		"2": {"fragment": 31e9, "vertex-tiler": 42e9},
+	}}
+	if got := estimateGPU(before, after); got == nil || *got != 60 {
+		t.Fatal("60% fragment + 40% vertex/tiler must report 60%", got)
+	}
+	// Also cover vertex/tiler being the busiest engine across clients.
+	after.Clients["2"]["vertex-tiler"] = 44e9
+	if got := estimateGPU(before, after); got == nil || *got != 80 {
+		t.Fatal("vertex/tiler must be eligible as the busiest engine", got)
 	}
 }
 
