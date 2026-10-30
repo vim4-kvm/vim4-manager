@@ -1,1 +1,2 @@
 khadas ALL=(root) NOPASSWD: /usr/libexec/vim4-manager-helper
+khadas ALL=(root) NOPASSWD: /opt/vim4-manager/vim4-manager gpu-snapshot

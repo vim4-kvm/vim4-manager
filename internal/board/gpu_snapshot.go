@@ -14,7 +14,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// WriteGPUSnapshot is the argument-free privileged query used by the helper.
+// WriteGPUSnapshot is the argument-free privileged query invoked through sudo.
 // It never opens a GPU device or accepts a caller-selected filesystem root.
 func WriteGPUSnapshot(output io.Writer) error {
 	snapshot, err := readGPUSnapshot("/")

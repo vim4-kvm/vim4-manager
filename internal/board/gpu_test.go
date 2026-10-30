@@ -16,9 +16,12 @@ func TestHistoryPanfrostWindowsAndRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	var snapshot *gpuSnapshot
-	h := &History{Root: root, Capacity: 30, Execute: func(_ context.Context, _ string, args ...string) (string, error) {
+	h := &History{Root: root, Capacity: 30, Execute: func(_ context.Context, name string, args ...string) (string, error) {
 		if args[len(args)-1] != "gpu-snapshot" {
 			return "null", nil
+		}
+		if name != "sudo" || len(args) != 3 || args[0] != "-n" || args[1] != "/opt/vim4-manager/vim4-manager" {
+			t.Fatalf("GPU query must match the sudoers authorization: %s %v", name, args)
 		}
 		data, err := json.Marshal(snapshot)
 		return string(data), err

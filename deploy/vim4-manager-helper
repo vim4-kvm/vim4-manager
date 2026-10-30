@@ -1,12 +1,4 @@
-#!/bin/sh
-""":"
-# Frequent GPU queries use the installed native binary; other actions keep Python.
-# Match the complete argument list so root callers cannot supply paths/options.
-if [ "$#" -eq 1 ] && [ "$1" = gpu-snapshot ]; then
-    exec /opt/vim4-manager/vim4-manager gpu-snapshot
-fi
-exec /usr/bin/python3 "$0" "$@"
-":"""
+#!/usr/bin/python3
 """Root operations for vim4-manager. Only fixed actions are accepted."""
 import fcntl
 import errno
@@ -2839,8 +2831,6 @@ def main(argv):
             print(json.dumps(result))
         return
     match argv:
-        case ['gpu-snapshot']:
-            os.execv('/opt/vim4-manager/vim4-manager', ['vim4-manager', 'gpu-snapshot'])
         case ['cpu-power-snapshot']:
             print(json.dumps(cpu_power_snapshot()))
         case ['power-status']:
@@ -2926,7 +2916,7 @@ def main(argv):
 def operation_lock(argv):
     action = argv[0] if argv else ''
     if action.startswith('disk-') or action in ('nasdisk-status', 'nasdisk-lun-attach', 'storage-list', 'storage-dirs', 'media-list', 'media-status', 'tailscale-status', 'tailscale-ping',
-                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'gpu-snapshot', 'mainline-hardware', 'kernel-status', 'passthrough-status'):
+                                               'wifi-status', 'wifi-scan', 'power-status', 'cpu-power-snapshot', 'mainline-hardware', 'kernel-status', 'passthrough-status'):
         yield
         return
     path = '/run/lock/vim4-manager-tailscale.lock' if action.startswith('tailscale-') else '/run/lock/vim4-manager.lock'

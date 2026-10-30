@@ -35,7 +35,7 @@ func (h *History) sampleGPU() *float64 {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	text, err := h.Execute(ctx, "sudo", "-n", Helper, "gpu-snapshot")
+	text, err := h.Execute(ctx, "sudo", "-n", "/opt/vim4-manager/vim4-manager", "gpu-snapshot")
 	var current *gpuSnapshot
 	if err != nil || json.Unmarshal([]byte(text), &current) != nil || current == nil || current.Device == "" || current.Clients == nil {
 		return nil

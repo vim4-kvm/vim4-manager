@@ -42,12 +42,13 @@ helper 失败或超时均报告 null，清除旧基线；恢复后需要两个�
 
 ## 权限、开销和生命周期
 
-khadas 服务经已有 sudoers 调用固定、无参数的 `gpu-snapshot` helper：
+khadas 服务经精确 sudoers 授权调用 `/opt/vim4-manager/vim4-manager gpu-snapshot`：
 从 `/sys/bus/platform/drivers/panfrost/*/profiling` 发现设备，必要时写 1，然后读取
 所有 `/proc/[pid]/fd/*` 链接，只读取目标为 `/dev/dri/renderD数字` 或 `/dev/dri/card数字`
 的 fdinfo，包括其他用户的进程。只扫描 khadas 会漏掉 root/其他服务负载，
-所以需要 root helper；没有增加 capability 或放宽 sudoers。仅刚开启 profiling 的那次返回 null。
-新程序需配套更新 helper；旧 helper 拒绝命令时仍显示无数据。
+所以需要 root 快照命令。sudoers 只增加该路径和单个固定参数的授权，无通配符或路径参数；
+不增加 capability。仅刚开启 profiling 的那次返回 null。
+新程序需配套更新 sudoers；缺少授权时查询失败，仍显示无数据。
 
 profiling 开启后会增加每作业时间/周期计数读取和 cycle counter 引用操作，有功耗及性能成本，
 尚未量化，不能声称零开销。每 5 秒启动一次原生 Go 快照命令，扫描成本随全机 fd 数增加；
@@ -68,12 +69,25 @@ CPU helper 读取 `/proc/stat` 及 CPU EM/OPP/频率状态，GPU helper 则枚�
 记录旧 helper CPU 中位约 456 ms、墙钟最大约 554 ms，5 秒周期约占单核 9.1%，
 不满足每次 CPU <50 ms（单核 <1%）目标。读数正确不代表性能可接受。
 
-本轮保留 sudo 固定命令，helper 用 shell/Python 双语前导块处理启动：shell 只对完整的
-单参数 `gpu-snapshot` 执行固定、由 root 安装的 `/opt/vim4-manager/vim4-manager gpu-snapshot`；
-其余命令 exec 原来的 Python 入口，原模块仍可被 Python 测试导入。
-Go 命令在初始化 Web 服务/账户前返回。直接用 Python 执行 helper 时同样转到固定 Go 命令。
-没有新增路径参数、环境配置、sudoers 权限或常驻服务；需配套更新管理器和 helper。
+第四轮将调用收敛为 Go 直接执行 `sudo -n /opt/vim4-manager/vim4-manager gpu-snapshot`。
+`vim4-manager-helper` 恢复纯 Python，不再处理 GPU 转发，其他命令没有额外 shell 启动成本。
+Go 命令只在恰好一个 `gpu-snapshot` 参数时进入快照分支，在初始化 Web 服务/账户前返回。
+sudoers 的新规则为：
+
+```sudoers
+khadas ALL=(root) NOPASSWD: /opt/vim4-manager/vim4-manager gpu-snapshot
+```
+
+带参数的命令规则只匹配该完整参数串；没有新增路径参数、环境配置或常驻服务。
+需配套更新管理器和 sudoers。VM 已通过 `visudo -cf` 校验。
 生产二进制及其父目录必须保持现有 root 所有权，不能让 khadas 替换该特权入口。
+
+安装路径核对：`packaging/ubuntu/package.py:manager()` 将管理器放到上述绝对路径（0755），
+将当前 sudoers 放到 `/etc/sudoers.d/vim4-manager-helper`（0440），postinst 执行 visudo。
+已实际运行该打包暂存函数，确认新 sudoers 内容与源码完全一致且权限为 0440。
+`board.py deploy` 委托 `install-components.sh`：它校验暂存规则，将未修改的旧包规则纳入
+迁移，APT 安装后用 `install -m 0440` 替换为新版。管理员手改规则仍按既有策略拒绝覆盖。
+两条安装路径无需改动；安装迁移与离线部署测试已通过，未执行真实部署。
 
 Go 用 CLOCK_MONOTONIC 保持跨快照时间语义，每次完整扫描所有 PID/fd 链接，再筛选 DRM
 目标读取 fdinfo。未缓存 PID/fd，因此没有新增客户端发现延迟；客户端去重、profiling
@@ -98,8 +112,13 @@ Go 用 CLOCK_MONOTONIC 保持跨快照时间语义，每次完整扫描所有 PI
 
 旧版模块导入的增量约 34.2 ms，扫描增量约 44.4 ms；sudo 约 2 ms，解释器约 4 ms。
 Go 扫描用交叉编译的 board 测试二进制，包含测试框架启动，不是生产端到端测量。
-折算该探针单核约 0.21%，旧版约 1.68%，CPU 降低约 88%。生产 shell 前导块和真实
-Panfrost fdinfo 未包含在扫描探针内，不能据此宣称板端已达 <50 ms。
+折算该探针单核约 0.21%，旧版约 1.68%，CPU 降低约 88%。真实 Panfrost fdinfo
+未包含在扫描探针内，不能据此宣称板端已达 <50 ms。
+
+第四轮同规模、20 次重跑：旧版完整扫描 CPU 中位 91.12 ms、墙钟最大 107.57 ms；
+Go 探针 CPU 中位 12.34 ms、墙钟最大 16.57 ms，折算单核约 0.25%。
+生产 Go 命令无来源时 CPU 中位 2.34 ms。原始日志位于 `build/gpu-manager-round4/`；
+这些是离线探针数据，不是板端精确 sudoers 授权的运行验收。
 
 基准复跑：先将 `c2bd660:deploy/vim4-manager-helper` 保存为 baseline 文件；
 交叉构建 manager 和 `go test -c ./internal/board`，再在 VM 执行：
@@ -132,9 +151,9 @@ Go 单测还用 1000 个非 DRM 链接和不可读 fdinfo 验证它们不被打�
 
 ## 板上待验证清单
 
-第三轮优化只需在 **213f2715** 复验以下两项（合计约 3 分钟）：
+优化后只需在 **213f2715** 复验以下两项（合计约 3 分钟）：
 
-1. 使用配套 manager/helper，以 khadas 执行真实 `sudo -n /usr/libexec/vim4-manager-helper gpu-snapshot`
+1. 使用配套 manager/sudoers，以 khadas 执行真实 `sudo -n /opt/vim4-manager/vim4-manager gpu-snapshot`
    20 次，每 5 秒一次；用原测量脚本的子进程 CPU 时间和墙钟计时保存原始样本。
    通过判据为每次 CPU <50 ms（中位数及最大值均报告），无失败/超时；不以 VM 数据代替。
 2. 沿用已验硬件 EGL 程序，自动空闲 20 秒、满载 30 秒、退出负载后恢复空闲 20 秒，
@@ -152,7 +171,7 @@ Go 单测还用 1000 个非 DRM 链接和不可读 fdinfo 验证它们不被打�
 | 所需内核 | 自动操作步骤 | 通过判据 |
 |---|---|---|
 | 5.15 Vendor | 脚本采集 utilization 与 API 各 30 秒，记录 GPU 负载程序完成计数；校验 helper 调用日志 | API 保持整数 0–100/无效 null 的厂商语义，不调用 gpu-snapshot，不写 profiling；相近采样的值一致（考虑 DVFS 周期错位） |
-| b1300eb 和 213f2715，各执行 | 脚本枚举上述 devfreq 文件及 profiling；以 khadas 执行 `sudo -n /usr/libexec/vim4-manager-helper gpu-snapshot` 两次，再轮询 API 30 秒 | 只找到一个 Panfrost，helper 可读其他用户 fdinfo；启用时首个快照 null，此后字段完整；稳定空闲无计数增量时 API 为 0，初始窗口可为空 |
+| b1300eb 和 213f2715，各执行 | 脚本枚举上述 devfreq 文件及 profiling；以 khadas 执行 `sudo -n /opt/vim4-manager/vim4-manager gpu-snapshot` 两次，再轮询 API 30 秒 | 只找到一个 Panfrost，快照可读其他用户 fdinfo；启用时首个快照 null，此后字段完整；稳定空闲无计数增量时 API 为 0，初始窗口可为空 |
 | b1300eb 和 213f2715，各执行 | 保持同一 EGL 客户端，依次空闲 20 秒、持续提交并等待完成 40 秒、50% 占空比 40 秒、空闲 20 秒；同时每 5 秒保存 helper 快照/API，按 timeNs 重算 | 计数随完成次数增加；API 在 0–100，负载中位数高于空闲；完整稳定窗口与快照公式相符（独立采样允许边界误差），停止后恢复空闲；50% 档不要求精确 50% |
 | b1300eb 和 213f2715，各执行 | 脚本以两个用户启动两个 EGL 客户端，复制/继承 GPU fd；记录 client-id；自动退出其中一个再启动替代客户端，各观察 20 秒 | 相同 client-id 只计一次，两个客户端均被覆盖；集合变化的区间留空，随后恢复，无虚假满载尖峰 |
 | b1300eb 和 213f2715，各执行 | 在预留测试管理器实例中用 mount namespace 遮蔽 profiling 来源，再恢复挂载；保持其他服务不变，连续保存 API；另写 profiling=0 后读 helper | 遮蔽时新样本为 null，恢复经重新建立基线后返回有效值；关闭后 helper 重开并返回 null，不沿用旧窗口；不解绑 GPU 驱动 |

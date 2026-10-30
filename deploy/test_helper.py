@@ -19,27 +19,6 @@ helper = importlib.util.module_from_spec(spec)
 loader.exec_module(helper)
 
 
-class GPUSnapshotTest(unittest.TestCase):
-    def test_shell_dispatch_rejects_additional_arguments(self):
-        source = Path(__file__).with_name('vim4-manager-helper').read_text()
-        # Replace the fixed executable only in this unprivileged shell fixture.
-        shell = source.split('exec /usr/bin/python3')[0].replace(
-            '/opt/vim4-manager/vim4-manager', '/usr/bin/printf') + 'exit 7\n'
-        result = subprocess.run(['/bin/sh', '-c', shell, 'helper', 'gpu-snapshot'],
-                                capture_output=True, text=True)
-        self.assertEqual((result.returncode, result.stdout), (0, 'gpu-snapshot'))
-        result = subprocess.run(['/bin/sh', '-c', shell, 'helper', 'gpu-snapshot', '/tmp/arbitrary'],
-                                capture_output=True, text=True)
-        self.assertEqual(result.returncode, 7)
-
-    def test_native_snapshot_dispatch_accepts_no_paths(self):
-        with patch.object(helper.os, 'execv') as execute:
-            helper.main(['gpu-snapshot'])
-            execute.assert_called_once_with('/opt/vim4-manager/vim4-manager', ['vim4-manager', 'gpu-snapshot'])
-        with patch.object(helper.os, 'execv') as execute:
-            with self.assertRaises(ValueError):
-                helper.main(['gpu-snapshot', '/tmp/arbitrary'])
-            execute.assert_not_called()
 
 
 class PowerTest(unittest.TestCase):
