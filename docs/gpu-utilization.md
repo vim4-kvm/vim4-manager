@@ -44,40 +44,75 @@ helper 失败或超时均报告 null，清除旧基线；恢复后需要两个�
 
 khadas 服务经已有 sudoers 调用固定、无参数的 `gpu-snapshot` helper：
 从 `/sys/bus/platform/drivers/panfrost/*/profiling` 发现设备，必要时写 1，然后读取
-所有 `/proc/[pid]/fdinfo/*`，包括其他用户的进程。只扫描 khadas 会漏掉 root/其他服务负载，
+所有 `/proc/[pid]/fd/*` 链接，只读取目标为 `/dev/dri/renderD数字` 或 `/dev/dri/card数字`
+的 fdinfo，包括其他用户的进程。只扫描 khadas 会漏掉 root/其他服务负载，
 所以需要 root helper；没有增加 capability 或放宽 sudoers。仅刚开启 profiling 的那次返回 null。
 新程序需配套更新 helper；旧 helper 拒绝命令时仍显示无数据。
 
 profiling 开启后会增加每作业时间/周期计数读取和 cycle counter 引用操作，有功耗及性能成本，
-尚未量化，不能声称零开销。每 5 秒启动一次 Python helper，扫描成本随全机 fd 数增加；
+尚未量化，不能声称零开销。每 5 秒启动一次原生 Go 快照命令，扫描成本随全机 fd 数增加；
 程序为该命令设置 2 秒期限，失败留空，不让慢扫描产生旧值。
 profiling 保持开启直到重启或其他管理员关闭；管理器下次采样会重新开启。
 不在进程退出时关闭共享开关，以免破坏其他监控工具；停用本功能需停止管理器采样后再关闭。
 
-### 采样频率与离线开销估算（2026-10-30）
+### 采样频率与开销优化（2026-10-30 第三轮）
 
 `cmd/vim4-manager/main.go` 启动 `history.Run(ctx, 5*time.Second)`：启动立即采一次，
 随后约每分钟 12 次，独立于网页请求。已有 `cpu-power-snapshot` 每次采样同样调用
 `sudo -n` 启动 Python helper、读取计数、输出 JSON，超时也为 2 秒。
-Panfrost 增加每分钟 12 次同类调用，总共约 24 次；Vendor 路径不增加 GPU helper 调用。
+Panfrost 增加每分钟 12 次原生快照调用；Vendor 路径不增加 GPU helper 调用。
 CPU helper 读取 `/proc/stat` 及 CPU EM/OPP/频率状态，GPU helper 则枚举所有进程及 fdinfo，
 后者工作量随进程数、fd 数及文本大小增长，不能用 CPU helper 的存在证明扫描总是廉价。
 
-在 OrbStack vim4-build ARM64、Python 3.12.3、内核 7.2.12 中分别测量 20 次新进程：
-以 `sudo -n /usr/bin/python3` 启动，导入当前 helper；完整扫描组额外调用
-`gpu_snapshot(root)`，root 中 profiling 为已开启的临时普通文件，proc 链接 VM 的真实
-`/proc`。没有访问板子或启用真实 GPU profiling。运行前枚举约 24 个进程、443 个 fdinfo。
-调用由 VM root 发起，不能代表板端 khadas 的 sudo/PAM 成本。
+此前小规模 VM 数据不足以评估板端成本：上板日志 candidate-gpu.log、b1300-gpu.log
+记录旧 helper CPU 中位约 456 ms、墙钟最大约 554 ms，5 秒周期约占单核 9.1%，
+不满足每次 CPU <50 ms（单核 <1%）目标。读数正确不代表性能可接受。
 
-| 测量内容 | 墙钟中位数 / 最大值 | 子进程 CPU 时间中位数 |
-|---|---|---|
-| sudo + Python + helper 导入，不扫描 | 41.6 / 51.1 ms | 41.3 ms |
-| 上述启动 + 完整 VM proc 扫描 | 54.0 / 75.8 ms | 53.7 ms |
+本轮保留 sudo 固定命令，helper 用 shell/Python 双语前导块处理启动：shell 只对完整的
+单参数 `gpu-snapshot` 执行固定、由 root 安装的 `/opt/vim4-manager/vim4-manager gpu-snapshot`；
+其余命令 exec 原来的 Python 入口，原模块仍可被 Python 测试导入。
+Go 命令在初始化 Web 服务/账户前返回。直接用 Python 执行 helper 时同样转到固定 Go 命令。
+没有新增路径参数、环境配置、sudoers 权限或常驻服务；需配套更新管理器和 helper。
+生产二进制及其父目录必须保持现有 root 所有权，不能让 khadas 替换该特权入口。
 
-按 5 秒周期折算，完整 GPU 采样约占单核 `53.7/5000 = 1.07%`，其中扫描增量约
-0.25%；启动成本占主要部分。这个规模下作为低频趋势采样暂可接受，尚无证据需要引入
-常驻特权进程或合并 CPU/GPU helper。该测量不覆盖真实 Panfrost fdinfo 处理和内核
-profiling 开销，不是板端性能验收。2 秒超时也不是开销预算：它相当于周期的 40%，
+Go 用 CLOCK_MONOTONIC 保持跨快照时间语义，每次完整扫描所有 PID/fd 链接，再筛选 DRM
+目标读取 fdinfo。未缓存 PID/fd，因此没有新增客户端发现延迟；客户端去重、profiling
+开关、错误留空和恢复行为保持不变。省去 Python 解释器、管理模块导入和非 GPU fdinfo
+打开/解析。初步尝试的 Python 提前分流加过滤，在 1 万 fd 的 VM 夹具中仍需约 39 ms CPU，
+板端余量不足，因此选择复用现有 Go 二进制，无需额外打包一个守护程序。
+
+可复现基准为 `deploy/benchmark_gpu.py`：OrbStack vim4-build ARM64、Python 3.12.3、
+内核 7.2.12，100 个模拟 PID × 每 PID 100 个 fd（其中一个 DRM fd），每组 20 次。
+夹具全部在临时目录，profiling 为普通文件，不访问真实 GPU。调用由 VM 用户发起 sudo；
+不能替代板端 khadas 的 PAM 成本和真实 proc/sysfs 延迟。所有数据包含新进程启动。
+
+| 测量内容 | CPU 中位 ms | 墙钟中位 / 最大 ms |
+|---|---:|---:|
+| sudo true | 2.05 | 2.09 / 3.11 |
+| Python 空程序，不带 sudo | 4.07 | 4.11 / 5.49 |
+| sudo + Python 空程序 | 5.40 | 5.55 / 6.22 |
+| 旧版 helper 模块导入，含 sudo/Python | 39.62 | 39.81 / 47.64 |
+| 旧版导入 + 1 万 fdinfo 扫描 | 84.06 | 84.25 / 93.13 |
+| 生产 Go 命令无 GPU 来源，含 sudo | 2.21 | 2.28 / 13.36 |
+| Go 扫描探针 + 同一夹具，含 sudo | 10.42 | 10.24 / 11.98 |
+
+旧版模块导入的增量约 34.2 ms，扫描增量约 44.4 ms；sudo 约 2 ms，解释器约 4 ms。
+Go 扫描用交叉编译的 board 测试二进制，包含测试框架启动，不是生产端到端测量。
+折算该探针单核约 0.21%，旧版约 1.68%，CPU 降低约 88%。生产 shell 前导块和真实
+Panfrost fdinfo 未包含在扫描探针内，不能据此宣称板端已达 <50 ms。
+
+基准复跑：先将 `c2bd660:deploy/vim4-manager-helper` 保存为 baseline 文件；
+交叉构建 manager 和 `go test -c ./internal/board`，再在 VM 执行：
+
+```sh
+python3 deploy/benchmark_gpu.py --baseline /path/helper-before \
+  --native-test /path/board.test --manager /path/manager-arm64
+```
+
+测试探针的夹具环境变量仅存在于测试二进制，安装的 helper/manager 不接受夹具路径。
+Go 单测还用 1000 个非 DRM 链接和不可读 fdinfo 验证它们不被打开，避免回归全量读取。
+原始测量、脚本输出及本轮测试日志位于本地工作区 `build/gpu-manager-round3/`。
+2 秒超时不是开销预算：它相当于周期的 40%，
 且 GPU 调用位于 history 锁内，慢扫描会阻塞历史读取；CPU/GPU 的两个超时串行合计可达
 4 秒。板上必须记录扫描耗时分布和 CPU 时间，若经常接近超时，应重新评估实现。
 
@@ -96,6 +131,17 @@ profiling 开销，不是板端性能验收。2 秒超时也不是开销预算�
 原始日志与开销测量脚本保存在本地工作区 `build/gpu-manager-review-20261030/`，不随源码提交。
 
 ## 板上待验证清单
+
+第三轮优化只需在 **213f2715** 复验以下两项（合计约 3 分钟）：
+
+1. 使用配套 manager/helper，以 khadas 执行真实 `sudo -n /usr/libexec/vim4-manager-helper gpu-snapshot`
+   20 次，每 5 秒一次；用原测量脚本的子进程 CPU 时间和墙钟计时保存原始样本。
+   通过判据为每次 CPU <50 ms（中位数及最大值均报告），无失败/超时；不以 VM 数据代替。
+2. 沿用已验硬件 EGL 程序，自动空闲 20 秒、满载 30 秒、退出负载后恢复空闲 20 秒，
+   每 5 秒保存 API 和 helper 快照。通过判据为空闲/恢复后约 0%、稳定满载约 98%，
+   客户端退出可留空一个区间，之后自动恢复，无旧负载残留、GPU timeout/reset。
+
+以下较完整清单保留用于其他版本/发布回归，本轮不要求重复：
 
 以下均是待执行步骤，不是本轮通过证明。只在板端运行脚本和读取已认证的
 `GET /api/status` JSON（history[].t、gpu），不产生 HID 事件，不播放或测量声音。

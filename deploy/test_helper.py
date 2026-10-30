@@ -20,72 +20,26 @@ loader.exec_module(helper)
 
 
 class GPUSnapshotTest(unittest.TestCase):
-    def test_sysfs_recovery_and_cross_process_fd_deduplication(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.assertIsNone(helper.gpu_snapshot(root))
-            profiling = root / 'sys/bus/platform/drivers/panfrost/ffe40000.gpu/profiling'
-            profiling.parent.mkdir(parents=True)
-            profiling.write_text('0\n')
-            self.assertIsNone(helper.gpu_snapshot(root))
-            self.assertEqual(profiling.read_text(), '1\n')
-            (root / 'proc').mkdir()
+    def test_shell_dispatch_rejects_additional_arguments(self):
+        source = Path(__file__).with_name('vim4-manager-helper').read_text()
+        # Replace the fixed executable only in this unprivileged shell fixture.
+        shell = source.split('exec /usr/bin/python3')[0].replace(
+            '/opt/vim4-manager/vim4-manager', '/usr/bin/printf') + 'exit 7\n'
+        result = subprocess.run(['/bin/sh', '-c', shell, 'helper', 'gpu-snapshot'],
+                                capture_output=True, text=True)
+        self.assertEqual((result.returncode, result.stdout), (0, 'gpu-snapshot'))
+        result = subprocess.run(['/bin/sh', '-c', shell, 'helper', 'gpu-snapshot', '/tmp/arbitrary'],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 7)
 
-            def fd(pid, number, client, fragment, vertex=0, driver='panfrost'):
-                path = root / f'proc/{pid}/fdinfo/{number}'
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(f'drm-driver: {driver}\ndrm-client-id: {client}\n'
-                                f'drm-engine-fragment: {fragment} ns\n'
-                                f'drm-engine-vertex-tiler: {vertex} ns\n')
-                return path
-
-            first = fd(100, 3, 42, 100)
-            fd(200, 4, 42, 120)  # inherited descriptor, later counter read
-            fd(200, 5, 43, 200, 50)
-            fd(300, 3, 99, 999, driver='other')
-            result = helper.gpu_snapshot(root)
-            self.assertEqual(result['clients'], {
-                '42': {'fragment': 120, 'vertex-tiler': 0},
-                '43': {'fragment': 200, 'vertex-tiler': 50}})
-            first.write_text('drm-driver: panfrost\ndrm-client-id: 42\n')
+    def test_native_snapshot_dispatch_accepts_no_paths(self):
+        with patch.object(helper.os, 'execv') as execute:
+            helper.main(['gpu-snapshot'])
+            execute.assert_called_once_with('/opt/vim4-manager/vim4-manager', ['vim4-manager', 'gpu-snapshot'])
+        with patch.object(helper.os, 'execv') as execute:
             with self.assertRaises(ValueError):
-                helper.gpu_snapshot(root)
-            first.unlink()  # closed descriptor does not prevent recovery
-            self.assertEqual(helper.gpu_snapshot(root)['clients'], result['clients'])
-            profiling.unlink()
-            self.assertIsNone(helper.gpu_snapshot(root))
-            profiling.write_text('1\n')
-            self.assertEqual(helper.gpu_snapshot(root)['clients'], result['clients'])
-
-            original = Path.read_text
-
-            def exited(path, *args, **kwargs):
-                if path.name == '4' and path.parent.name == 'fdinfo':
-                    raise ProcessLookupError('exited during scan')
-                return original(path, *args, **kwargs)
-
-            with patch.object(Path, 'read_text', exited):
-                self.assertEqual(helper.gpu_snapshot(root)['clients'], {
-                    '43': {'fragment': 200, 'vertex-tiler': 50}})
-
-    def test_unreadable_proc_is_not_reported_as_idle(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            profiling = root / 'sys/bus/platform/drivers/panfrost/gpu/profiling'
-            profiling.parent.mkdir(parents=True)
-            profiling.write_text('1')
-            info = root / 'proc/100/fdinfo'
-            info.mkdir(parents=True)
-            original = Path.iterdir
-
-            def unreadable(path):
-                if path == info:
-                    raise PermissionError('denied')
-                return original(path)
-
-            with patch.object(Path, 'iterdir', unreadable):
-                with self.assertRaises(PermissionError):
-                    helper.gpu_snapshot(root)
+                helper.main(['gpu-snapshot', '/tmp/arbitrary'])
+            execute.assert_not_called()
 
 
 class PowerTest(unittest.TestCase):

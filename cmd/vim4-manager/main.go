@@ -21,6 +21,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "gpu-snapshot" {
+		if err := board.WriteGPUSnapshot(os.Stdout); err != nil {
+			slog.Error("GPU snapshot", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "set-password" {
 		if err := auth.PasswordCommand(os.Args[2:], os.Stdin, os.Stderr); err != nil {
 			slog.Error("set password", "error", err)
