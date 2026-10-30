@@ -21,6 +21,61 @@ loader.exec_module(helper)
 
 
 
+class MainlineEDIDTest(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch.object(helper.platform, 'release', return_value='7.3.0-vim4kvm-npu1+'))
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.blob = self.root / 'edid'
+        self.data = Path(__file__).with_name('edid').joinpath('rtk-uhd-hdr.bin').read_bytes()
+        self.enterContext(patch.object(helper, 'Path', return_value=self.blob))
+        self.enterContext(patch.object(helper, 'EDID_STATE', self.root / 'state'))
+        self.enterContext(patch.object(helper, 'JETKVM_CONFIG', self.root / 'config.json'))
+        self.enterContext(patch.object(helper, 'edid_catalog', return_value=[
+            {'id': 'RTK-CONTROL', 'name': 'RTK UHD HDR', 'description': '', 'data': self.data},
+            {'id': 'VIM4-4K60', 'name': 'Default', 'description': '', 'data': self.data}]))
+
+    def test_empty_blob_is_unknown(self):
+        self.blob.write_bytes(b'')
+        self.assertIsNone(helper.loaded_edid())
+        status = helper.edid_status()
+        self.assertFalse(status['activeKnown'])
+        self.assertEqual(status['active'], '')
+
+    def test_missing_blob_is_unknown(self):
+        self.assertIsNone(helper.loaded_edid())
+        self.assertFalse(helper.edid_status()['activeKnown'])
+
+    def test_three_block_edid_is_known(self):
+        self.assertEqual(len(self.data), 384)
+        self.blob.write_bytes(self.data)
+        self.assertEqual(helper.loaded_edid(), self.data)
+        status = helper.edid_status()
+        self.assertTrue(status['activeKnown'])
+        self.assertEqual(status['active'], 'RTK-CONTROL')
+
+    def test_nonempty_invalid_blob_still_fails(self):
+        corrupt = bytearray(self.data)
+        corrupt[-1] ^= 1
+        for data in (b'invalid', self.data[:256], bytes(corrupt)):
+            with self.subTest(length=len(data)):
+                self.blob.write_bytes(data)
+                with self.assertRaisesRegex(ValueError, 'EDID length, extension blocks, or checksum'):
+                    helper.edid_status()
+
+    def test_read_error_is_not_treated_as_unloaded(self):
+        with patch.object(Path, 'read_bytes', side_effect=PermissionError('denied')):
+            with self.assertRaises(PermissionError):
+                helper.loaded_edid()
+
+    def test_select_can_load_when_ddc_has_not_started(self):
+        self.blob.write_bytes(b'')
+        with patch.object(helper.subprocess, 'run', return_value=subprocess.CompletedProcess([], 3)), \
+                patch.object(helper, 'write_jetkvm_config'), patch.object(helper, 'load_edid') as load, \
+                patch.object(helper.os, 'sync'):
+            helper.select_edid('RTK-CONTROL')
+        load.assert_called_once_with('RTK-CONTROL', self.data)
+
+
 class PowerTest(unittest.TestCase):
     COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
 

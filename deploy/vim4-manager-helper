@@ -1009,7 +1009,12 @@ def saved_edid(presets):
 
 def loaded_edid():
     if platform.release().startswith('7.'):
-        return validate_edid(Path('/sys/kernel/debug/fe398000.hdmi-receiver/edid').read_bytes())
+        try:
+            data = Path('/sys/kernel/debug/fe398000.hdmi-receiver/edid').read_bytes()
+        except FileNotFoundError:
+            return None
+        # The receiver exposes an empty blob while DDC is stopped.
+        return validate_edid(data) if data else None
     if not EDID_LOADED.exists():
         return None
     run = subprocess.run(['systemctl', 'show', '-p', 'InvocationID', '--value', 'tvserver.service'],
