@@ -78,3 +78,25 @@ export function fixtures(locale = "en") {
   data.updates = localizeResponse("/api/updates", data.updates, cookie);
   return data;
 }
+
+/** Reproduce the real board shortly after boot, including optional PD diagnostics. */
+export function boardFixtures(locale = "en", state = "partial") {
+  const data = fixtures(locale);
+  const now = Date.now();
+  data.status.hardware.uptimeSeconds = 120;
+  data.status.power.firmwarePD = { psReady: false, timedOut: true, rp: "3A", sourceCapabilities: [] };
+  data.status.history = Array.from({ length: 25 }, (_, i) => ({
+    t: now - (24 - i) * 5000, cpu: 8 + i % 5, mem: 16, tempC: 55,
+    fan: 21, rxBps: 7000, txBps: 79000,
+  }));
+  data.status.system.links.push(...["wlan0", "wlan1"].map(name => ({ name, up: false, wireless: true, addrs: [] })));
+  data.status.system.packages.push({ name: "vim4-onekvm", version: "2.5.1+vim4.20261027.3.dev.15.g3649a8c" });
+  data.status.events = [{ t: now, tone: "idle", text: catalogs[locale]["events.managerStarted"] }];
+  if (state === "unknown") {
+    data.status.power = null;
+    data.status.media = { known: false };
+    data.status.hardware.usb = "";
+  }
+  if (state === "empty") data.status.history = [];
+  return data;
+}

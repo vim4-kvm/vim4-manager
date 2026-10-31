@@ -143,7 +143,7 @@ function PowerFact({ power, kernel }: { power: Status["power"]; kernel: string }
     : fw ? `${warm ? t("overview.notRenegotiated") : t("overview.bootFirmware")} · Rp ${fw.rp === "default" ? t("overview.defaultCurrent") : fw.rp === "unknown" ? t("common.unknown") : fw.rp}`
     : kernel.startsWith("7.") ? t("overview.usingBootFirmwareInitializationPowerBudget") : t("overview.noConfirmedPowerBudgetForThis");
   return (
-    <Fact card label={t("overview.usbCPower")} value={value} detail={detail} href="#/services" destination={t("overview.systemServices")}>
+    <Fact card mutedValue={!contract && !last} label={t("overview.usbCPower")} value={value} detail={detail} href="#/services" destination={t("overview.systemServices")}>
       {fw && (
         <div data-pd-capabilities className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
           <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
@@ -194,10 +194,10 @@ function LinkFacts({ hw, power, media }: { hw: Hardware; power: Status["power"];
     <FactGrid cols={4} className="grid-cols-2 gap-0 border-t @4xl:grid-cols-4 [&>div:nth-child(odd)]:border-r [&>div:nth-child(-n+2)]:border-b @4xl:[&>div:not(:last-child)]:border-r @4xl:[&>div:nth-child(-n+2)]:border-b-0">
       <Fact card label={t("overview.hdmiInput")} href="#/video" destination={t("overview.videoInput")} value={h.signal ? <>{h.width}×<wbr />{h.height}</> : t("overview.noSignal")}
         valueKey={h.signal ? `${h.width}×${h.height}` : t("overview.noSignal")} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
-      <Fact card label={t("overview.usbInput")} href="#/services" destination={t("overview.systemServices")} value={usbConfigured ? t("overview.connected") : hw.usb || t("common.unknown")}
+      <Fact card mutedValue={!hw.usb} label={t("overview.usbInput")} href="#/services" destination={t("overview.systemServices")} value={usbConfigured ? t("overview.connected") : hw.usb || t("common.unknown")}
         detail={usbConfigured ? t("overview.keyboardAndMouseDetected") : t("overview.waitingForTheTargetComputer")} tone={usbConfigured ? "good" : "warning"} />
       <PowerFact power={power} kernel={hw.kernel} />
-      <Fact card hideDot={mediaKnown && !media.inserted} mutedValue={mediaKnown && !media.inserted} label={t("overview.virtualMedia")} href="#/media" destination={t("overview.virtualMedia")} className="[overflow-wrap:anywhere]"
+      <Fact card hideDot={mediaKnown && !media.inserted} mutedValue={!mediaKnown || !media.inserted} label={t("overview.virtualMedia")} href="#/media" destination={t("overview.virtualMedia")} className="[overflow-wrap:anywhere]"
         value={!mediaKnown ? t("overview.statusUnknown") : media.inserted ? (media.cdrom ? t("overview.discMounted") : t("overview.diskMounted")) : t("overview.notMounted")}
         detail={!mediaKnown ? t("overview.openVirtualMedia") : media.inserted ? `${media.name || t("overview.mountedMedia")} · ${media.readOnly ? t("overview.readOnly") : t("overview.writable")}` : t("overview.chooseAnImageToMountOn")}
         tone={!mediaKnown ? "idle" : media.inserted ? (media.connected ? "good" : "warning") : "idle"} />
@@ -256,7 +256,7 @@ function NetworkList({ links }: { links: Link[] }) {
   const idleWifi = links.filter((l) => l.wireless && !l.up);
   const shown = idleWifi.length > 1 ? links.filter((l) => !idleWifi.includes(l)) : links;
   return (
-    <ul className="flex flex-col divide-y">
+    <ul className="col-span-2 flex min-w-0 flex-col divide-y @4xl:col-span-1">
       {shown.map((l) => (
         <li key={l.name} className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 py-2 first:pt-0 last:pb-0">
           <StatusLabel tone={l.up ? "good" : "idle"} className="text-sm">
@@ -271,9 +271,9 @@ function NetworkList({ links }: { links: Link[] }) {
         </li>
       ))}
       {shown.length < links.length && (
-        <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-2 last:pb-0">
-          <StatusLabel tone="idle" className="text-sm">Wi-Fi {idleWifi.map((l) => l.name).join("、")}</StatusLabel>
-          <span className="text-right text-xs text-muted-foreground">{t("overview.notConnected")}</span>
+        <li className="flex flex-wrap items-baseline gap-x-2 gap-y-1 py-2 last:pb-0">
+          <StatusLabel tone="idle" className="shrink-0 whitespace-nowrap text-sm">Wi-Fi {new Intl.ListFormat(getLocale(), { style: "narrow", type: "conjunction" }).format(idleWifi.map((l) => l.name))}</StatusLabel>
+          <span className="whitespace-nowrap text-xs text-muted-foreground">{t("overview.notConnected")}</span>
         </li>
       )}
     </ul>
@@ -351,11 +351,11 @@ export function Overview() {
     <div className="@container flex flex-col gap-6">
       <OverviewHeading />
       {!status ? <OverviewSkeleton /> : <FadeIn className="flex flex-col gap-4">
-        <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3 @4xl:grid-rows-[min-content_1fr_auto]">
           <div className="min-w-0 @4xl:col-span-2 @4xl:row-span-2"><DeviceStatus status={status} now={now} stale={stale} /></div>
           <div className="min-w-0"><ActiveApp status={status} now={now} /></div>
           <div className="min-w-0 @4xl:col-span-3 @4xl:row-start-3"><ResourceTrends hw={status.hardware} history={status.history} now={now} /></div>
-          <SettingsCard className="@4xl:col-start-3 @4xl:row-start-2" title={t("overview.recentEvents")} description={t("overview.signalUsbServiceAndActionHistory")}>
+          <SettingsCard className="@4xl:col-start-3 @4xl:row-start-2 [&>[data-slot=settings-row]:nth-last-child(2)]:flex-1" title={t("overview.recentEvents")} description={t("overview.signalUsbServiceAndActionHistory")}>
             <EventList events={status.events} now={now} />
             <p className="text-xs text-muted-foreground">{t("overview.eventHistoryResetsWhenTheManager")}</p>
           </SettingsCard>

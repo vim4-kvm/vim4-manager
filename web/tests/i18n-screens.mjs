@@ -1,7 +1,7 @@
 // Full localization review matrix, using only the local screen fixtures.
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { fixtures, localizeResponse } from "./ui-fixtures.mjs";
+import { fixtures, boardFixtures, localizeResponse } from "./ui-fixtures.mjs";
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.TEST_URL || "http://127.0.0.1:5188";
@@ -17,7 +17,13 @@ matrix.push(...pages.flatMap(page => ["error", "empty"].map(state => [page, "en"
 // Retain the Chinese validation-state coverage from the original matrix.
 matrix.push(["cooling", "zh-CN", 1440, "light", "error"]);
 
+matrix.push(...["en", "zh-CN"].flatMap(locale => [
+  ["overview", locale, 1440, "dark", "board"], ["overview", locale, 390, "light", "board"],
+  ["overview", locale, 390, "light", "unknown"], ["apps", locale, 1440, "light", "board"],
+]));
+
 function screenData(page, locale, state) {
+  if (state === "board" || state === "unknown") return boardFixtures(locale, state);
   const data = fixtures(locale);
   const zh = locale === "zh-CN";
   data.auth.authenticated = page !== "login";

@@ -63,7 +63,7 @@
 - 页面顶部状态条一律为中性卡片，不再有绿色底（KVM 页「当前运行」条）。
 - 绿色圆点只出现在：各页顶部状态条的首个状态标签、当前 KVM 的「运行中」、信号路径图的端口节点与节点卡片状态标签。
   其他位置（侧栏提示、概览数值、设备健康、网卡列表）good 不画点，只显示文字；
-  warning / critical 照旧画彩色点并着色文字；idle 画中性点；概览虚拟介质未挂载时不画点，数值使用 muted-foreground。
+  warning / critical 照旧画彩色点并着色文字；idle 画中性点；概览虚拟介质未挂载时不画点，数值使用 muted-foreground；Status unavailable / Status unknown 等未知数值同样静音显示。
 - 最近事件：good 与 idle 用中性点（`bg-muted-foreground/40`），warning / critical 用彩色点。
 - 侧栏提示文字为 `text-muted-foreground tabular-nums`；仅 warning / critical 时带点并着色。
 
@@ -116,11 +116,11 @@
   - 底部：四格数值条，`grid-cols-4 divide-x border-t`。每格：标签（`text-xs muted`）、
     数值、详情（`text-xs muted`）。标签、数值、详情三条基线对齐，不再显示 PortTag；去掉角标图标和右箭头；整格可点击跳转，悬停 `bg-muted/50`，有焦点环。
     USB-C 供电格保留源能力展开明细。
-- 右列：当前 KVM（去掉 `size-8` 装饰图标）+ 最近事件；左卡 `h-full`，右列第二张卡填满剩余高度，不留空带。
-- 资源趋势占整行，绘图区高 240px（窄屏 180px），按峰值生成整齐等距刻度，非零峰值至少占绘图区高度的 60%（23% 对应 0/10/20/30%），缺失数据不补零。
+- 右列：当前 KVM（去掉 `size-8` 装饰图标）+ 最近事件；左卡 `h-full`，右列两卡间距固定 16px；最近事件卡片填满剩余高度，空白位于列表下方、脚注上方，PD 源能力行不撑大卡片间距。
+- 资源趋势占整行，绘图区高 240px（窄屏 180px），按峰值生成整齐等距刻度，非零峰值至少占绘图区高度的 60%（23% 对应 0/10/20/30%），缺失数据不补零。部分历史只保留淡色无数据区，不显示 No samples yet；完全无样本时才显示空态标签。
   桌面标题、指标页签、时间范围同一行；下一行当前值块靠左，平均/峰值/最小值靠右。
   窄屏页签独占一行并可横向滚动，统计位于当前值下方；采样脚注保留在图下方。
-- 设备健康：五项在同一网格对齐；网卡名称与速率在同一行（Ethernet eth0 · 1 Gbps），地址在下一行，均左对齐。
+- 设备健康：五项在同一网格对齐；网卡名称与速率在同一行（Ethernet eth0 · 1 Gbps），地址在下一行，均左对齐。空闲 Wi-Fi 名称使用当前语言的 Intl.ListFormat（conjunction/narrow）连接；手机网络块跨两列，名称不拆行，状态放不下时换行并左对齐。
 
 窄屏（< `@4xl`）依次为：板卡卡片（板子图收进原「显示连接」折叠，数值条 2×2）、当前 KVM、资源趋势、
 最近事件、设备健康。
@@ -133,6 +133,7 @@
 - 视频输入：EDID 预设的「已保存」「已加载」改为名称后的 `text-xs muted` 文字，名称后间隔 8px；合为一段 Saved · Loaded（已保存 · 已加载），不加前导点。
 - 侧栏底部主机名与内核版本左对齐；桌面顶栏删除侧栏按钮右侧的竖分隔线，手机保留。
 - 徽章 `rounded-4xl` 改为 `rounded-md`。
+- 开发版标记统一使用 DevelopmentBadge：无衬线、text-xs、muted-foreground、bg-muted、rounded-md、无边框，版本行的等宽字体不得继承到标签。
 - 品牌标志与登录页不改。
 
 ## 图标与动效
@@ -153,8 +154,18 @@
   平均、峰值、最小值放在当前值右侧。概览四格数值条不带 PortTag，端口标签只在板图上出现。
 - 浏览器断言改为检查新结构，并增加板图尺寸、端口键盘详情和手机折叠检查。
 
-离线验证（全部使用模拟 API，不连接板子）：`pnpm --dir web typecheck && pnpm --dir web build`、
+首轮离线验证（全部使用模拟 API，不连接板子）：`pnpm --dir web typecheck && pnpm --dir web build`、
 全部 `web/tests/*.mjs`、`i18n-screens.mjs`（117 张，无文字溢出或按钮裁切）、deploy 与主仓库单元测试均通过；
 上述禁用类名在 `web/src` 中无匹配。`go test ./...` 只有
 `internal/nasdisk.TestNewSessionPersistsLayoutVersionAndDiscardRemovesDirectory` 失败，
 原因是本机磁盘剩余 859 MiB，低于该测试要求的 2 GiB 预留加 256 MiB；本轮没有改动 Go 代码。
+
+### 第 3 轮真机数据回归
+
+新增共享 boardFixtures（开机两分钟、PD 源能力行、双空闲 Wi-Fi、开发版、未知值、完全空历史），
+由 board-regressions.mjs 逐项断言 16px 间距及事件区拉伸、部分/空历史、双语网卡列表与手机跨列、
+两处 DevelopmentBadge 的计算样式、未知值颜色。截图矩阵加入对应概览及 KVM 状态。
+本轮 typecheck/build、全部 25 个 web/tests 入口（修正后）、i18n-screens（125 张）、
+deploy 单测（220 项，跳过 12）、主仓库单测（333 项，跳过 8）与禁用类名 grep 通过；
+补跑 go test ./... 也通过（当前磁盘可用约 85 GiB）。
+人工复核受影响的 after3 截图；证据在 /tmp/unslop-audit/after3/ 与 /tmp/unslop-audit/logs3/。

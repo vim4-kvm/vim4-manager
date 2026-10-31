@@ -64,7 +64,7 @@ try {
     metricTitles.push(await charts.locator('[data-trend-title]').textContent());
     assert.match(await charts.getByRole('img').getAttribute('aria-label'), /last 3 minutes/);
     assert.equal(await page.locator('[data-chart=unsampled]').count(),1);
-    assert.equal(await page.getByText('No samples yet',{exact:true}).count(),1);
+    assert.equal(await page.getByText('No samples yet',{exact:true}).count(),0);
   }
   assert.deepEqual(metricTitles,['CPU usage','Memory usage','Network upload','CPU dynamic power (estimated)','SoC temperature','Fan duty']);
   await page.getByRole('tab',{name:'CPU',exact:true}).click();

@@ -40,7 +40,7 @@ export function Fact({ label, value, valueKey, detail, tone, href, destination, 
   const id = useId();
   const key = valueKey ?? (typeof value === "string" ? value : "");
   const valueLine = (
-    <span className={cn("flex min-w-0 items-center gap-2", tone === "warning" && "text-warning-foreground", tone === "critical" && "text-destructive")}>
+    <span className={cn("flex min-w-0 items-center gap-2", !mutedValue && tone === "warning" && "text-warning-foreground", !mutedValue && tone === "critical" && "text-destructive")}>
       {!hideDot && tone && tone !== "good" && <StatusDot tone={tone} />}
       <FadeText id={key} className="min-w-0 [overflow-wrap:anywhere]">{value}</FadeText>
     </span>

@@ -59,7 +59,7 @@ export function TrendChart({
   onHover,
   maxGapMs = Infinity,
   currentAvailable = true,
-  emptyMessage = t("trends.sampling"),
+  emptyMessage = t("chart.noSamplesYet"),
   height = 112,
   sampledFrom,
   sampledMinutes = Math.round(windowMs / 60000),
@@ -168,10 +168,7 @@ export function TrendChart({
               <stop offset="100%" stopColor="var(--chart-1)" stopOpacity="0" />
             </linearGradient>
           </defs>
-          {unsampledWidth > 0 && <>
-            <rect data-chart="unsampled" className="fill-muted" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} />
-            {visible.length > 0 && unsampledWidth >= 96 && <text data-chart="tick" className={TICK} x={PAD_LEFT + unsampledWidth / 2} y={PAD_TOP + height / 2} textAnchor="middle" dominantBaseline="middle">{t("chart.noSamplesYet")}</text>}
-          </>}
+          {unsampledWidth > 0 && <rect data-chart="unsampled" className="fill-muted" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} />}
           {ticks.map((v) => (
             <g key={v}>
               <line data-chart="grid" className="stroke-border [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
