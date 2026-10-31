@@ -54,6 +54,9 @@ func drmNode(target string) bool {
 }
 
 func readGPUSnapshot(root string) (*gpuSnapshot, error) {
+	if snapshot, found, err := readKbaseSnapshot(root); found || err != nil {
+		return snapshot, err
+	}
 	nodes, err := filepath.Glob(filepath.Join(root, "sys/bus/platform/drivers/panfrost/*/profiling"))
 	if err != nil || len(nodes) != 1 {
 		return nil, err

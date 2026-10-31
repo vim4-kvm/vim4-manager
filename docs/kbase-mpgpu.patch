@@ -1,0 +1,67 @@
+diff --git a/drivers/gpu/arm/midgard/platform/vim4/platform.c b/drivers/gpu/arm/midgard/platform/vim4/platform.c
+--- a/drivers/gpu/arm/midgard/platform/vim4/platform.c
++++ b/drivers/gpu/arm/midgard/platform/vim4/platform.c
+@@ -3,6 +3,7 @@
+ #include <mali_kbase_config_defaults.h>
+ #include <linux/clk.h>
++#include <linux/device.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/reset.h>
+ 
+ int meson_gpu_fault;
+@@ -13,11 +14,22 @@ MODULE_DESCRIPTION("Mali r44p0 UK 11.39 for VIM4");
+ struct vim4_platform {
+ 	struct reset_control *reset;
+ 	struct clk *bus;
++	struct class *mpgpu;
+ };
+ 
++/* VIM4 has one GPU; preserve the vendor's last DVFS interval ABI. */
++static u32 last_utilisation;
++
++static ssize_t utilization_show(const struct class *class,
++			       const struct class_attribute *attr, char *buf)
++{
++	return sysfs_emit(buf, "%u\n", READ_ONCE(last_utilisation));
++}
++static CLASS_ATTR_RO(utilization);
++
+ int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation,
+ 			      u32 gl_share, u32 cl_share[2])
+ {
+-	/* The devfreq governor consumes kbase's metrics directly. */
++	WRITE_ONCE(last_utilisation, utilisation);
+ 	return 0;
+ }
+@@ -53,8 +65,22 @@ static int vim4_init(struct kbase_device *kbdev)
+ 		goto power_off;
+ 	}
+ 	kbdev->platform_context = platform;
++	WRITE_ONCE(last_utilisation, 0);
++	platform->mpgpu = class_create("mpgpu");
++	if (IS_ERR(platform->mpgpu)) {
++		err = PTR_ERR(platform->mpgpu);
++		goto reset_bus;
++	}
++	err = class_create_file(platform->mpgpu, &class_attr_utilization);
++	if (err) {
++		class_destroy(platform->mpgpu);
++		goto reset_bus;
++	}
+ 	return 0;
+ 
++reset_bus:
++	reset_control_assert(platform->reset);
++	clk_disable_unprepare(platform->bus);
+ power_off:
+ 	pm_runtime_put_sync(kbdev->dev);
+ 	pm_runtime_disable(kbdev->dev);
+@@ -66,6 +92,8 @@ static void vim4_term(struct kbase_device *kbdev)
+ {
+ 	struct vim4_platform *platform = kbdev->platform_context;
+ 
++	class_remove_file(platform->mpgpu, &class_attr_utilization);
++	class_destroy(platform->mpgpu);
+ 	reset_control_assert(platform->reset);
+ 	clk_disable_unprepare(platform->bus);
+ 	pm_runtime_put_sync(kbdev->dev);

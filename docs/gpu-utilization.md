@@ -4,6 +4,9 @@
 周期语义；接口存在但值无效仍为 null。Panfrost 后端不更改前端或 `history[].gpu` 合同。
 两者都不包括 Wave5、厂商视频编码器或 CPU 使用率。
 
+7.x kbase 的 PM 计数后备现在位于 Panfrost 前面；完整探测顺序、5.15 源码语义、
+平台层兼容补丁草案及新窗口清单见 [7.x 接入](gpu-7x.md)。下文保留 Panfrost 实现的依据与历史验证范围。
+
 ## 内核依据与来源选择
 
 离线只读核对 VM `~/src/linux-7.3-hdmi-integration` 的 `213f271505411` 和
