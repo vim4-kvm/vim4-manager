@@ -21,6 +21,7 @@ TX = '/sys/class/amhdmitx/amhdmitx0/'
 VIDEO = '/sys/class/video/'
 RUNTIME = '/run/vim4-passthrough/'
 QUALIFICATION = '/etc/vim4-kvm/passthrough-5.15.json'
+BROKER_CONTROL = RUNTIME + 'control.sock'
 OSD_BLANKS = tuple(f'/sys/class/drm/card0/osd{index}/blank' for index in (0, 1))
 OSD_SAVED = RUNTIME + 'osd-before.json'
 
@@ -578,21 +579,82 @@ class VendorPassthrough:
             time.sleep(.5)
 
 
+class MainlinePassthrough:
+    """Request an independent capture owner; never open capture or KMS here."""
+
+    def __init__(self, control=BROKER_CONTROL):
+        self.control = control
+
+    def command(self, operation, preferences=None):
+        request = {'version': 1, 'op': operation}
+        if preferences is not None:
+            request['preferences'] = preferences
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET) as connection:
+                connection.settimeout(2)
+                connection.connect(self.control)
+                connection.sendall(json.dumps(request).encode())
+                data, _, flags, _ = connection.recvmsg(16384)
+        except FileNotFoundError:
+            if operation == 'status':
+                return {'supported': False, 'enabled': False, 'audio': False,
+                        'hdr': True, 'state': 'unsupported'}
+            raise ValueError("The capture service isn't installed or running.") from None
+        except OSError:
+            raise ValueError("The passthrough service didn't respond. Try again.") from None
+        try:
+            reply = json.loads(data)
+            if reply.get('error'):
+                raise ValueError
+            state = reply['state']
+            if flags & socket.MSG_TRUNC or reply['version'] != 1:
+                raise ValueError
+            if not isinstance(state, dict) or not isinstance(state.get('state'), str):
+                raise ValueError
+            for key in ('supported', 'enabled', 'audio', 'hdr'):
+                if type(state[key]) is not bool:
+                    raise ValueError
+            # The preference is never substituted for the actual mapped-pixel
+            # fact. An output without that readback is incomplete, even if the
+            # service accepted the requested preference.
+            if state.get('output') is not None and type(state['output']['hdrToSdr']) is not bool:
+                raise ValueError
+            if not state['supported'] and state['state'] == 'running':
+                raise ValueError
+        except (ValueError, KeyError, TypeError):
+            raise ValueError("The passthrough service returned an invalid state.") from None
+        return state
+
+    def status(self):
+        return self.command('status')
+
+    def set(self, enabled, audio, hdr=True):
+        return self.command('set', {'enabled': enabled, 'audio': audio, 'hdr': hdr})
+
+
 def main(args):
-    controller = VendorPassthrough()
+    controller = MainlinePassthrough() if platform.release().startswith('7.') else VendorPassthrough()
     if args == ['status']:
         print(json.dumps(controller.status()))
     elif len(args) == 4 and args[0] == 'set' and all(value in ('true', 'false') for value in args[1:]):
         print(json.dumps(controller.set(*(value == 'true' for value in args[1:]))))
     elif args == ['watch']:
+        if isinstance(controller, MainlinePassthrough):
+            raise ValueError('The mainline capture broker owns passthrough watching.')
         controller.path(RUNTIME).mkdir(mode=0o700, parents=True, exist_ok=True)
         controller.watch()
     elif args == ['prepare']:
+        if isinstance(controller, MainlinePassthrough):
+            raise ValueError('The mainline capture broker owns passthrough preparation.')
         controller.prepare()
     elif args == ['audio-watch']:
+        if isinstance(controller, MainlinePassthrough):
+            raise ValueError('The mainline capture broker owns audio capture.')
         from vim4_passthrough_audio import watch
         watch()
     elif len(args) == 2 and args[0] == 'audio-pcm':
+        if isinstance(controller, MainlinePassthrough):
+            raise ValueError('The mainline capture broker owns audio capture.')
         from vim4_passthrough_audio import bridge
         bridge(int(args[1]))
     else:

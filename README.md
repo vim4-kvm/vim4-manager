@@ -426,8 +426,19 @@ Linux VM 验证可交叉编译 `go test -c ./internal/nasdisk`，在具有 `/dev
 
 ## HDMI 输出
 
+7.x 使用独立常驻采集 broker；限定助手通过
+`/run/vim4-passthrough/control.sock` 的 Unix SOCK_SEQPACKET 请求状态或提交偏好，
+不打开采集/KMS/PCM，不启动厂商 watch。协议v1请求为
+`{"version":1,"op":"status"}` 或
+`{"version":1,"op":"set","preferences":{"enabled":true,"audio":false,"hdr":true}}`；
+响应为 `{"version":1,"state":{…}}`，state沿用本节API结构。
+GET只读，`supported`、扫描状态与`output.hdrToSdr`均来自broker实际能力与读回，
+不根据内核版本、进程active或保存偏好宣告支持。broker缺失时返回unsupported。
+当前适配仅通过离线协议/既有API回归，未启用或部署broker，也无7.x透传硬件验收。
+5.15继续使用下述厂商路径，前端不变。
+
 `#/output` 提供透传和声音开关，每 2 秒读取 `GET /api/passthrough`，操作期间及离页停止轮询。
-`POST /api/passthrough` 接受可选的 `enabled`、`audio` 布尔值，至少提供一项，返回实际状态。
+`POST /api/passthrough` 接受可选的 `enabled`、`audio`、`hdr` 布尔值，至少提供一项，返回实际状态。
 偏好沿用管理器 `-state-dir`（默认 `/var/lib/vim4-manager`），原子保存到 `passthrough.json`，
 声音默认关闭；支持的 provider 在管理器启动时恢复设置。操作失败不保存新偏好，保存失败尝试恢复旧设置。
 `/api/status` 同时提供 `passthrough` 摘要供其他页面的导航提示使用。
