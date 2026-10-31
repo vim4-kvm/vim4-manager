@@ -22,7 +22,7 @@ export function LanguageMenu({ login = false, initialOpen = false }: { login?: b
       <Button variant="ghost" size={login ? "sm" : "icon"} className={login ? undefined : "rounded-full"}
         aria-label={t("common.language")} title={error ? t("common.connectionFailed") : t("common.language")}>
         {loading ? <Spinner className="size-5" /> : <Languages aria-hidden="true" className="size-5" />}
-        {login && <>{languageChoices.find((choice) => choice.value === locale)!.label}<ChevronDown aria-hidden="true" className="size-3.5" /></>}
+        {login && <>{languageChoices.find((choice) => choice.value === locale)!.label}<ChevronDown aria-hidden="true" className="size-4" /></>}
         {error && <span role="alert" className="sr-only">{t("common.connectionFailed")}</span>}
       </Button>
     </DropdownMenuTrigger>

@@ -173,7 +173,7 @@ export function TailscalePanel() {
 
   return (
     <SettingsCard label="Tailscale"><FadeIn className="flex min-w-0 flex-col gap-5">
-        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Network className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Tailscale" description={t("tailscale.securelyAccessTheManagerAndKvm")}
+        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-medium"><div className="rounded-xl bg-muted p-3"><Network className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Tailscale" description={t("tailscale.securelyAccessTheManagerAndKvm")}
           status={label} pending={jobRunning || !!pending}
           control={switchable && <Switch aria-label={t("tailscale.tailscaleConnection")} checked={connected} disabled={locked}
             onCheckedChange={() => connected ? setConfirming("down") : void act("up")} />} /></div></div>

@@ -20,9 +20,9 @@ export function Cooling() {
   return <>
     <PageHeading page="cooling" />
     <section aria-label={t("cooling.temperatures")} className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-4 text-sm">
-      <StatusLabel tone={tempTone(hw.tempC)}><strong>{hw.tempC >= 85 ? t("cooling.hot") : hw.tempC >= 70 ? t("cooling.warm") : t("cooling.normal")}</strong></StatusLabel>
+      <StatusLabel showGood tone={tempTone(hw.tempC)}><strong>{hw.tempC >= 85 ? t("cooling.hot") : hw.tempC >= 70 ? t("cooling.warm") : t("cooling.normal")}</strong></StatusLabel>
       <dl className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
-        <div className="flex items-baseline gap-2"><dt className="text-muted-foreground">SoC</dt><dd className="text-base font-semibold tabular-nums">{celsius(hw.tempC)}</dd></div>
+        <div className="flex items-baseline gap-2"><dt className="text-muted-foreground">SoC</dt><dd className="text-base font-medium tabular-nums">{celsius(hw.tempC)}</dd></div>
         {zones.map((z) => <div key={z.name} className="flex items-baseline gap-2"><dt className="text-muted-foreground">{z.name.toUpperCase()}</dt><dd className="tabular-nums">{celsius(z.tempC)}</dd></div>)}
         <div className="flex items-baseline gap-2"><dt className="text-muted-foreground">{t("cooling.fan")}</dt><dd className="tabular-nums">{hw.fanPercent > 0 ? `${number(hw.fanPercent)}%` : t("cooling.stopped")}<span className="ml-1.5 text-muted-foreground">{hw.fanAuto ? t("cooling.autoDuty") : t("cooling.manualDuty")}</span></dd></div>
       </dl>

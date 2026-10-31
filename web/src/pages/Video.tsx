@@ -1,3 +1,4 @@
+import { PortTag } from "@/components/PortTag";
 import { hdrLabel } from "@/lib/units";
 import { number } from "@/i18n/format";
 import { t, useLocale } from "@/i18n";
@@ -23,9 +24,9 @@ export function Video() {
   return <>
     <PageHeading page="video" />
     {hw && <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-xl border bg-card px-5 py-5 text-sm">
-      <StatusLabel tone={stale ? "warning" : hw.hdmi.signal ? "good" : "idle"}><strong>{stale ? t("overview.connectionLost") : hw.hdmi.signal ? t("video.inputConnected") : t("video.noInputSignal")}</strong></StatusLabel>
+      <PortTag>HDMI IN</PortTag><StatusLabel showGood tone={stale ? "warning" : hw.hdmi.signal ? "good" : "idle"}><strong>{stale ? t("overview.connectionLost") : hw.hdmi.signal ? t("video.inputConnected") : t("video.noInputSignal")}</strong></StatusLabel>
       {hw.hdmi.signal && <>
-        <span className="font-semibold tabular-nums">{hw.hdmi.width}×{hw.hdmi.height}</span>
+        <span className="font-medium tabular-nums">{hw.hdmi.width}×{hw.hdmi.height}</span>
         <span className="text-muted-foreground tabular-nums">{hw.hdmi.refreshHz ? `${number(hw.hdmi.refreshHz, {maximumFractionDigits:2})} Hz` : t("video.refreshRateUnknown")}</span>
         <span className="text-muted-foreground">{hw.hdmi.colorSpace || t("video.colorFormatUnknown")}{hw.hdmi.depth ? ` · ${hw.hdmi.depth} bit` : ""}</span>
         <span className="text-muted-foreground">{hdrLabel(hw.hdmi.hdr) || t("video.hdrStatusUnknown")}</span>

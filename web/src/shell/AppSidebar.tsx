@@ -12,7 +12,7 @@ import { preloadPage } from "./routes";
 import { useT } from "@/i18n";
 
 const hintTones = {
-  good: "text-success-foreground",
+  good: "",
   warning: "text-warning-foreground",
   critical: "text-destructive",
   idle: "",
@@ -24,7 +24,7 @@ function Brand() {
     <a href="#/overview" aria-label={t("nav.brand")} className="flex h-12 items-center gap-2.5 rounded-md px-1 outline-none focus-visible:ring-2 focus-visible:ring-ring group-data-[collapsible=icon]:px-0">
       <BrandMark />
       <span className="flex min-w-0 flex-col leading-tight group-data-[collapsible=icon]:hidden">
-        <span data-brand className="text-sm font-semibold text-foreground">VIM4 KVM</span>
+        <span data-brand className="text-sm font-medium text-foreground">VIM4 KVM</span>
         <span className="mt-0.5 text-xs text-muted-foreground">{t("nav.manager")}</span>
       </span>
     </a>
@@ -56,7 +56,7 @@ function Navigation({ page }: { page: PageId }) {
                       <span className="min-w-0 flex-1 truncate group-data-[collapsible=icon]:hidden">{p.title}</span>
                       {hint && (
                         <span data-nav-hint={p.id} data-tone={tone} className={cn("ml-auto flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground tabular-nums group-data-[collapsible=icon]:hidden", tone && hintTones[tone])}>
-                          {tone && <StatusDot tone={tone} className="size-1.5" />}
+                          {(tone === "warning" || tone === "critical") && <StatusDot tone={tone} className="size-1.5" />}
                           {hint.text}
                         </span>
                       )}
@@ -78,10 +78,10 @@ function Connection() {
   return (
     <div className="flex min-w-0 flex-col gap-1 px-2 text-xs group-data-[collapsible=icon]:items-center group-data-[collapsible=icon]:px-0">
       <span className="flex min-w-0 items-center gap-2 text-sidebar-foreground">
-        <span title={stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}><StatusDot tone={stale ? "critical" : status ? "good" : "warning"} /></span>
+        {(stale || !status) && <span title={stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}>{(stale || !status) && <StatusDot tone={stale ? "critical" : "warning"} />}</span>}
         <span className="truncate group-data-[collapsible=icon]:sr-only">{stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}</span>
       </span>
-      {status && <span data-kernel className="truncate pl-4 font-mono text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden">{status.hardware.kernel}</span>}
+      {status && <span data-kernel className="truncate font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{status.hardware.kernel}</span>}
     </div>
   );
 }

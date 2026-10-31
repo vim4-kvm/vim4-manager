@@ -76,7 +76,7 @@ try {
   await page.waitForResponse((r) => new URL(r.url()).pathname === "/api/nasdisk");
   assert.equal(await page.getByRole("group", { name: "Last session", exact: true }).count(), 0);
   disk = { ...disk, last: { ...disk.last, id: "s2", summary: { mkdirs: 0, writes: 1, renames: 0, deletes: 0, ignored: 0, conflicts: 0 }, conflicts: [], trash: { files: 1, bytes: 190 * 2 ** 20 } } };
-  await page.getByRole("group", { name: "Last session", exact: true }).getByText( "Written back to NAS: Files written: 1.", { exact: false }).waitFor();
+  await page.getByRole("group", { name: "Last session", exact: true }).getByText( "Written back to NAS: Files written: 1", { exact: false }).waitFor();
   const lastLine = await page.getByRole("group", { name: "Last session", exact: true }).boundingBox();
   assert.ok(lastLine.height < 45, "a simple last result occupies one desktop line");
   await shot(page, "nasdisk-last");
@@ -94,12 +94,12 @@ try {
   await newName.fill("a:b");
   await page.getByText("Names can't contain", { exact: false }).waitFor();
   await newName.fill("驱动 2026");
-  await page.getByText("A folder with this name already exists.").waitFor();
+  await page.getByText("A folder with this name already exists").waitFor();
   assert.equal(await page.getByRole("button", { name: "Create" }).isDisabled(), true);
   await newName.fill("安装包");
   await shot(page, "nasdisk-mkdir");
   await newName.press("Enter");
-  await page.getByText("No subfolders.").waitFor();
+  await page.getByText("No subfolders").waitFor();
   assert.deepEqual(requests.at(-1), { path: "/api/storage/mkdir", body: { id: "home", path: "/工具", name: "安装包" } });
   assert.equal(await page.getByRole("navigation", { name: "Folder path" }).getByRole("button", { name: "安装包", exact: true }).innerText(), "安装包");
   await page.getByRole("button", { name: "工具" }).click();
@@ -113,7 +113,7 @@ try {
   assert.equal(await page.getByLabel("Volume label").inputValue(), "TOOLS");
   await page.getByText("Selected: 家庭 NAS › 工具").waitFor();
   await page.getByRole("button", { name: "驱动 2026" }).click();
-  await page.getByText("No subfolders.").waitFor();
+  await page.getByText("No subfolders").waitFor();
   assert.equal(await page.getByLabel("Volume label").inputValue(), "TOOLS", "manual label survives navigation");
   await page.getByRole("button", { name: "工具", exact: true }).click();
   await page.getByRole("button", { name: "驱动 2026" }).waitFor();
@@ -149,7 +149,7 @@ try {
       { path: "/工具/a:b.txt", reason: "invalid FAT name or more than 255 UTF-16 units" }] } };
   await page.getByText("Mounted on target computer").waitFor();
   assert.equal(await page.getByRole("region", { name: "USB drive activity" }).getByRole("button", { name: "Cancel", exact: true }).count(), 0);
-  await page.getByText("Safely eject the drive on the target computer to write changes back to the NAS.", { exact: true }).waitFor();
+  await page.getByText("Safely eject the drive on the target computer to write changes back to the NAS", { exact: true }).waitFor();
   await page.getByText("How to safely eject", { exact: true }).click();
   await page.getByText("On Mac, use the eject button", { exact: false }).waitFor();
   assert.equal(await page.getByText("The NAS isn't responding", { exact: false }).count(), 0);
@@ -183,7 +183,7 @@ try {
   assert.deepEqual(requests.at(-1), { path: "/api/nasdisk/reattach", body: { id: "s1" } });
 
   disk = { ...disk, session: { ...disk.session, state: "failed", decision: null, error: "Couldn't read files on the NAS", detail: "read /工具/a.bin: input/output error" } };
-  await page.getByText("Changes not written back remain in the NAS staging area.").waitFor();
+  await page.getByText("Changes not written back remain in the NAS staging area").waitFor();
   await page.getByText("Technical details").click();
   await page.getByText("read /工具/a.bin: input/output error").waitFor();
   await page.getByRole("button", { name: "Retry writeback" }).click();

@@ -253,12 +253,12 @@ export function StoragePanel() {
             const open = editor?.editing && editor.draft.id === s.id;
             const inUse = session?.storage === s.id;
             return (
-              <div className={`rounded-xl border p-5 ${s.id === selectedStorage?.id ? "border-chart-1/40 bg-chart-1/3" : "bg-card"} ${open ? "space-y-5" : ""}`}>
+              <div className={`rounded-xl border p-5 ${s.id === selectedStorage?.id ? "border-foreground/15 bg-muted/50" : "bg-card"} ${open ? "space-y-5" : ""}`}>
                 <div className="flex min-w-0 flex-wrap items-start gap-3">
-                  <div className="rounded-lg bg-chart-1/8 p-3 text-chart-1"><Server className="size-5" aria-hidden="true" /></div>
+                  <div className="rounded-lg bg-muted/50 p-3 text-muted-foreground"><Server className="size-4" aria-hidden="true" /></div>
                   <div className="flex min-w-0 flex-1 flex-col gap-2">
                     <div className="flex flex-wrap items-center gap-2 [&_strong]:font-medium">
-                      <button type="button" className="rounded-sm text-left text-base font-semibold outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50" aria-pressed={s.id === selectedStorage?.id} aria-label={t("storage.viewConnectionDetailsFor", { p0: String(s.name) })} onClick={() => setSelectedID(s.id)}>{s.name}</button>
+                      <button type="button" className="rounded-sm text-left text-base font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50" aria-pressed={s.id === selectedStorage?.id} aria-label={t("storage.viewConnectionDetailsFor", { p0: String(s.name) })} onClick={() => setSelectedID(s.id)}>{s.name}</button>
                       <StatusDot tone={connection.tone} />
                       <Badge variant="secondary">{s.type.toUpperCase()}</Badge>
                       {s.autoMount && <Badge variant="secondary">{t("storage.connectAutomatically")}</Badge>}

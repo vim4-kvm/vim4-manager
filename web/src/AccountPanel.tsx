@@ -288,8 +288,8 @@ export function AccountPanel() {
       <SettingsCard title={t("account.administratorAccount")}>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
           <div className="flex min-w-0 items-center gap-5 py-3 lg:border-r lg:pr-6">
-            <Avatar username={signedInName} className="size-20 bg-chart-1/10 text-3xl text-chart-1" />
-            <div className="min-w-0 space-y-1"><strong className="block break-all text-xl font-semibold">{signedInName}</strong><p className="text-sm text-muted-foreground">{t("account.deviceAdministrator")}</p></div>
+            <Avatar username={signedInName} className="size-20 bg-muted/50 text-3xl text-muted-foreground" />
+            <div className="min-w-0 space-y-1"><strong className="block break-all text-xl font-medium">{signedInName}</strong><p className="text-sm text-muted-foreground">{t("account.deviceAdministrator")}</p></div>
           </div>
           <div className="@container min-w-0 divide-y [&>div]:py-4 [&>div:first-child]:pt-0 [&>div:last-child]:pb-0">
             <SettingRow title={t("login.username")} description={signedInName} control={<Button variant="outline" aria-label={t("account.changeUsername")} onClick={() => open("username")}>{t("account.changeUsername")}</Button>} />
@@ -304,7 +304,7 @@ export function AccountPanel() {
         )}
       </SettingsCard>
       <SettingsCard data-account-devices><div className="flex min-w-0 flex-col gap-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 [&>div]:min-w-0 [&>div]:flex-1 [&>div]:basis-64 [&_h3]:text-base [&_h3]:font-semibold [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-3 [&>div]:min-w-0 [&>div]:flex-1 [&>div]:basis-64 [&_h3]:text-base [&_h3]:font-medium [&_p]:mt-1 [&_p]:text-sm [&_p]:text-muted-foreground">
           <div>
             <h3>{t("account.signedInDevices")}</h3>
             <p>{t("account.browsersAndToolsSignedInTo")}</p>

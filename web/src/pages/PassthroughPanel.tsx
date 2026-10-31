@@ -1,3 +1,4 @@
+import { PortTag } from "@/components/PortTag";
 import { number } from "@/i18n/format";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { request, type PassthroughState } from "@/api";
@@ -226,7 +227,7 @@ export function PassthroughPanel() {
     </FadeIn>
     </SettingsCard>
     {state.supported && <div className="grid items-start gap-5 lg:grid-cols-2">
-    <SettingsCard title={t("output.outputSettings")}>
+    <SettingsCard title={t("output.outputSettings")} action={<PortTag>HDMI OUT</PortTag>}>
     {state.supported && <FadeIn><SettingRow title="HDR" description={t("output.passHdrVideoThroughWhenOn")}
       status={hdrLabel} inactive={hdrInactive} pending={pending === "hdr"}
       control={<Switch aria-label="HDR" checked={pending === "hdr" ? hdrTarget : hdr}

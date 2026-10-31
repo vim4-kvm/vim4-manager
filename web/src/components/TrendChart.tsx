@@ -2,7 +2,7 @@ import { t, useLocale, getLocale } from "@/i18n";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { cn } from "@/lib/utils";
 
-const TICK = "fill-muted-foreground text-[11px] tabular-nums";
+const TICK = "fill-muted-foreground text-xs tabular-nums";
 const LINE = "fill-none [stroke-linecap:round] [stroke-linejoin:round]";
 const DOT = "fill-chart-1 stroke-card stroke-3";
 

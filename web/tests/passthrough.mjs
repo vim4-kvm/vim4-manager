@@ -30,10 +30,10 @@ const cases = [
   ["stopping", "Turning off…", false, true],
   ["running", "Passthrough active", true, false, "Remote KVM stays connected. The local display may briefly go blank when the target computer changes resolution."],
   ["no-signal", "Waiting for input", true, false, "No HDMI IN signal. The display stays black and resumes automatically when the signal returns."],
-  ["no-monitor", "No display connected", true, false, "Passthrough starts automatically when a display connects."],
+  ["no-monitor", "No display connected", true, false, "Passthrough starts automatically when a display connects"],
   ["protected", "Protected input", true, false, "The target computer is playing HDCP-protected content. The display stays black."],
   ["unsupported-format", "Unsupported input format", true, false, "This format cannot pass through. Select HDR10, HLG, or SDR on the source."],
-  ["video-error", "Input signal problem", true, false, "Check the HDMI input cable and source settings."],
+  ["video-error", "Input signal problem", true, false, "Check the HDMI input cable and source settings"],
 ];
 
 const browser = await chromium.launch({ channel: "chrome", headless: true });
@@ -106,8 +106,8 @@ try {
           row: box(row), title: box(row.querySelector("h3")), control: box(row.querySelector('[role="switch"]')),
           description: box(row.querySelector("p")),
         })),
-        facts: [...el.querySelectorAll("div:has(> dt)")].filter(fact => fact.querySelector("[data-tone]")).map(fact => ({
-          box: box(fact), lamp: box(fact.querySelector("[data-tone]")), value: box(fact.querySelector("dd > span > span:last-child")),
+        facts: [...el.querySelectorAll("[data-passthrough-body] div:has(> dt)")].map(fact => ({
+          box: box(fact), lamp: fact.querySelector("[data-tone]") ? box(fact.querySelector("[data-tone]")) : null, value: box(fact.querySelector("dd > span > span:last-child")),
           detail: fact.querySelector("dd[title]") ? box(fact.querySelector("dd[title]")) : null,
         })),
         paragraphs: [...el.querySelectorAll("[data-description], [role=group] > p")].map(p => getComputedStyle(p).textWrapStyle),
@@ -128,7 +128,7 @@ try {
     }
     assert(layout.paragraphs.every(style => style === "pretty"), "all explanatory paragraphs use pretty wrapping");
     for (const [index, fact] of layout.facts.entries()) {
-      assert(Math.abs(fact.lamp.y + fact.lamp.height / 2 - fact.value.y - fact.value.height / 2) < 1,
+      if (fact.lamp) assert(Math.abs(fact.lamp.y + fact.lamp.height / 2 - fact.value.y - fact.value.height / 2) < 1,
         "lamp centers vertically beside its primary value");
       if (fact.detail) assert(Math.abs(fact.detail.x - fact.value.x) < 0.5, "secondary value shares the primary text's left edge");
       if (device === "desktop") assert(fact.box.width >= 160 && fact.box.width <= 400, "desktop fact widths stay within content bounds");
@@ -146,7 +146,7 @@ try {
   const navTitles = await page.getByRole("navigation", { name: "Pages" }).getByRole("link")
     .evaluateAll(links => links.map(link => link.querySelector("span").textContent));
   assert.deepEqual(navTitles.slice(5, 8), ["Video input", "HDMI output", "Cooling"]);
-  assert.equal(await page.locator("#page-title + p").textContent(), "Manage the local display connected to HDMI OUT.");
+  assert.equal(await page.locator("#page-title + p").textContent(), "Manage the local display connected to HDMI OUT");
   assert.equal(await value("Input"), "3840×2160 60 Hz");
   assert.equal(await value("Display"), "DELL U2723QE");
   assert.equal(await value("Output"), "3840×2160 60 Hz");

@@ -32,7 +32,7 @@ export function Services() {
   return <>
     <PageHeading page="services" />
     {status && <SettingsCard><div className="flex flex-wrap items-center gap-6">
-      <div className="min-w-0 flex-1 basis-60 space-y-1"><StatusLabel tone={stale ? "warning" : failed ? "critical" : healthy ? "good" : "warning"}><strong className="text-base">{stale ? t("services.stale") : failed ? t("services.unhealthy") : healthy ? t("services.healthy") : t("services.inactive")}</strong></StatusLabel><p className="ml-4 text-xs text-muted-foreground">{t("services.autoRefresh")}</p></div>
+      <div className="min-w-0 flex-1 basis-60 space-y-1"><StatusLabel showGood tone={stale ? "warning" : failed ? "critical" : healthy ? "good" : "warning"}><strong className="text-base">{stale ? t("services.stale") : failed ? t("services.unhealthy") : healthy ? t("services.healthy") : t("services.inactive")}</strong></StatusLabel><p className="ml-4 text-xs text-muted-foreground">{t("services.autoRefresh")}</p></div>
       <FactGrid className="flex-1 basis-60" cols={3}><Fact label={t("units.running")} value={String(running)} /><Fact label={t("units.completed")} value={String(completed)} /><Fact label={t("services.failed")} value={String(failed)} tone={failed ? "critical" : undefined} /></FactGrid>
       <Button variant="outline" size="icon" aria-label={t("services.refresh")} disabled={refreshing} onClick={async () => { setRefreshing(true); await refresh(); setRefreshing(false); }}><RefreshCw className={refreshing ? "motion-safe:animate-spin" : undefined} /></Button>
     </div></SettingsCard>}

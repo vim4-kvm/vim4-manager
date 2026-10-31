@@ -1,6 +1,6 @@
 import { number } from "@/i18n/format";
 import { t, useLocale, getLocale } from "@/i18n";
-import { ArrowUpRight, ChevronDown, Disc3, History, MonitorPlay, Plug, RefreshCw, Zap } from "lucide-react";
+import { ArrowUpRight, ChevronDown, History, RefreshCw } from "lucide-react";
 import { useId, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import type { BoardEvent, Hardware, Link, PowerCapability, Status } from "@/api";
@@ -31,7 +31,7 @@ function OverviewHeading() {
   return (
     <header className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-col gap-1.5">
-        <h1 id="page-title" className="text-2xl font-bold tracking-tight md:text-3xl">{t("overview.overview")}</h1>
+        <h1 id="page-title" className="text-2xl font-medium  md:text-3xl">{t("overview.overview")}</h1>
         <p className="text-sm text-muted-foreground">{t("overview.deviceStatusTrendsAndQuickActions")}</p>
       </div>
       <div className="flex items-center gap-3">
@@ -51,30 +51,25 @@ function DeviceStatus({ status, now, stale }: { status: Status; now: number; sta
   const failed = [...status.platform.map((p) => p.unit), ...status.apps.filter((a) => a.id === status.active).map((a) => a.unit)].filter((unit) => unit.active === "failed").length;
   const address = status.system.links.filter((link) => link.up).flatMap((link) => link.addrs ?? []).find((addr) => !addr.includes(":"));
   return (
-    <section aria-label={t("overview.deviceConnections")} className="overflow-hidden rounded-lg border bg-card text-xs">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-      <StatusLabel tone={stale ? "warning" : failed ? "critical" : "good"} className="font-medium">
+    <section aria-label={t("overview.deviceConnections")} className="flex h-full flex-col overflow-hidden rounded-xl border bg-card text-xs">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2 px-4 py-3 @4xl:flex @4xl:flex-wrap">
+      <StatusLabel showGood tone={stale ? "warning" : failed ? "critical" : "good"} className="font-medium">
         {stale ? t("overview.connectionLostLastKnownState") : failed ? t("overview.servicesNeedAttention", { count: failed }) : t("overview.deviceOnline")}
       </StatusLabel>
       <span className="min-w-0 break-all text-muted-foreground">{status.hardware.hostname}{address && <> · <span className="font-mono">{address}</span></>}</span>
-      <span className="text-muted-foreground" title={t("overview.started", { p0: String(clockTime(now - status.hardware.uptimeSeconds * 1000, now)) })}>{t("overview.uptimeValue", { duration: duration(status.hardware.uptimeSeconds) })}</span>
+      <span className="col-span-2 text-muted-foreground" title={t("overview.started", { p0: String(clockTime(now - status.hardware.uptimeSeconds * 1000, now)) })}>{t("overview.uptimeValue", { duration: duration(status.hardware.uptimeSeconds) })}</span>
       {stale && <span className="text-muted-foreground">{t("overview.lastUpdatedAt", { time: clockTime(now, Date.now()) })}</span>}
-      <div className="ml-auto flex items-center gap-3">
+      <div className="col-span-2 flex items-center gap-3 @4xl:ml-auto">
+        <a href="#/output" className={cn(linkButton, "hidden @4xl:inline-flex")}>{t("overview.viewHdmiOutput")}<ArrowUpRight aria-hidden="true" className="ml-1 inline size-4" /></a>
         <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-link outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
-          {open ? t("overview.hideConnections") : t("overview.showConnections")}<ChevronDown aria-hidden="true" className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+          className="@4xl:hidden inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-link outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring">
+          {open ? t("overview.hideConnections") : t("overview.showConnections")}<ChevronDown aria-hidden="true" className={cn("size-4 transition-transform", open && "rotate-180")} />
         </button>
       </div>
       </div>
-      <Collapse open={open}>
-        <div id={panel} className="border-t p-4 sm:p-5">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold">{t("overview.deviceConnections14")}</h2>
-            <a href="#/output" className="inline-flex items-center gap-1 rounded-sm text-link outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring">{t("overview.viewHdmiOutput")}<ArrowUpRight aria-hidden="true" className="size-3.5" /></a>
-          </div>
-          <DeviceConnections status={status} stale={stale} />
-        </div>
-      </Collapse>
+      <div className="hidden flex-1 items-center justify-center px-4 @4xl:flex"><DeviceConnections status={status} stale={stale} compact /></div>
+      <div className="@4xl:hidden"><Collapse open={open}><div id={panel} className="border-t p-4"><a href="#/output" className={linkButton}>{t("overview.viewHdmiOutput")}<ArrowUpRight aria-hidden="true" className="ml-1 inline size-4" /></a><DeviceConnections status={status} stale={stale} compact /></div></Collapse></div>
+      <LinkFacts hw={status.hardware} power={status.power} media={status.media} />
     </section>
   );
 }
@@ -90,14 +85,13 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
     <SettingsCard title={t("overview.currentKvm")}>
       <div className="flex flex-col gap-4">
         <div className="flex min-w-0 items-start gap-3">
-          <MonitorPlay aria-hidden="true" className="mt-1 size-8 shrink-0 text-muted-foreground" />
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <h3 className="text-base font-semibold">{app.name}</h3>
-              <StatusLabel tone={unitTone(app.unit)} className="text-xs">{unitLabel(app.unit)}</StatusLabel>
+              <h3 className="text-base font-medium">{app.name}</h3>
+              <StatusLabel showGood tone={unitTone(app.unit)} className="text-xs">{unitLabel(app.unit)}</StatusLabel>
             </div>
             <p className="text-xs text-muted-foreground">{uptime ? t("overview.runningFor", { p0: String(uptime) }) : t("overview.viewKvmStatus")}</p>
-            <div data-app-detail className="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+            <div data-app-detail className="flex min-w-0 flex-col gap-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
               {version && <span data-version title={version} className="inline-flex flex-wrap items-center gap-1.5">
                 <span>{isDevelopmentVersion(version) ? baseVersion(version) : version}</span><DevelopmentBadge version={version} />
               </span>}
@@ -149,16 +143,16 @@ function PowerFact({ power, kernel }: { power: Status["power"]; kernel: string }
     : fw ? `${warm ? t("overview.notRenegotiated") : t("overview.bootFirmware")} · Rp ${fw.rp === "default" ? t("overview.defaultCurrent") : fw.rp === "unknown" ? t("common.unknown") : fw.rp}`
     : kernel.startsWith("7.") ? t("overview.usingBootFirmwareInitializationPowerBudget") : t("overview.noConfirmedPowerBudgetForThis");
   return (
-    <Fact card icon={Zap} label={t("overview.usbCPower")} value={value} detail={detail} href={fw ? undefined : "#/services"} destination={t("overview.systemServices")}>
+    <Fact card label={t("overview.usbCPower")} value={value} detail={detail} href="#/services" destination={t("overview.systemServices")}>
       {fw && (
         <div data-pd-capabilities className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
           <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
-            className="inline-flex items-center gap-1 rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+            className="relative z-10 inline-flex items-center gap-1 rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
             {fw.sourceCapabilities.length ? t("overview.sourceCapabilitiesCount", { count: fw.sourceCapabilities.length }) : t("overview.sourceCapabilitiesMissing")}
-            <ChevronDown aria-hidden="true" className={cn("size-3.5 shrink-0 transition-transform", open && "rotate-180")} />
+            <ChevronDown aria-hidden="true" className={cn("size-4 shrink-0 transition-transform", open && "rotate-180")} />
           </button>
           <Collapse open={open}>
-            <div id={panel} className="flex flex-col gap-2 pt-2">
+            <div id={panel} className="relative z-10 flex flex-col gap-2 pt-2">
               {warm ? <>
                 <p>{t("overview.timedOutWaitingForSourceCapabilities")}</p>
                 <p>{last ? t("overview.previousContractVA", { p0: String(last.voltageV), p1: String(last.currentA), p2: String(last.usbComm ? t("overview.usbData") : ""), p3: String(last.origin === "linux" ? t("overview.linuxInitialization") : t("overview.bootFirmwareNegotiation")), p4: String(lastTime) }) : t("overview.reconnectUsbCPowerToRead")}</p>
@@ -173,7 +167,7 @@ function PowerFact({ power, kernel }: { power: Status["power"]; kernel: string }
                 <li key={pdo.position} className="grid gap-0.5 border-t py-1.5">
                   <span>PDO {pdo.position}{fw.selectedPosition === pdo.position ? t("overview.requested") : ""}</span>
                   <span className="text-foreground">{capabilityLabel(pdo)}</span>
-                  <code className="font-mono text-[11px]">0x{pdo.raw}</code>
+                  <code className="font-mono text-xs">0x{pdo.raw}</code>
                 </li>
               ))}</ul>}
               <p>{t("overview.bootNegotiationRecordDoesNotMeasure")}</p>
@@ -197,13 +191,13 @@ function LinkFacts({ hw, power, media }: { hw: Hardware; power: Status["power"];
   const usbConfigured = hw.usb === "configured";
   const mediaKnown = media?.known;
   return (
-    <FactGrid cols={4} className="grid-cols-2 gap-3 @md:gap-4 [&>div]:p-3 @md:[&>div]:p-4 [&>div]:shadow-none">
-      <Fact card icon={MonitorPlay} label={t("overview.hdmiInput")} href="#/video" destination={t("overview.videoInput")} value={h.signal ? <>{h.width}×<wbr />{h.height}</> : t("overview.noSignal")}
+    <FactGrid cols={4} className="grid-cols-2 gap-0 border-t @4xl:grid-cols-4 [&>div:nth-child(odd)]:border-r [&>div:nth-child(-n+2)]:border-b @4xl:[&>div:not(:last-child)]:border-r @4xl:[&>div:nth-child(-n+2)]:border-b-0">
+      <Fact card label={t("overview.hdmiInput")} href="#/video" destination={t("overview.videoInput")} value={h.signal ? <>{h.width}×<wbr />{h.height}</> : t("overview.noSignal")}
         valueKey={h.signal ? `${h.width}×${h.height}` : t("overview.noSignal")} detail={[hdmiDetail, capture].filter(Boolean).join(" · ")} tone={h.signal ? "good" : "warning"} />
-      <Fact card icon={Plug} label={t("overview.usbInput")} href="#/services" destination={t("overview.systemServices")} value={usbConfigured ? t("overview.connected") : hw.usb || t("common.unknown")}
+      <Fact card label={t("overview.usbInput")} href="#/services" destination={t("overview.systemServices")} value={usbConfigured ? t("overview.connected") : hw.usb || t("common.unknown")}
         detail={usbConfigured ? t("overview.keyboardAndMouseDetected") : t("overview.waitingForTheTargetComputer")} tone={usbConfigured ? "good" : "warning"} />
       <PowerFact power={power} kernel={hw.kernel} />
-      <Fact card icon={Disc3} label={t("overview.virtualMedia")} href="#/media" destination={t("overview.virtualMedia")} className="[overflow-wrap:anywhere]"
+      <Fact card hideDot={mediaKnown && !media.inserted} mutedValue={mediaKnown && !media.inserted} label={t("overview.virtualMedia")} href="#/media" destination={t("overview.virtualMedia")} className="[overflow-wrap:anywhere]"
         value={!mediaKnown ? t("overview.statusUnknown") : media.inserted ? (media.cdrom ? t("overview.discMounted") : t("overview.diskMounted")) : t("overview.notMounted")}
         detail={!mediaKnown ? t("overview.openVirtualMedia") : media.inserted ? `${media.name || t("overview.mountedMedia")} · ${media.readOnly ? t("overview.readOnly") : t("overview.writable")}` : t("overview.chooseAnImageToMountOn")}
         tone={!mediaKnown ? "idle" : media.inserted ? (media.connected ? "good" : "warning") : "idle"} />
@@ -225,7 +219,7 @@ function EventList({ events, now }: { events: BoardEvent[]; now: number }) {
             <time className="text-xs text-muted-foreground tabular-nums" dateTime={new Date(e.t).toISOString()}>
               {clockTime(e.t, now)}
             </time>
-            <StatusDot tone={e.tone} />
+            <StatusDot tone={e.tone === "good" ? "idle" : e.tone} className={(e.tone === "good" || e.tone === "idle") ? "bg-muted-foreground/40" : undefined} />
             <span className={cn(e.tone === "critical" && "text-destructive")}>{e.text}</span>
           </div>
         )}</AnimatedList>
@@ -264,14 +258,14 @@ function NetworkList({ links }: { links: Link[] }) {
   return (
     <ul className="flex flex-col divide-y">
       {shown.map((l) => (
-        <li key={l.name} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-0.5 py-2 first:pt-0 last:pb-0">
+        <li key={l.name} className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 py-2 first:pt-0 last:pb-0">
           <StatusLabel tone={l.up ? "good" : "idle"} className="text-sm">
             {l.wireless ? `Wi-Fi ${l.name}` : l.name === "usb0" ? t("overview.usbNetworkAdapter") : t("overview.ethernet", { p0: String(l.name) })}
           </StatusLabel>
-          <span className="text-right text-xs text-muted-foreground tabular-nums">
-            {l.up ? (l.speedMbps ? (l.speedMbps >= 1000 ? `${l.speedMbps / 1000} Gbps` : `${l.speedMbps} Mbps`) : t("overview.connected")) : t("overview.notConnected")}
+          <span className="text-xs text-muted-foreground tabular-nums">
+            · {l.up ? (l.speedMbps ? (l.speedMbps >= 1000 ? `${l.speedMbps / 1000} Gbps` : `${l.speedMbps} Mbps`) : t("overview.connected")) : t("overview.notConnected")}
           </span>
-          <span className="col-span-2 flex flex-wrap items-baseline gap-x-2.5 gap-y-0.5 pl-4 [overflow-wrap:anywhere]">
+          <span className="flex w-full flex-wrap items-baseline gap-x-2.5 gap-y-0.5 [overflow-wrap:anywhere]">
             <Addresses addrs={l.addrs ?? []} />
           </span>
         </li>
@@ -305,7 +299,7 @@ function Meter({ label, fraction }: { label: string; fraction: number }) {
     <div className="mt-2 flex items-center gap-2">
       <span role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="block h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
         <span className={cn("block h-full rounded-full", pct > 90 ? "bg-destructive-fill" : pct > 80 ? "bg-warning" : "bg-chart-1")} style={{ width: `${pct}%` }} />
-      </span><span className="text-[11px] font-normal text-muted-foreground">{pct}%</span>
+      </span><span className="text-xs font-normal text-muted-foreground">{pct}%</span>
     </div>
   );
 }
@@ -322,10 +316,10 @@ function DeviceHealth({ status, stale }: { status: Status; stale: boolean }) {
   const tone: Tone = stale || incomplete ? "idle" : high ? "critical" : warm ? "warning" : "good";
   return (
     <SettingsCard title={t("overview.deviceHealth")} action={<StatusLabel tone={tone} className="text-xs">{stale ? t("overview.lastKnownState") : incomplete ? t("overview.someReadingsUnavailable") : high ? t("overview.needsAttention") : warm ? t("overview.highUsage") : t("overview.normal")}</StatusLabel>}>
-      <div className="grid gap-5 @4xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] @4xl:gap-8">
-      <dl className="grid grid-cols-2 gap-x-5 gap-y-5 text-xs @2xl:grid-cols-4">
-        <div><dt className="text-muted-foreground">{t("overview.socTemperature")}</dt><dd className="mt-2 flex items-center gap-2 text-sm font-semibold tabular-nums"><StatusDot tone={tempTone(hw.tempC)} />{celsius(hw.tempC)}</dd></div>
-        <div><dt className="text-muted-foreground">{t("overview.fan")}</dt><dd className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-semibold tabular-nums">{hw.fanPercent > 0 ? t(hw.fanAuto ? "overview.fanAuto" : "overview.fanManual", {percent:hw.fanPercent}) : t("overview.stopped")}</dd></div>
+      <div className="grid grid-cols-2 gap-5 @4xl:grid-cols-[repeat(4,minmax(0,1fr))_minmax(0,2fr)]">
+      <dl className="contents text-xs">
+        <div><dt className="text-muted-foreground">{t("overview.socTemperature")}</dt><dd className="mt-2 flex items-center gap-2 text-sm font-medium tabular-nums">{tempTone(hw.tempC) !== "good" && <StatusDot tone={tempTone(hw.tempC)} />}{celsius(hw.tempC)}</dd></div>
+        <div><dt className="text-muted-foreground">{t("overview.fan")}</dt><dd className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm font-medium tabular-nums">{hw.fanPercent > 0 ? t(hw.fanAuto ? "overview.fanAuto" : "overview.fanManual", {percent:hw.fanPercent}) : t("overview.stopped")}</dd></div>
         <div className="min-w-0"><dt className="text-muted-foreground">{t("overview.memory")}</dt><dd className="mt-2 text-xs font-medium tabular-nums">{memUsed === undefined ? t("common.unknown") : compactUsage((hw.memTotalKiB - hw.memAvailableKiB) * 1024, hw.memTotalKiB * 1024)}{memUsed !== undefined && <Meter label={t("overview.memoryUsage")} fraction={memUsed} />}</dd></div>
         <div className="min-w-0"><dt className="text-muted-foreground">{t("overview.systemDisk")}</dt><dd className="mt-2 text-xs font-medium tabular-nums">{diskUsed === undefined ? t("common.unknown") : compactUsage(disk.totalBytes - disk.freeBytes, disk.totalBytes)}{diskUsed !== undefined && <Meter label={t("overview.systemDiskUsage")} fraction={diskUsed} />}</dd></div>
       </dl>
@@ -343,8 +337,8 @@ function OverviewSkeleton() {
   return (
     <div className="@container flex flex-col gap-4" aria-busy="true">
       <span className="sr-only">{t("common.loading")}</span><Skeleton className="h-12 rounded-lg" />
-      <div className="grid grid-cols-2 gap-3 @md:gap-4 @4xl:grid-cols-4">{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
-      <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3"><Skeleton className="h-[410px] rounded-xl @4xl:col-span-2" /><Skeleton className="h-[410px] rounded-xl" /></div>
+      <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3"><Skeleton className="h-[480px] rounded-xl @4xl:col-span-2" /><div className="grid gap-4"><Skeleton className="h-60 rounded-xl" /><Skeleton className="h-56 rounded-xl" /></div></div>
+      <Skeleton className="h-[560px] rounded-xl" />
       <Skeleton className="h-48 rounded-xl" />
     </div>
   );
@@ -357,17 +351,14 @@ export function Overview() {
     <div className="@container flex flex-col gap-6">
       <OverviewHeading />
       {!status ? <OverviewSkeleton /> : <FadeIn className="flex flex-col gap-4">
-        <DeviceStatus status={status} now={now} stale={stale} />
-        <LinkFacts hw={status.hardware} power={status.power} media={status.media} />
         <div className="grid grid-cols-1 gap-4 @4xl:grid-cols-3">
-          <div className="min-w-0 @4xl:col-span-2"><ResourceTrends hw={status.hardware} history={status.history} now={now} /></div>
-          <div className="grid min-w-0 grid-cols-1 gap-4 @xl:grid-cols-2 @4xl:grid-cols-1">
-            <ActiveApp status={status} now={now} />
-            <SettingsCard title={t("overview.recentEvents")} description={t("overview.signalUsbServiceAndActionHistory")}>
-              <EventList events={status.events} now={now} />
-              <p className="text-xs text-muted-foreground">{t("overview.eventHistoryResetsWhenTheManager")}</p>
-            </SettingsCard>
-          </div>
+          <div className="min-w-0 @4xl:col-span-2 @4xl:row-span-2"><DeviceStatus status={status} now={now} stale={stale} /></div>
+          <div className="min-w-0"><ActiveApp status={status} now={now} /></div>
+          <div className="min-w-0 @4xl:col-span-3 @4xl:row-start-3"><ResourceTrends hw={status.hardware} history={status.history} now={now} /></div>
+          <SettingsCard className="@4xl:col-start-3 @4xl:row-start-2" title={t("overview.recentEvents")} description={t("overview.signalUsbServiceAndActionHistory")}>
+            <EventList events={status.events} now={now} />
+            <p className="text-xs text-muted-foreground">{t("overview.eventHistoryResetsWhenTheManager")}</p>
+          </SettingsCard>
         </div>
         <DeviceHealth status={status} stale={stale} />
       </FadeIn>}

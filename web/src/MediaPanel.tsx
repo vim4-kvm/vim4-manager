@@ -140,7 +140,7 @@ function CurrentMedia({ media, locked, run }: { media?: Media; locked: boolean; 
       <div className="flex flex-wrap items-center gap-5 py-2">
         <div className="flex size-24 shrink-0 items-center justify-center rounded-full border-8 border-muted bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300">{media.cdrom ? <Disc3 className="size-16" aria-hidden="true" /> : <HardDrive className="size-12" aria-hidden="true" />}</div>
         <div className="flex min-w-0 flex-1 basis-48 flex-col gap-3 [overflow-wrap:anywhere]">
-          <h3 className="text-xl font-semibold tracking-tight">{mediaName(media)}</h3>
+          <h3 className="text-xl font-medium ">{mediaName(media)}</h3>
           <StatusLabel tone="good">{t("disk.mountedOnHost")}</StatusLabel>
           <MediaFacts media={media} />
           {media.nasdisk?.mode === "rw" && <p className="text-sm text-muted-foreground">{t("media.ejectingWritesChangesBackToThe")}</p>}
@@ -225,7 +225,7 @@ export function MediaPanel() {
                     {source === "data" && <a className="text-xs text-link hover:underline" href="#/disks">{t("media.manageFiles")}</a>}
                   </h4>
                   <AnimatedList className="flex flex-col divide-y" items={images.filter(image => image.source === source)} getKey={(image) => image.id}>{(image) => (
-                    <label className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-4 transition-colors hover:bg-accent/60 has-checked:bg-chart-1/7 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-chart-1">
+                    <label className="flex min-w-0 cursor-pointer items-center gap-3 rounded-md px-2 py-4 transition-colors hover:bg-accent/60 has-checked:bg-muted/50 has-disabled:cursor-default has-disabled:hover:bg-transparent [&_input]:accent-chart-1">
                       <input
                         type="radio"
                         name="media-image"
@@ -268,7 +268,7 @@ export function MediaPanel() {
         <div className="space-y-4 text-sm text-muted-foreground">
           <p><strong className="font-medium text-foreground">{t("nav.disks")}</strong>{t("media.createImagesAndManageFilesOn")}</p>
           <p><strong className="font-medium text-foreground">ISO / IMG</strong>{t("media.uploadThroughTheCorrespondingKvmInterface")}</p>
-          {activeApp && <a className="inline-flex items-center gap-1 text-link hover:underline" href={kvmURL(activeApp.port, activeApp.id)}>{t("media.openInterface", { name: activeApp.name })}<ExternalLink className="size-3.5" /></a>}
+          {activeApp && <a className="inline-flex items-center gap-1 text-link hover:underline" href={kvmURL(activeApp.port, activeApp.id)}>{t("media.openInterface", { name: activeApp.name })}<ExternalLink className="size-4" /></a>}
         </div>
         <p className="text-xs text-muted-foreground">{t("media.allFourInterfacesShareOneUsb")}</p>
       </SettingsCard>

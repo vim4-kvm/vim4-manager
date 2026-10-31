@@ -176,18 +176,18 @@ function CurveEditor({
             {[0, 50, 100].map((v) => (
               <g key={v}>
                 <line className="stroke-border stroke-1 [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-                <text className="fill-muted-foreground text-[11px] tabular-nums" x={PAD_LEFT - 8} y={y(v)} textAnchor="end" dominantBaseline="middle">
+                <text className="fill-muted-foreground text-xs tabular-nums" x={PAD_LEFT - 8} y={y(v)} textAnchor="end" dominantBaseline="middle">
                   {v}%
                 </text>
               </g>
             ))}
             {[20, 40, 60, 80, 100].map((t) => (
-              <text key={t} className="fill-muted-foreground text-[11px] tabular-nums" x={x(t)} y={PAD_TOP + HEIGHT + 16} textAnchor="middle">
+              <text key={t} className="fill-muted-foreground text-xs tabular-nums" x={x(t)} y={PAD_TOP + HEIGHT + 16} textAnchor="middle">
                 {t}°
               </text>
             ))}
             <rect className="fill-destructive-fill/10" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
-            <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
+            <text className="fill-muted-foreground text-xs tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
               {t("cooling.throttle", { temperature: number(THROTTLE_C) })}
             </text>
             {dirty && <path className="fill-none [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
@@ -228,7 +228,7 @@ function CurveEditor({
                 >
                   <circle className="fill-transparent group-hover/handle:fill-primary/10 group-focus-visible/handle:fill-primary/10" cx={x(draft[k])} cy={y(duty)} r={18} />
                   <circle className="fill-card stroke-chart-1 stroke-2 group-hover/handle:[r:8] group-focus-visible/handle:[r:8]" cx={x(draft[k])} cy={y(duty)} r={7} />
-                  <text className="pointer-events-none fill-foreground stroke-card stroke-4 text-[11.5px] font-semibold tabular-nums [paint-order:stroke] [stroke-linejoin:round]" x={x(draft[k])} y={y(duty) - 14} textAnchor="middle">
+                  <text className="pointer-events-none fill-foreground stroke-card stroke-4 text-xs font-medium tabular-nums [paint-order:stroke] [stroke-linejoin:round]" x={x(draft[k])} y={y(duty) - 14} textAnchor="middle">
                     {draft[k]}°
                   </text>
                 </g>

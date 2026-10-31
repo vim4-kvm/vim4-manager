@@ -54,7 +54,7 @@ export function KernelPanel() {
     {error && <InlineError>{error}</InlineError>}
     {!state && !error && <PanelSkeleton label={t("common.loading")} />}
     {state && state.kernels.length === 0 && <EmptyState icon={Cpu}>{t("kernel.noSwitchableKernelsRegisteredYet")}</EmptyState>}
-    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="grid gap-4 lg:grid-cols-2" itemClassName="min-w-0">{kernel => <div className={`h-full rounded-lg border p-5 ${kernel.release === state.running ? "border-chart-1/30 bg-chart-1/4" : "bg-muted/20"}`}>
+    {state && <FadeIn><AnimatedList items={state.kernels} getKey={(kernel) => kernel.id} className="grid gap-4 lg:grid-cols-2" itemClassName="min-w-0">{kernel => <div className={`h-full rounded-lg border p-5 ${kernel.release === state.running ? "border-foreground/15 bg-muted/50" : "bg-muted/20"}`}>
       <SettingRow title={kernel.name} badges={<>
         {kernel.release === "7.3.0-vim4kvm-uhd1+" && <Badge variant="secondary">{t("kernel.stable")}</Badge>}
         {kernel.selected && <Badge variant="secondary">{t("kernel.defaultBoot")}</Badge>}

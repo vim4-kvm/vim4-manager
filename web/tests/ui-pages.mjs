@@ -14,9 +14,9 @@ const click = (name) => async (page) => {
 };
 const change = (name, value) => (page) => page.getByLabel(name, { exact: true }).fill(value);
 const scenarios = [
-  { name: "video-synced", page: "video", ready: "The selected preset is saved and loaded." },
-  { name: "video-out-of-sync", page: "video", edit: (f) => { f.edid.jetkvmSynced = false; }, ready: "Apply again to sync JetKVM settings." },
-  { name: "video-edid-confirm", page: "video", ready: "The selected preset is saved and loaded.", actions: [async (p) => p.getByRole("radio", { name: /VIM4 1080p60/ }).check(), click("Apply preset")] },
+  { name: "video-synced", page: "video", ready: "The selected preset is saved and loaded" },
+  { name: "video-out-of-sync", page: "video", edit: (f) => { f.edid.jetkvmSynced = false; }, ready: "Apply again to sync JetKVM settings" },
+  { name: "video-edid-confirm", page: "video", ready: "The selected preset is saved and loaded", actions: [async (p) => p.getByRole("radio", { name: /VIM4 1080p60/ }).check(), click("Apply preset")] },
   { name: "video-read-error", page: "video", edit: (f) => { f.errors["/api/edid"] = "Read connection lost"; }, ready: "Couldn't load EDID: Read connection lost" },
   { name: "media-empty", page: "media", ready: "No media mounted" },
   { name: "media-mounted", page: "media", edit: (f) => { f.status.media.inserted = true; }, ready: "Mounted on target computer" },

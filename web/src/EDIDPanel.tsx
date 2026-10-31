@@ -7,7 +7,6 @@ import { Collapse, FadeIn } from "@/components/Motion";
 import { PanelSkeleton } from "@/components/PanelSkeleton";
 import { SettingRow } from "@/components/SettingRow";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { useActionStore } from "@/stores/action";
 import { useLocale, useT } from "@/i18n";
 
@@ -68,13 +67,12 @@ export function EDIDPanel() {
     <Collapse open={!!error}><InlineError>{t("edid.refreshFailed", { reason: error ?? "" })}</InlineError></Collapse>
     <div className="flex flex-col gap-2" role="radiogroup" aria-label={t("edid.presets")}>
       {state.presets.map(p => <label key={p.id}
-        className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 has-checked:border-chart-1 has-checked:bg-chart-1/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
+        className="flex cursor-pointer items-start gap-3 rounded-lg border p-4 has-checked:border-foreground/15 has-checked:bg-muted/50 has-focus-visible:ring-3 has-focus-visible:ring-ring/50">
         <input type="radio" name="edid" value={p.id} checked={p.id === selected} disabled={busy}
           className="mt-1 size-4 shrink-0 accent-chart-1" onChange={() => { setChoice(p.id); setConfirming(false); }} />
         <span className="flex min-w-0 flex-col gap-1">
           <span className="flex flex-wrap items-center gap-2"><strong className="font-medium">{p.name}</strong>
-            {p.id === state.selected && <Badge variant="secondary">{t("edid.saved")}</Badge>}
-            {state.activeKnown && p.id === state.active && <Badge variant="outline">{t("edid.loaded")}</Badge>}
+            <span className="text-xs text-muted-foreground">{[p.id === state.selected && t("edid.saved"), state.activeKnown && p.id === state.active && t("edid.loaded")].filter(Boolean).join(" · ")}</span>
           </span>
           <span className="text-sm text-muted-foreground">{p.description}</span>
         </span>

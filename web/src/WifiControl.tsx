@@ -165,7 +165,7 @@ export function WifiControl() {
 
   return (
     <SettingsCard label="Wi-Fi"><FadeIn className="flex min-w-0 flex-col gap-5">
-        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-semibold"><div className="rounded-xl bg-muted p-3"><Wifi className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Wi-Fi" description={t("wifi.joinAWiFiNetworkOr")}
+        <div className="flex items-start gap-4 [&_h3]:text-base [&_h3]:font-medium"><div className="rounded-xl bg-muted p-3"><Wifi className="size-6" aria-hidden="true" /></div><div className="min-w-0 flex-1"><SettingRow title="Wi-Fi" description={t("wifi.joinAWiFiNetworkOr")}
           status={label} pending={!!pending} control={<Switch aria-label="Wi-Fi" checked={!!state?.enabled}
             disabled={locked || !state?.supported || !state.hardwareEnabled}
             onCheckedChange={() => (state?.enabled ? setConfirming({ kind: "off" }) : void toggleRadio(true))} />} /></div></div>
@@ -181,7 +181,7 @@ export function WifiControl() {
 
             {state.mode === "client" && (
               <>
-                <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-chart-1/20 bg-chart-1/3 p-4">
+                <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-foreground/15 bg-muted/50 p-4">
                   <StatusDot tone={current ? "good" : state.state === "connecting" ? "warning" : "idle"} />
                   {current ? (
                     <>

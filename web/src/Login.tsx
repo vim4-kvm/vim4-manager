@@ -190,7 +190,7 @@ function Login() {
   return (
     <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[max(80px,12vh)]">
       <div className="absolute top-4 right-4"><LanguageSwitch login /></div>
-      <header role="group" aria-label={t("common.device")} className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-semibold [&_p]:text-sm [&_p]:text-muted-foreground">
+      <header role="group" aria-label={t("common.device")} className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-medium [&_p]:text-sm [&_p]:text-muted-foreground">
         <BrandMark className="mb-2 size-11" />
         {!state && !error ? (
           <Skeleton className="h-7 w-36" />
@@ -219,7 +219,7 @@ function Login() {
             </div>
           )
         ) : setup && !state.setupAllowed ? (
-          <div className="mb-5 space-y-3 text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-foreground">
+          <div className="mb-5 space-y-3 text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-medium [&_h2]:text-foreground">
             <h2>{t("login.lanRequired")}</h2>
             <p>{t("login.lanHelp")}</p>
             <ResetCommand />
@@ -227,7 +227,7 @@ function Login() {
         ) : (
           <>
             {setup && (
-              <div className="mb-5 space-y-3 text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-foreground">
+              <div className="mb-5 space-y-3 text-sm text-muted-foreground [&_h2]:text-base [&_h2]:font-medium [&_h2]:text-foreground">
                 <h2>{t("login.createAccount")}</h2>
                 <p>{t("login.accountHelp")}</p>
               </div>

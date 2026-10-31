@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
-import { ChevronRight, LucideProvider, Menu, PanelLeft } from "lucide-react";
+import { LucideProvider, Menu, PanelLeft } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { LanguageSwitch } from "@/components/LanguageSwitch";
@@ -26,16 +26,8 @@ function TopBar({ page }: { page: PageId }) {
         aria-expanded={isMobile ? openMobile : open} onClick={toggleSidebar}>
         {isMobile ? <Menu /> : <PanelLeft />}
       </Button>
-      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border" />
-      <nav aria-label={t("nav.location")} className="min-w-0 flex-1 text-sm">
-        <ol className="flex min-w-0 items-center gap-2">
-          <li className="hidden items-center gap-2 text-muted-foreground sm:flex">
-            <span>{t(`nav.${meta.group}`)}</span>
-            <ChevronRight aria-hidden="true" className="size-3.5" />
-          </li>
-          <li aria-current="page" className="truncate font-medium">{meta.title}</li>
-        </ol>
-      </nav>
+      <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border md:hidden" />
+      <span className="min-w-0 flex-1 truncate font-medium"><span className="md:hidden">{meta.title}</span></span>
       <div className="flex shrink-0 items-center gap-1">
         <LanguageSwitch />
         <ThemeSwitch />
@@ -65,7 +57,7 @@ export function AppShell({ page, children }: { page: PageId; children: ReactNode
   return (
     <MotionConfig reducedMotion="user">
       <LazyMotion features={animationFeatures} strict>
-      <LucideProvider strokeWidth={1.75}>
+      <LucideProvider strokeWidth={1.5}>
         <SidebarProvider>
           <AppSidebar page={page} />
           <div className="flex min-w-0 flex-1 flex-col">

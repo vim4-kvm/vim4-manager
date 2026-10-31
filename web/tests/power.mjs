@@ -98,7 +98,7 @@ try {
   await page.getByText("Hard reset · Initialization timed out", { exact: true }).waitFor();
   assert.equal(await page.getByText(/PD · 5V/).count(), 0);
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  const tile = page.locator('div:has(> dt)').filter({ has: page.locator('dt', { hasText: /^USB-C power$/ }) });
+  const tile = page.locator('div:has(> dt)').filter({ has: page.locator('dt', { hasText: /USB-C power$/ }) });
   const boardYear = new Date().getUTCFullYear();
   status.power.firmwarePD.sourceCapabilities = [];
   Object.assign(status.power.firmwarePD, { rp: "3A", hardReset: false });
@@ -127,10 +127,10 @@ try {
   await page.getByRole("tab", {name:"Power",exact:true}).click();
     await tile.getByText(value, { exact: true }).waitFor();
     assert.equal(await tile.locator('dd[title]').getAttribute('title'), detail);
-    assert.equal(await tile.locator('dd').first().innerText(), value);
+    assert.equal(await tile.locator('dd').first().locator('span.min-w-0').last().innerText(), value);
     await tile.getByText("Source capabilities · Not received this boot", { exact: true }).click();
     assert.deepEqual(await tile.locator('[data-pd-capabilities] p').allTextContents(), [
-      "Timed out waiting for source capabilities; the source may not resend them after a warm restart.", secondLine,
+      "Timed out waiting for source capabilities; the source may not resend them after a warm restart", secondLine,
       "Boot negotiation record; does not measure live current or power",
     ]);
     assert.equal(await tile.locator('ul').count(), 0);

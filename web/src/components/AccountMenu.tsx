@@ -11,7 +11,7 @@ import { useT } from "@/i18n";
 export function Avatar({ username, className }: { username: string; className?: string }) {
   const initial = [...username][0] || "";
   return (
-    <span aria-hidden="true" className={cn("grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary", className)}>
+    <span aria-hidden="true" className={cn("grid size-7 shrink-0 place-items-center rounded-full bg-primary/10 text-xs font-medium text-primary", className)}>
       {/^\p{L}$/u.test(initial) ? initial.toUpperCase() : <UserRound className="size-4" />}
     </span>
   );

@@ -126,7 +126,7 @@ try {
 
   await page.getByRole("button", { name: "Create data disk" }).click();
   await page.getByPlaceholder("tools").fill("disk");
-  await page.getByText("A data disk with this name already exists.").waitFor();
+  await page.getByText("A data disk with this name already exists").waitFor();
   assert.equal(await page.getByRole("button", { name: "Create", exact: true }).isDisabled(), true);
   await page.getByPlaceholder("tools").fill("logs");
   await page.getByRole("dialog", { name: "Create data disk" }).getByLabel("Volume label").fill("my logs!");

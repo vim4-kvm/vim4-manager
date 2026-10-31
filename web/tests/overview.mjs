@@ -27,13 +27,29 @@ try {
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
   await (await import("./auth-fixture.mjs")).authenticated(page);
   const charts = page.locator("[data-trends] figure");
-  const fact = (label) => page.locator("div:has(> dt)").filter({ has: page.locator("dt", { hasText: new RegExp(`^${label}$`) }) });
+  const fact = (label) => page.locator("div:has(> dt)").filter({ has: page.locator("dt", { hasText: new RegExp(`${label}$`) }) });
   const reload = async () => {
     await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/overview`);
     await page.reload();
     await charts.locator("svg").last().waitFor();
   };
   await reload();
+  const board = page.getByRole("region", { name: "Device connections", exact: true });
+  const desktopDiagram = board.locator(".device-connections-compact").filter({ visible: true });
+  assert((await desktopDiagram.getByRole("img").boundingBox()).width > 200, "compact board image is visible");
+  assert.equal(await desktopDiagram.locator(".connection-endpoint, .connection-lines").count(), 0);
+  await desktopDiagram.getByRole("button", { name: "HDMI IN port", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await desktopDiagram.getByRole("region").waitFor();
+  await desktopDiagram.getByRole("button", { name: "Close port details" }).click();
+  assert.equal(await board.locator("dl > div").count(), 4);
+  await page.setViewportSize({ width: 390, height: 900 });
+  const show = board.getByRole("button", { name: "Show connections" });
+  assert.equal(await show.getAttribute("aria-expanded"), "false");
+  await show.click();
+  await board.locator(".device-connections-compact").filter({ visible: true }).getByRole("img").waitFor();
+  await board.getByRole("button", { name: "Hide connections" }).click();
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.getByText(/3 minutes sampled/).waitFor();
   const appDetail = page.locator("[data-app-detail]");
   assert.equal(await appDetail.locator("[data-version] > span").first().textContent(), "2.5.1+vim4.20261018.32");
@@ -74,9 +90,11 @@ try {
   status.system.packages = [{ name: "vim4-manager", version: "1.0.0" }];
   await reload();
   assert.equal(await appDetail.textContent(), `${new URL(page.url()).hostname}:8080`);
-  for (const [cpu, upper] of [[13, "25%"], [40, "50%"], [90, "100%"]]) {
+  for (const [cpu, upper] of [[13, "15%"], [23, "30%"], [40, "40%"], [90, "100%"]]) {
     status.history = history(15, cpu);
     await reload();
+    const upperValue = Number.parseFloat(upper);
+    assert(cpu / upperValue >= 0.6, "peak occupies at least 60% of the plot");
     assert.equal(await charts.first().locator('[data-chart=tick][text-anchor="end"][dominant-baseline="middle"]').last().textContent(), upper);
     assert.equal(await page.locator("[data-chart=unsampled]").count(), 0);
     assert.equal(await page.getByText("No samples yet", { exact: true }).count(), 0);

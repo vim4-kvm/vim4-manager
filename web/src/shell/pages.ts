@@ -4,7 +4,7 @@ import {
 } from "lucide-react";
 import type { PassthroughState, Status } from "@/api";
 import type { Tone } from "@/components/StatusDot";
-import { tempTone, unitTone } from "@/lib/units";
+import { celsius, tempTone, unitTone } from "@/lib/units";
 import { t } from "@/i18n";
 
 export type PageId = "overview" | "apps" | "media" | "disks" | "storage" | "video" | "output" | "cooling" | "network" | "services" | "updates" | "account";
@@ -67,7 +67,7 @@ export function navHint(id: PageId, status?: Status, passthrough?: PassthroughSt
     case "video":
       return hw.hdmi.signal ? { text: `${hw.hdmi.height}p`, tone: "good" } : { text: t("nav.noSignal"), tone: "warning" };
     case "cooling":
-      return { text: `${Math.round(hw.tempC)}°`, tone: tempTone(hw.tempC) };
+      return { text: celsius(hw.tempC), tone: tempTone(hw.tempC) };
     case "services": {
       const failed = status.platform.filter((p) => p.unit.active === "failed").length;
       return failed ? { text: t("nav.failed", { count: failed }), tone: "critical" } : undefined;

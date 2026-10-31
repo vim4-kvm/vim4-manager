@@ -65,7 +65,7 @@ try {
   assert.deepEqual(switches, [], "choosing a kernel cannot immediately reboot");
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true }).click();
   await page.getByRole("alertdialog").waitFor({ state: "hidden" });
-  await page.getByText("Switch to NanoKVM and update in its settings.").waitFor();
+  await page.getByText("Switch to NanoKVM and update in its settings").waitFor();
   await page.getByText("No release published yet").waitFor();
   await page.getByText("Not installed").waitFor();
   const managerRow = page.getByRole("row", { name: /Manager/ });
@@ -76,7 +76,7 @@ try {
   assert.equal(await page.getByRole("button", { name: "Update", exact: true }).count(), 1, "only PiKVM is updated here");
   if (shots) await page.screenshot({ path: `${shots}/updates-desktop.png`, fullPage: true });
   await pikvmRow.getByRole("button", { name: "Update" }).click();
-  await page.getByRole("alertdialog").getByText("PiKVM will restart if it is running.").waitFor();
+  await page.getByRole("alertdialog").getByText("PiKVM will restart if it is running").waitFor();
   assert.deepEqual(installs, [], "confirmation precedes installation");
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
   await pikvmRow.getByRole("button", { name: "Update" }).click();

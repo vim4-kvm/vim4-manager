@@ -4,7 +4,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { useEffect, useRef, useState } from "react";
 import { Tabs } from "radix-ui";
 import type { Hardware, Sample } from "@/api";
-import { TrendChart, tempDomain, type Point } from "@/components/TrendChart";
+import { TrendChart, useWidth, type Point } from "@/components/TrendChart";
 import { celsius } from "@/lib/units";
 
 const metrics = [
@@ -29,19 +29,24 @@ function bitrate(bps: number): string {
   return `${Math.round(bps)} bps`;
 }
 
-function niceCeil(value: number): number {
-  const step = 10 ** Math.floor(Math.log10(value));
-  return [1, 2, 5, 10].map((multiple) => multiple * step).find((upper) => upper >= value)!;
+/** Round the peak to a short, evenly spaced axis without excessive headroom. */
+function resourceScale(points: Point[], percentage = false) {
+  const peak = Math.max(0, ...points.map((p) => p.v));
+  const magnitude = 10 ** Math.floor(Math.log10(peak > 0 ? peak / 3 : 1));
+  const step = [1, 2, 2.5, 5, 10].map((n) => n * magnitude).find((n) => n >= peak / 3)!;
+  const upper = Math.min(percentage ? 100 : Infinity, Math.ceil(peak / step || 1) * step);
+  const ticks = Array.from({ length: Math.ceil(upper / step) + 1 }, (_, i) => Math.min(upper, +(i * step).toPrecision(12)));
+  return { domain: [0, upper] as [number, number], ticks };
 }
 
 function percentageScale(points: Point[]) {
-  const upper = [25, 50, 100].find((limit) => limit >= Math.max(0, ...points.map((p) => p.v)) * 1.2) ?? 100;
-  return { domain: [0, upper] as [number, number], ticks: [0, upper / 2, upper], tickFormat: (value: number) => `${value}%` };
+  return { ...resourceScale(points, true), tickFormat: (value: number) => `${number(value, { maximumFractionDigits: 2 })}%` };
 }
 
 /** One visible resource chart; every tab uses the same board history and time window. */
 export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sample[]; now: number }) {
  const locale = useLocale();
+  const [chartRef, chartWidth] = useWidth<HTMLElement>();
   const tabs = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
   const updateEdges = () => {
@@ -76,9 +81,9 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
   const rx = series((s) => s.rxBps);
   const power = samples.flatMap((s) => s.cpuPowerW == null ? [] : [{ t: s.t, v: s.cpuPowerW }]);
   const latest = samples.at(-1);
-  const netMax = niceCeil(Math.max(1e6, ...tx.map((p) => p.v), ...rx.map((p) => p.v)));
-  const powerMax = niceCeil(Math.max(1, ...power.map((p) => p.v)));
-  const temperatureRange = tempDomain(temp.map((p) => p.v));
+  const networkScale = resourceScale([...tx, ...rx]);
+  const powerScale = resourceScale(power);
+  const temperatureScale = resourceScale(temp);
   const memUsed = hw.memTotalKiB ? 1 - hw.memAvailableKiB / hw.memTotalKiB : undefined;
   const definitions: Record<Metric, Series> = {
     cpu: { label: t("trends.cpuUsage"), value: latest ? percent(latest.cpu) : "—", detail: t("trends.coresLoad", { count: hw.cpus, p1: String(number(hw.load1, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) }),
@@ -91,15 +96,15 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
       detail: t("trends.ofGibAvailable", { p0: String(number(hw.memAvailableKiB / 1048576, { minimumFractionDigits: 1, maximumFractionDigits: 1 })), p1: String(number(hw.memTotalKiB / 1048576, { minimumFractionDigits: 1, maximumFractionDigits: 1 })) }),
       points: mem, ...percentageScale(mem), format: percent },
     network: { label: t("trends.networkUpload"), value: latest ? bitrate(latest.txBps) : "—", detail: latest ? t("trends.downloadAllNetworkAdaptersMostlyVideo", { p0: String(bitrate(latest.rxBps)) }) : t("trends.waitingForNetworkSamples"),
-      points: tx, compare: { label: t("trends.download"), points: rx }, domain: [0, netMax], ticks: [0, netMax / 2, netMax], format: bitrate,
-      tickFormat: (value) => value === 0 ? "0" : value >= 1e9 ? `${+(value / 1e9).toFixed(1)}G` : `${+(value / 1e6).toFixed(1)}M` },
+      points: tx, compare: { label: t("trends.download"), points: rx }, ...networkScale, format: bitrate,
+      tickFormat: (value) => value >= 1e9 ? `${number(value / 1e9, { maximumFractionDigits: 1 })}G` : value >= 1e6 ? `${number(value / 1e6, { maximumFractionDigits: 1 })}M` : value >= 1e3 ? `${number(value / 1e3, { maximumFractionDigits: 1 })}k` : number(value, { maximumFractionDigits: 1 }) },
     temp: { label: t("overview.socTemperature"), value: celsius(hw.tempC), detail: t("trends.boardTemperatureSensorDoesNotMeasure"),
-      points: temp, domain: temperatureRange, ticks: [temperatureRange[0], (temperatureRange[0] + temperatureRange[1]) / 2, temperatureRange[1]], format: celsius },
+      points: temp, ...temperatureScale, format: celsius },
     fan: { label: t("trends.fanDuty"), value: hw.fanPercent > 0 ? percent(hw.fanPercent) : t("overview.stopped"), detail: t("trends.controlDutyCycleNotRpm", { p0: String(hw.fanAuto ? t("overview.auto") : t("overview.manual")) }),
       points: fan, ...percentageScale(fan), format: percent },
     power: { label: t("trends.cpuDynamicPowerEstimated"), value: latest?.cpuPowerW == null ? "—" : watts(latest.cpuPowerW),
       detail: latest?.cpuPowerAvailable === false ? t("trends.powerModelOrCountersUnavailable") : latest?.cpuPowerW == null ? t("trends.twoConsecutiveValidSamplesRequired") : t("trends.estimatedFromFrequencyResidencyAndPer"),
-      points: power, domain: [0, powerMax], ticks: [0, powerMax / 2, powerMax], format: watts, maxGapMs: 7500,
+      points: power, ...powerScale, format: watts, maxGapMs: 7500,
       currentAvailable: latest?.cpuPowerW != null, emptyMessage: latest?.cpuPowerAvailable === false ? t("trends.estimateUnavailable") : t("trends.sampling") },
   };
   const selected = definitions[metric];
@@ -110,38 +115,41 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
   const partial = span < (windowMinutes - 0.5) * 60000;
   const minutes = samples.length ? partial ? Math.max(1, Math.floor(span / 60000)) : windowMinutes : 0;
   return (
-    <section aria-labelledby="resource-trends" data-trends className="h-full min-w-0 rounded-xl border bg-card p-4 shadow-xs @lg:p-5">
+    <section ref={chartRef} aria-labelledby="resource-trends" data-trends className="h-full min-w-0 rounded-xl border bg-card p-4 shadow-xs @lg:p-5">
       <Tabs.Root value={metric} onValueChange={(value) => { setMetric(value as Metric); setHover(undefined); }}>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="resource-trends" className="text-base font-semibold tracking-tight">{t("trends.resourceTrends")}</h2>
-          <NativeSelect size="sm" aria-label={t("trends.trendTimeRange")} value={windowMinutes} onChange={(event) => { setWindowMinutes(Number(event.target.value)); setHover(undefined); }}>
+        <div className="mb-4 grid grid-cols-[1fr_auto] items-center gap-3 @4xl:grid-cols-[auto_minmax(0,1fr)_auto]">
+          <h2 id="resource-trends" className="text-base font-medium ">{t("trends.resourceTrends")}</h2>
+          <NativeSelect className="@4xl:col-start-3" size="sm" aria-label={t("trends.trendTimeRange")} value={windowMinutes} onChange={(event) => { setWindowMinutes(Number(event.target.value)); setHover(undefined); }}>
             <option value={15}>{t("trends.lastMinutes")}</option><option value={5}>{t("trends.lastMinutes143")}</option>
           </NativeSelect>
-        </div>
-        <Tabs.List ref={tabs} onScroll={updateEdges} aria-label={t("trends.resourceMetrics")} className="relative mb-4 flex w-fit max-w-full snap-x gap-0.5 overflow-x-auto rounded-md bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        <Tabs.List ref={tabs} onScroll={updateEdges} aria-label={t("trends.resourceMetrics")} className="relative col-span-2 row-start-2 flex w-fit max-w-full @4xl:col-span-1 @4xl:col-start-2 @4xl:row-start-1 snap-x gap-0.5 overflow-x-auto rounded-md bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 12px" : "black, black"}, ${edges.right ? "black calc(100% - 12px), transparent" : "black, black"})` }}>
           {metrics.map((item) => <Tabs.Trigger key={item.id} value={item.id}
             className="snap-start shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs">{item.title}</Tabs.Trigger>)}
         </Tabs.List>
+        </div>
         <Tabs.Content key={metric} value={metric} className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
           <figure>
-            <figcaption className="mb-3 flex flex-col gap-1">
+            <figcaption className="mb-4 flex flex-col gap-4 @4xl:flex-row @4xl:items-center @4xl:justify-between">
+            <div className="flex min-w-0 flex-col gap-1">
               <span data-trend-title className="text-xs text-muted-foreground">{selected.label}</span>
-              <span data-trend-value className="text-3xl font-semibold tracking-tight tabular-nums">{selected.value}</span>
+              <span data-trend-value className="text-3xl font-medium  tabular-nums">{selected.value}</span>
               <span data-trend-detail className="text-xs text-muted-foreground">{selected.detail}</span>
-            </figcaption>
-            <TrendChart {...selected} key={`${metric}-${windowMinutes}`} end={end} windowMs={windowMinutes * 60000} height={128}
-              hover={hover} onHover={setHover} sampledFrom={samples[0]?.t} sampledMinutes={minutes || windowMinutes} />
-            <dl className="mt-4 grid grid-cols-3 divide-x border-t pt-3 text-xs">
+            </div>
+            <dl className="grid shrink-0 grid-cols-3 gap-4 text-xs @4xl:text-right">
               {[{ label: t("trends.average"), value: average }, { label: t("trends.peak"), value: peak },
                 { label: t("trends.minimum"), value: values.length ? selected.format(Math.min(...values)) : "—" }].map((stat, index) => (
-                  <div key={stat.label} className={index ? "min-w-0 pl-4" : "min-w-0"}><dt className="text-muted-foreground">{stat.label}</dt><dd className="mt-1 font-semibold tabular-nums">{stat.value}</dd></div>
+                  <div key={stat.label} className={index ? "min-w-0 pl-4" : "min-w-0"}><dt className="text-muted-foreground">{stat.label}</dt><dd className="mt-1 font-medium tabular-nums">{stat.value}</dd></div>
                 ))}
             </dl>
+            </figcaption>
+            <TrendChart {...selected} key={`${metric}-${windowMinutes}`} end={end} windowMs={windowMinutes * 60000} height={chartWidth >= 600 ? 240 : 180}
+              hover={hover} onHover={setHover} sampledFrom={samples[0]?.t} sampledMinutes={minutes || windowMinutes} />
+
           </figure>
         </Tabs.Content>
       </Tabs.Root>
-      <p className="mt-3 text-[11px] text-muted-foreground">{t("trends.sampledEverySeconds")}{partial && samples.length > 0 ? t("trends.minutesSampled", { count: minutes }) : ""} {t("trends.resetsWhenTheManagerRestarts")}</p>
+      <p className="mt-3 text-xs text-muted-foreground">{t("trends.sampledEverySeconds")}{partial && samples.length > 0 ? t("trends.minutesSampled", { count: minutes }) : ""} {t("trends.resetsWhenTheManagerRestarts")}</p>
     </section>
   );
 }

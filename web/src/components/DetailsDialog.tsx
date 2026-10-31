@@ -17,7 +17,7 @@ export function DetailsDialog({ open, onOpenChange, title, children }: {
         onOpenAutoFocus={(event) => { const input = (event.target as HTMLElement).querySelector<HTMLInputElement>("input"); if (input) { event.preventDefault(); input.focus(); } }}
         onCloseAutoFocus={(event) => { event.preventDefault(); trigger.current?.focus(); }} className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col gap-5 overflow-auto rounded-lg border bg-popover p-5 text-popover-foreground shadow-lg outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0">
         <div className="flex items-center justify-between gap-3">
-          <Dialog.Title className="text-base font-semibold">{title}</Dialog.Title>
+          <Dialog.Title className="text-base font-medium">{title}</Dialog.Title>
           <Dialog.Close asChild><Button variant="ghost" size="icon" aria-label={t("common.close")}><X className="size-4" /></Button></Dialog.Close>
         </div>
         {children}

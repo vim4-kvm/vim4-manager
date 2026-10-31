@@ -472,7 +472,7 @@ try {
   await otherRow.getByRole("button", { name: "Sign out", exact: true }).click();
   await otherRow.waitFor({ state: "detached" });
   await page.getByRole("button", { name: "Sign out other devices", exact: true }).click();
-  await page.getByText("Sign out 2 other devices and close their active KVM connections.", { exact: true }).waitFor();
+  await page.getByText("Sign out 2 other devices and close their active KVM connections", { exact: true }).waitFor();
   assert.equal(account.sessions.length, 3);
   await page.getByRole("button", { name: "Sign out devices", exact: true }).click();
   await page.getByText("Only this device", { exact: true }).waitFor();

@@ -785,7 +785,7 @@ export function DiskPanel() {
           ) : (
             <FadeIn><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1" role="radiogroup" aria-label={t("disk.selectDataDisk")}>
               {disks.map((item) => (
-                <label key={item.name} className={`flex min-w-0 cursor-pointer flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/60 has-checked:border-chart-1 has-checked:bg-chart-1/5 has-focus-visible:ring-3 has-focus-visible:ring-ring/50${item.name === selected ? " border-chart-1 bg-chart-1/5" : ""}`}>
+                <label key={item.name} className={`flex min-w-0 cursor-pointer flex-col gap-3 rounded-lg border p-4 transition-colors hover:bg-accent/60 has-checked:border-foreground/15 has-checked:bg-muted/50 has-focus-visible:ring-3 has-focus-visible:ring-ring/50${item.name === selected ? " border-foreground/15 bg-muted/50" : ""}`}>
                   <input className="sr-only" type="radio" name="disk" checked={item.name === selected} onChange={() => { setSelected(item.name); setMaintenanceOpen(false); }} />
                   <span className="flex flex-wrap items-center gap-2 [&>strong]:break-all">
                     <DiskIcon />
@@ -803,7 +803,7 @@ export function DiskPanel() {
         <div key={disk.name} className="flex min-w-0 flex-col gap-5">
           <SettingsCard label={t("disk.selectedDataDisk")}>
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="min-w-32 flex-1 text-lg font-semibold [overflow-wrap:anywhere]">{disk.name}</h2>
+              <h2 className="min-w-32 flex-1 text-lg font-medium [overflow-wrap:anywhere]">{disk.name}</h2>
               <DiskState disk={disk} />
               <div className="ml-auto flex flex-wrap gap-2">
                 <Button variant="outline" asChild><a href="#/media"><ExternalLink />{t("disk.mountDisk")}</a></Button>

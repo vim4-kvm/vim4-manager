@@ -128,21 +128,21 @@ function CurveChart({ curve }: { curve: HDRCurve }) {
             {yTicks.map((v) => (
               <g key={v}>
                 <line className="stroke-border stroke-1 [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-                <text className="fill-muted-foreground text-[11px] tabular-nums" x={PAD_LEFT - 6} y={y(v) + 4} textAnchor="end">
+                <text className="fill-muted-foreground text-xs tabular-nums" x={PAD_LEFT - 6} y={y(v) + 4} textAnchor="end">
                   {pct(v)}
                 </text>
               </g>
             ))}
             {xTicks.map((n) => (
-              <text key={n} className="fill-muted-foreground text-[11px] tabular-nums" x={x(n)} y={PAD_TOP + HEIGHT + 15} textAnchor="middle">
+              <text key={n} className="fill-muted-foreground text-xs tabular-nums" x={x(n)} y={PAD_TOP + HEIGHT + 15} textAnchor="middle">
                 {nitsLabel(n)}
               </text>
             ))}
             <line className="stroke-input stroke-1 [stroke-dasharray:2_3]" x1={x(curve.white)} x2={x(curve.white)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
             <line className="stroke-input stroke-1 [stroke-dasharray:2_3]" x1={x(curve.peak)} x2={x(curve.peak)} y1={PAD_TOP} y2={PAD_TOP + HEIGHT} />
-            <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.white) - 6} y={PAD_TOP + HEIGHT - 6} textAnchor="end">
+            <text className="fill-muted-foreground text-xs tabular-nums" x={x(curve.white) - 6} y={PAD_TOP + HEIGHT - 6} textAnchor="end">
               {t("hdr.desktopWhite")}</text>
-            <text className="fill-muted-foreground text-[11px] tabular-nums" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
+            <text className="fill-muted-foreground text-xs tabular-nums" x={x(curve.peak) + 6} y={PAD_TOP + HEIGHT - 6}>
               {t("hdr.highlightLimit")}</text>
             <path className="fill-none [stroke-width:1.75] [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground" d={path(VENDOR)} />
             <path className="fill-none stroke-chart-1 [stroke-width:2] [stroke-linecap:round] [stroke-linejoin:round]" d={path(curve)} />
