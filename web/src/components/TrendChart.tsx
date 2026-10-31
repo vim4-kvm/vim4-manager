@@ -1,5 +1,7 @@
 import { t, useLocale, getLocale } from "@/i18n";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { animate, useReducedMotion } from "motion/react";
+import { enter } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 const TICK = "fill-muted-foreground text-xs tabular-nums";
@@ -34,6 +36,27 @@ export interface Point {
   v: number;
 }
 
+type Placed = { t: number; x: number; y: number };
+type Frame = { line: Placed[]; other: Placed[] };
+
+/** Position of a painted line at time t, held flat beyond its ends. */
+function placeAt(line: Placed[], t: number): Placed {
+  if (t <= line[0].t) return line[0];
+  const i = line.findIndex((p) => p.t >= t);
+  if (i < 0) return line[line.length - 1];
+  const a = line[i - 1], b = line[i], k = (t - a.t) / (b.t - a.t);
+  return { t, x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+}
+
+/** Ease every point from where the previous series drew that time to its target. */
+function tween(from: Placed[], to: Placed[], k: number): Placed[] {
+  if (!from.length) return to;
+  return to.map((p) => {
+    const start = placeAt(from, p.t);
+    return { t: p.t, x: start.x + (p.x - start.x) * k, y: start.y + (p.y - start.y) * k };
+  });
+}
+
 /** Use the same rounded history duration in captions and accessible summaries. */
 export function samplingWindow(first?: number, last?: number) {
   const span = (last ?? 0) - (first ?? 0);
@@ -63,6 +86,7 @@ export function TrendChart({
   height = 112,
   sampledFrom,
   sampledMinutes = Math.round(windowMs / 60000),
+  morphKey,
 }: {
   label: string;
   points: Point[];
@@ -84,6 +108,8 @@ export function TrendChart({
   /** History start, including samples whose value is unavailable for this series. */
   sampledFrom?: number;
   sampledMinutes?: number;
+  /** Changing this eases the lines from the previous series instead of redrawing them. */
+  morphKey?: string;
 }) {
  useLocale();
   const [ref, width] = useWidth<HTMLDivElement>();
@@ -96,19 +122,43 @@ export function TrendChart({
   const unsampledWidth = firstSample !== undefined && firstSample - start > 10000
     ? Math.min(plotW, x(firstSample) - PAD_LEFT) : 0;
   const visible = points.filter((p) => p.t >= start);
-  const segments: Point[][] = [];
-  for (const point of visible) {
+  const last = visible[visible.length - 1];
+  const other = compare?.points.filter((p) => p.t >= start) ?? [];
+
+  const reduced = useReducedMotion();
+  const [morph, setMorph] = useState<{ from: Frame; k: number }>();
+  const painted = useRef<Frame>(undefined);
+  const morphed = useRef(morphKey);
+  // Runs before the frame is painted, so the new series never flashes at its final shape.
+  useLayoutEffect(() => {
+    if (morphed.current === morphKey) return;
+    morphed.current = morphKey;
+    const from = painted.current;
+    if (reduced || !from?.line.length) return;
+    setMorph({ from, k: 0 });
+    const controls = animate(0, 1, { ...enter("slow"), onUpdate: (k) => setMorph({ from, k }), onComplete: () => setMorph(undefined) });
+    return () => { controls.stop(); setMorph(undefined); };
+  }, [morphKey]);
+  const place = (p: Point): Placed => ({ t: p.t, x: x(p.t), y: y(p.v) });
+  const frame: Frame = { line: visible.map(place), other: other.map(place) };
+  if (morph) {
+    frame.line = tween(morph.from.line, frame.line, morph.k);
+    frame.other = tween(morph.from.other.length ? morph.from.other : morph.from.line, frame.other, morph.k);
+  }
+  useLayoutEffect(() => { painted.current = frame; });
+
+  const segments: Placed[][] = [];
+  for (const point of frame.line) {
     const segment = segments.at(-1);
     if (!segment || point.t - segment[segment.length - 1].t > maxGapMs) segments.push([point]);
     else segment.push(point);
   }
-  const path = (segment: Point[]) => segment.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  const path = (segment: Placed[]) => segment.map((p, i) => `${i ? "L" : "M"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join("");
   const line = segments.map(path).join("");
   const area = segments.filter((segment) => segment.length > 1).map((segment) =>
-    `${path(segment)}L${x(segment[segment.length - 1].t).toFixed(1)},${PAD_TOP + height}L${x(segment[0].t).toFixed(1)},${PAD_TOP + height}Z`).join("");
-  const last = visible[visible.length - 1];
-  const other = compare?.points.filter((p) => p.t >= start) ?? [];
-  const otherLine = other.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+    `${path(segment)}L${segment[segment.length - 1].x.toFixed(1)},${PAD_TOP + height}L${segment[0].x.toFixed(1)},${PAD_TOP + height}Z`).join("");
+  const otherLine = path(frame.other);
+  const head = frame.line[frame.line.length - 1];
 
   const nearest = (t: number) =>
     visible.reduce<Point | undefined>((best, p) => (!best || Math.abs(p.t - t) < Math.abs(best.t - t) ? p : best), undefined);
@@ -169,14 +219,16 @@ export function TrendChart({
             </linearGradient>
           </defs>
           {unsampledWidth > 0 && <rect data-chart="unsampled" className="fill-muted" x={PAD_LEFT} y={PAD_TOP} width={unsampledWidth} height={height} />}
-          {ticks.map((v) => (
-            <g key={v}>
-              <line data-chart="grid" className="stroke-border [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
-              <text data-chart="tick" className={TICK} x={PAD_LEFT - 6} y={y(v)} textAnchor="end" dominantBaseline="middle">
-                {tickFormat ? tickFormat(v) : v}
-              </text>
-            </g>
-          ))}
+          <g key={morphKey} className={cn(morph && "animate-in fade-in-0 duration-280")}>
+            {ticks.map((v) => (
+              <g key={v}>
+                <line data-chart="grid" className="stroke-border [shape-rendering:crispEdges]" x1={PAD_LEFT} x2={PAD_LEFT + plotW} y1={y(v)} y2={y(v)} />
+                <text data-chart="tick" className={TICK} x={PAD_LEFT - 6} y={y(v)} textAnchor="end" dominantBaseline="middle">
+                  {tickFormat ? tickFormat(v) : v}
+                </text>
+              </g>
+            ))}
+          </g>
           {xTicks.map((m) => (
             <text
               key={m}
@@ -198,7 +250,7 @@ export function TrendChart({
               <circle data-chart="dot" className={DOT} cx={x(active.t)} cy={y(active.v)} r={4} />
             </>
           )}
-          {!active && last && currentAvailable && <circle data-chart="dot" className={DOT} cx={x(last.t)} cy={y(last.v)} r={4} />}
+          {!active && head && currentAvailable && <circle data-chart="dot" className={DOT} cx={head.x} cy={head.y} r={4} />}
         </svg>
       )}
       {active && width > 0 && (
