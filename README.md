@@ -108,6 +108,10 @@ PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 - `restart nanokvm.service|vim4-kvm.service|one-kvm.service|vim4-pikvm.service|vim4-kvm-hdmi.service`：重启 HDMI
   采集前先停止运行中的界面，完成后再启动。
 
+`select` 和应用 `restart` 启动非 One-KVM 应用前，会在停止其他应用后调用已安装的
+One-KVM helper 恢复待处理的 USB 配置（如挂载介质时延后的恢复）；恢复失败或超过 60 秒则不启动目标。
+应用 `restart` 若涉及其他正在运行或已选为开机启动的应用，须先安全弹出共享虚拟介质；同应用重启保留原有行为。
+
 - `hdr-mapping true|false`：保存全局远程画面 HDR 转 SDR 默认值，视频输入页切换。
   One-KVM 同步设置，UU 会话可临时覆盖，断开后恢复最新全局值；H.264、截图和
   不支持真 HDR 的应用保持 SDR，HDMI OUT 独立控制，不修改 EDID 或重启 HDMI。
