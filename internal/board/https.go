@@ -55,6 +55,8 @@ type HTTPS struct {
 	tailscaleRetryAt time.Time
 	now              func() time.Time
 	dir              string
+	managerPort      string
+	kvmPort          string
 	run              Runner
 	inventory        func() ([]string, string, error)
 	local, tailscale *tls.Certificate
@@ -86,7 +88,15 @@ func WriteHTTPSetting(dir string, enabled bool) error {
 	}{enabled})
 }
 
-func OpenHTTPS(dir string, run Runner) (*HTTPS, error) {
+func OpenHTTPS(dir, managerListen, kvmListen string, run Runner) (*HTTPS, error) {
+	_, managerPort, err := net.SplitHostPort(managerListen)
+	if err != nil {
+		return nil, fmt.Errorf("HTTPS listen address: %w", err)
+	}
+	_, kvmPort, err := net.SplitHostPort(kvmListen)
+	if err != nil {
+		return nil, fmt.Errorf("KVM HTTPS listen address: %w", err)
+	}
 	if run == nil {
 		run = Exec
 	}
@@ -97,7 +107,7 @@ func OpenHTTPS(dir string, run Runner) (*HTTPS, error) {
 	if err != nil {
 		return nil, err
 	}
-	h := &HTTPS{dir: dir, run: run, inventory: localHTTPSNames, now: time.Now}
+	h := &HTTPS{dir: dir, managerPort: managerPort, kvmPort: kvmPort, run: run, inventory: localHTTPSNames, now: time.Now}
 	h.state.HTTPEnabled = enabled
 	h.state.Tailscale.State = "unavailable"
 	if err := h.refreshLocal(time.Now()); err != nil {
@@ -282,9 +292,16 @@ func (h *HTTPS) refreshLocal(now time.Time) error {
 	defer h.mu.Unlock()
 	h.local, h.caPEM = leaf, caPEM
 	h.state.Local = HTTPSLocal{names, leaf.Leaf.NotAfter, strings.Join(parts, ":")}
-	h.state.URLs.Manager = "https://" + primary
-	h.state.URLs.KVM = "https://" + primary + ":8443"
+	h.state.URLs.Manager = httpsAccessURL(primary, h.managerPort)
+	h.state.URLs.KVM = httpsAccessURL(primary, h.kvmPort)
 	return nil
+}
+
+func httpsAccessURL(host, port string) string {
+	if port == "443" {
+		return "https://" + host
+	}
+	return "https://" + net.JoinHostPort(host, port)
 }
 
 func (h *HTTPS) Status(secure bool) HTTPSState {

@@ -13,7 +13,7 @@ func TestHTTPRecoveryCommand(t *testing.T) {
 		if err := HTTPCommand([]string{"-state-dir", dir, mode}, io.Discard); err != nil {
 			t.Fatal(err)
 		}
-		h, err := board.OpenHTTPS(dir, nil)
+		h, err := board.OpenHTTPS(dir, ":443", ":8443", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
