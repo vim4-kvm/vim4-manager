@@ -11,7 +11,7 @@ import (
 	"github.com/vim4-kvm/vim4-manager/internal/board"
 )
 
-// HTTPCommand changes the saved preference; the service reads it on restart.
+// HTTPCommand changes the saved preference; the running service reads it on its next watch tick.
 func HTTPCommand(args []string, output io.Writer) error {
 	flags := flag.NewFlagSet("set-http", flag.ContinueOnError)
 	flags.SetOutput(output)

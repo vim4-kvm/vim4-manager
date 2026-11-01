@@ -347,3 +347,86 @@ func TestHTTPSAccessURLsUseListenerPorts(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPSWatchReloadsRecoverySetting(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	dir := t.TempDir()
+	certStarted := make(chan struct{})
+	h, err := OpenHTTPS(dir, ":443", ":8443", func(ctx context.Context, name string, args ...string) (string, error) {
+		if name == "tailscale" {
+			return `{"BackendState":"Running","CertDomains":["box.example.ts.net"]}`, nil
+		}
+		close(certStarted)
+		<-ctx.Done()
+		return "", ctx.Err()
+	})
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	if err = h.SetHTTP(false); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	// Pause snapshots at the command boundary to coordinate external writes
+	// between ticks, while certificate issuance stays pending for the whole test.
+	ticks, advance := make(chan struct{}), make(chan struct{})
+	s := &Service{HTTPS: h, Events: &Events{Capacity: 10},
+		Passthrough: &Passthrough{provider: &fakePassthroughProvider{}},
+		Run: func(ctx context.Context, _ string, _ ...string) (string, error) {
+			select {
+			case ticks <- struct{}{}:
+			case <-ctx.Done():
+				return "", ctx.Err()
+			}
+			select {
+			case <-advance:
+			case <-ctx.Done():
+			}
+			return "", errors.New("skip hardware snapshot")
+		},
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); s.Watch(ctx, time.Millisecond) }()
+	defer func() { cancel(); <-done }()
+	waitTick := func() {
+		t.Helper()
+		select {
+		case <-ticks:
+		case <-time.After(5 * time.Second):
+			t.Fatal("Watch did not reach next tick")
+		}
+	}
+	waitTick()
+	select {
+	case <-certStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("certificate request did not start")
+	}
+	for _, enabled := range []bool{true, false} {
+		if err := WriteHTTPSetting(dir, enabled); err != nil {
+			t.Fatal(err)
+		}
+		advance <- struct{}{}
+		waitTick()
+		if h.HTTPEnabled() != enabled || h.Status(false).HTTPEnabled != enabled {
+			t.Fatal("Watch did not reload recovery preference", enabled)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "https.json"), []byte("invalid JSON"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	advance <- struct{}{}
+	waitTick()
+	if h.HTTPEnabled() {
+		t.Fatal("invalid preference replaced last valid setting")
+	}
+	if err := WriteHTTPSetting(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	advance <- struct{}{}
+	waitTick()
+	if !h.HTTPEnabled() {
+		t.Fatal("Watch did not recover after invalid preference")
+	}
+}

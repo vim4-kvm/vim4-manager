@@ -323,6 +323,20 @@ func (h *HTTPS) SetHTTP(enabled bool) error {
 	h.state.HTTPEnabled = enabled
 	return nil
 }
+
+// reloadHTTP observes recovery CLI writes independently of certificate renewal.
+// Serialize the read with API writes so an older read cannot undo a new PUT.
+func (h *HTTPS) reloadHTTP() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	enabled, err := readHTTPSetting(h.dir)
+	if err != nil {
+		return err
+	}
+	h.state.HTTPEnabled = enabled
+	return nil
+}
+
 func (h *HTTPS) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
