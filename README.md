@@ -173,7 +173,7 @@ Tailscale 已连接且启用 HTTPS 证书时，通过受限助手运行 `tailsca
 认证接口 `GET/PUT /__vim4/api/https` 返回证书状态和 `http_enabled`；
 `POST /__vim4/api/https/tailscale/retry` 重试申请。
 HTTP 默认保留；通过 HTTPS 关闭后，远程 HTTP 请求以 308 跳至对应 HTTPS 端口，回环工具仍可使用 HTTP。
-无 HSTS。恢复命令：`sudo vim4-manager set-http on`，重启服务生效；
+无 HSTS。恢复命令：`sudo vim4-manager set-http on`，运行中的服务会在几秒内自动读取并生效；
 测试目录可用 `vim4-manager set-http -state-dir DIR on|off`。
 现有 CAP_NET_BIND_SERVICE 同时覆盖 80 和 443，无需新增 capability 或安装步骤；需更新配套 helper 以申请 Tailscale 证书。
 
