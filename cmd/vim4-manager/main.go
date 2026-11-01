@@ -70,7 +70,7 @@ func main() {
 		slog.Error("passthrough settings", "error", err)
 		os.Exit(1)
 	}
-	service.HTTPS, err = board.OpenHTTPS(*stateDir, board.Exec)
+	service.HTTPS, err = board.OpenHTTPS(*stateDir, *httpsListen, *kvmHTTPSListen, board.Exec)
 	if err != nil {
 		slog.Error("HTTPS settings", "error", err)
 		os.Exit(1)

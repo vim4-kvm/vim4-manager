@@ -15,7 +15,7 @@ import (
 )
 
 func TestHTTPRedirects(t *testing.T) {
-	settings, err := board.OpenHTTPS(t.TempDir(), nil)
+	settings, err := board.OpenHTTPS(t.TempDir(), ":443", ":8443", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestHTTPSAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	retried := make(chan struct{})
-	settings, err := board.OpenHTTPS(dir, func(_ context.Context, _ string, _ ...string) (string, error) { close(retried); return "", nil })
+	settings, err := board.OpenHTTPS(dir, ":443", ":8443", func(_ context.Context, _ string, _ ...string) (string, error) { close(retried); return "", nil })
 	if err != nil {
 		t.Fatal(err)
 	}

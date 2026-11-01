@@ -16,7 +16,7 @@ import (
 )
 
 func TestTLSBindRetryKeepsOtherListenersAvailable(t *testing.T) {
-	settings, err := board.OpenHTTPS(t.TempDir(), nil)
+	settings, err := board.OpenHTTPS(t.TempDir(), ":443", ":8443", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

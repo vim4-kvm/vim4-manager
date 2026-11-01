@@ -17,7 +17,7 @@ import (
 
 func TestLocalHTTPSLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	h, err := OpenHTTPS(dir, nil)
+	h, err := OpenHTTPS(dir, ":443", ":8443", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ func TestLocalHTTPSLifecycle(t *testing.T) {
 			t.Fatalf("key permissions: %v %v", info, err)
 		}
 	}
-	reopened, err := OpenHTTPS(dir, nil)
+	reopened, err := OpenHTTPS(dir, ":443", ":8443", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,14 +65,14 @@ func TestLocalHTTPSLifecycle(t *testing.T) {
 	if err = h.SetHTTP(false); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err = OpenHTTPS(dir, nil)
+	reopened, err = OpenHTTPS(dir, ":443", ":8443", nil)
 	if err != nil || reopened.HTTPEnabled() {
 		t.Fatalf("persistence: %v", err)
 	}
 }
 
 func TestHTTPSCertificateSelection(t *testing.T) {
-	h, err := OpenHTTPS(t.TempDir(), nil)
+	h, err := OpenHTTPS(t.TempDir(), ":443", ":8443", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestHTTPSCertificateSelection(t *testing.T) {
 }
 
 func TestTailscaleHTTPSStates(t *testing.T) {
-	h, err := OpenHTTPS(t.TempDir(), nil)
+	h, err := OpenHTTPS(t.TempDir(), ":443", ":8443", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestTailscaleHTTPSStates(t *testing.T) {
 		t.Fatal("Watch did not retry after backoff", calls)
 	}
 	assertCached(h)
-	restarted, err := OpenHTTPS(h.dir, h.run)
+	restarted, err := OpenHTTPS(h.dir, ":443", ":8443", h.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func mustParseHTTPSPair(t *testing.T, cert, key []byte) tls.Certificate {
 func TestHTTPSRefreshSingleFlight(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
-	h, err := OpenHTTPS(t.TempDir(), func(ctx context.Context, name string, args ...string) (string, error) {
+	h, err := OpenHTTPS(t.TempDir(), ":443", ":8443", func(ctx context.Context, name string, args ...string) (string, error) {
 		if name == "tailscale" {
 			return `{"BackendState":"Running","CertDomains":["box.example.ts.net"]}`, nil
 		}
@@ -322,5 +322,28 @@ func TestLocalHTTPSNames(t *testing.T) {
 		if ip := net.ParseIP(name); ip != nil && ip.IsLinkLocalUnicast() {
 			t.Fatal(names)
 		}
+	}
+}
+
+func TestHTTPSAccessURLsUseListenerPorts(t *testing.T) {
+	for _, test := range []struct{ name, managerListen, kvmListen, managerURL, kvmURL string }{
+		{"defaults", ":443", ":8443", "https://192.0.2.2", "https://192.0.2.2:8443"},
+		{"custom", "127.0.0.1:9443", ":18443", "https://192.0.2.2:9443", "https://192.0.2.2:18443"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			h, err := OpenHTTPS(t.TempDir(), test.managerListen, test.kvmListen, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h.inventory = func() ([]string, string, error) { return []string{"192.0.2.2", "localhost"}, "192.0.2.2", nil }
+			// Watch refreshes must keep the configured ports when updating LAN URLs.
+			if err := h.refreshLocal(time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			urls := h.Status(true).URLs
+			if urls.Manager != test.managerURL || urls.KVM != test.kvmURL {
+				t.Fatalf("URLs: %+v", urls)
+			}
+		})
 	}
 }
