@@ -83,14 +83,9 @@ func main() {
 		*httpsListen:    manager,
 		*kvmHTTPSListen: web.KVMHandler(service, assets, sessions, *kvmBackend, strings.Split(*allowedHosts, ",")),
 	} {
-		tlsServer := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
-			TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: service.HTTPS.GetCertificate}}
 		go func() {
-			closeOnStop := context.AfterFunc(ctx, func() { _ = tlsServer.Close() })
-			defer closeOnStop()
-			if err := tlsServer.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
-				slog.Error("TLS listener", "address", tlsServer.Addr, "error", err)
-				stop()
+			if err := web.ServeTLS(ctx, address, handler, &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: service.HTTPS.GetCertificate}, service.Events); err != nil {
+				slog.Error("TLS listener", "address", address, "error", err)
 			}
 		}()
 	}

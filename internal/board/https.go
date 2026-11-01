@@ -52,6 +52,8 @@ type HTTPSState struct {
 type HTTPS struct {
 	mu               sync.RWMutex
 	refreshing       bool
+	tailscaleRetryAt time.Time
+	now              func() time.Time
 	dir              string
 	run              Runner
 	inventory        func() ([]string, string, error)
@@ -95,13 +97,22 @@ func OpenHTTPS(dir string, run Runner) (*HTTPS, error) {
 	if err != nil {
 		return nil, err
 	}
-	h := &HTTPS{dir: dir, run: run, inventory: localHTTPSNames}
+	h := &HTTPS{dir: dir, run: run, inventory: localHTTPSNames, now: time.Now}
 	h.state.HTTPEnabled = enabled
 	h.state.Tailscale.State = "unavailable"
 	if err := h.refreshLocal(time.Now()); err != nil {
 		return nil, err
 	}
+	// Load a usable cached certificate before Watch attempts renewal, so a
+	// restart during an ACME outage keeps the trusted Tailscale endpoint up.
+	if cert, err := loadHTTPSPair(dir, "tailscale"); err == nil && httpsCertValidAt(cert, h.now()) {
+		h.tailscale = cert
+	}
 	return h, nil
+}
+
+func httpsCertValidAt(cert *tls.Certificate, now time.Time) bool {
+	return !now.Before(cert.Leaf.NotBefore) && now.Before(cert.Leaf.NotAfter)
 }
 
 func localHTTPSNames() ([]string, string, error) {
@@ -299,7 +310,7 @@ func (h *HTTPS) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, er
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	name := strings.ToLower(strings.TrimSuffix(hello.ServerName, "."))
-	if h.tailscale != nil && strings.HasSuffix(name, ".ts.net") && h.tailscale.Leaf.VerifyHostname(name) == nil {
+	if h.tailscale != nil && httpsCertValidAt(h.tailscale, time.Now()) && strings.HasSuffix(name, ".ts.net") && h.tailscale.Leaf.VerifyHostname(name) == nil {
 		return h.tailscale, nil
 	}
 	return h.local, nil
@@ -321,6 +332,8 @@ func (h *HTTPS) Refresh(ctx context.Context, retry bool) {
 		h.refreshTailscale(ctx, retry)
 	}()
 }
+
+const tailscaleCertRetryDelay = 5 * time.Minute
 
 func (h *HTTPS) refreshTailscale(ctx context.Context, retry bool) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
@@ -345,21 +358,26 @@ func (h *HTTPS) refreshTailscale(ctx context.Context, retry bool) {
 		return
 	}
 	name := strings.TrimSuffix(status.CertDomains[0], ".")
-	h.mu.RLock()
-	previous := h.state.Tailscale
-	h.mu.RUnlock()
-	if !retry && previous.State == "error" && previous.Name == name {
-		return
-	}
+	now := h.now()
 	cert, err := loadHTTPSPair(h.dir, "tailscale")
-	if err == nil && cert.Leaf.VerifyHostname(name) == nil && cert.Leaf.NotAfter.After(time.Now().Add(30*24*time.Hour)) {
-		h.mu.Lock()
-		h.tailscale = cert
+	if err != nil || !httpsCertValidAt(cert, now) || cert.Leaf.VerifyHostname(name) != nil {
+		cert = nil
+	}
+	h.mu.Lock()
+	// Keep the matching cache available throughout pending/failed renewal,
+	// including the first refresh after a process restart.
+	h.tailscale = cert
+	previous := h.state.Tailscale
+	if cert != nil && cert.Leaf.NotAfter.After(now.Add(30*24*time.Hour)) {
 		h.state.Tailscale = HTTPSCertificate{State: "issued", Name: name, NotAfter: &cert.Leaf.NotAfter}
+		h.tailscaleRetryAt = time.Time{}
 		h.mu.Unlock()
 		return
 	}
-	h.mu.Lock()
+	if !retry && previous.State == "error" && previous.Name == name && now.Before(h.tailscaleRetryAt) {
+		h.mu.Unlock()
+		return
+	}
 	h.state.Tailscale = HTTPSCertificate{State: "pending", Name: name}
 	h.mu.Unlock()
 	output, err = h.run(ctx, "sudo", "-n", Helper, "tailscale-cert", name)
@@ -388,8 +406,10 @@ func (h *HTTPS) refreshTailscale(ctx context.Context, retry bool) {
 	defer h.mu.Unlock()
 	if err != nil {
 		h.state.Tailscale = HTTPSCertificate{State: "error", Name: name, Error: "Couldn't obtain Tailscale certificate. Check Tailscale HTTPS settings and retry."}
+		h.tailscaleRetryAt = h.now().Add(tailscaleCertRetryDelay)
 		return
 	}
 	h.tailscale = cert
+	h.tailscaleRetryAt = time.Time{}
 	h.state.Tailscale = HTTPSCertificate{State: "issued", Name: name, NotAfter: &cert.Leaf.NotAfter}
 }

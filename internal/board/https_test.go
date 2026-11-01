@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -108,6 +109,7 @@ func TestTailscaleHTTPSStates(t *testing.T) {
 		t.Fatal(err)
 	}
 	started, release := make(chan struct{}), make(chan struct{})
+	block := true
 	calls := 0
 	fail := false
 	h.run = func(ctx context.Context, name string, args ...string) (string, error) {
@@ -124,8 +126,10 @@ func TestTailscaleHTTPSStates(t *testing.T) {
 		if fail {
 			return "", errors.New("denied")
 		}
-		close(started)
-		<-release
+		if block {
+			close(started)
+			<-release
+		}
 		data, _ := json.Marshal(map[string]string{"cert": string(cert), "key": string(key)})
 		return string(data), nil
 	}
@@ -154,8 +158,10 @@ func TestTailscaleHTTPSStates(t *testing.T) {
 	if calls != 1 {
 		t.Fatal("issued cert not reused")
 	}
-	// An expiring certificate is renewed; failed renewals are exposed and wait
-	// for an explicit retry rather than hammering tailscaled every watch tick.
+	// An expiring certificate stays available through renewal failures and
+	// restart. Watch retries after a bounded delay; explicit retry bypasses it.
+	now := time.Now()
+	h.now = func() time.Time { return now }
 	expiredCert, expiredKey, err := makeHTTPSCert(&x509.Certificate{DNSNames: []string{"box.example.ts.net"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(10 * 24 * time.Hour)}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +174,14 @@ func TestTailscaleHTTPSStates(t *testing.T) {
 	if h.Status(false).Tailscale.State != "error" || calls != 2 {
 		t.Fatal(h.Status(false), calls)
 	}
+	assertCached := func(controller *HTTPS) {
+		t.Helper()
+		selected, err := controller.GetCertificate(&tls.ClientHelloInfo{ServerName: "box.example.ts.net"})
+		if err != nil || !slices.Equal(selected.Certificate[0], mustParseHTTPSPair(t, expiredCert, expiredKey).Certificate[0]) {
+			t.Fatal("valid expiring certificate was not selected", err)
+		}
+	}
+	assertCached(h)
 	h.refreshTailscale(context.Background(), false)
 	if calls != 2 {
 		t.Fatal(calls)
@@ -176,9 +190,120 @@ func TestTailscaleHTTPSStates(t *testing.T) {
 	if calls != 3 {
 		t.Fatal(calls)
 	}
+	now = now.Add(tailscaleCertRetryDelay - time.Second)
+	h.refreshTailscale(context.Background(), false)
+	if calls != 3 {
+		t.Fatal("retried before backoff elapsed", calls)
+	}
+	now = now.Add(time.Second)
+	h.refreshTailscale(context.Background(), false)
+	if calls != 4 {
+		t.Fatal("Watch did not retry after backoff", calls)
+	}
+	assertCached(h)
+	restarted, err := OpenHTTPS(h.dir, h.run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted.now = h.now
+	assertCached(restarted)
+	restarted.refreshTailscale(context.Background(), false)
+	if restarted.Status(false).Tailscale.State != "error" || calls != 5 {
+		t.Fatal(restarted.Status(false), calls)
+	}
+	assertCached(restarted)
+	// The cached certificate is also served while a renewed request is pending.
+	fail = false
+	started, release = make(chan struct{}), make(chan struct{})
+	done = make(chan struct{})
+	go func() { restarted.refreshTailscale(context.Background(), true); close(done) }()
+	<-started
+	if restarted.Status(false).Tailscale.State != "pending" {
+		t.Fatal(restarted.Status(false))
+	}
+	assertCached(restarted)
+	close(release)
+	<-done
+	block = false
+	if restarted.Status(false).Tailscale.State != "issued" {
+		t.Fatal(restarted.Status(false))
+	}
+	selected, _ := restarted.GetCertificate(&tls.ClientHelloInfo{ServerName: "box.example.ts.net"})
+	if !slices.Equal(selected.Certificate[0], mustParseHTTPSPair(t, cert, key).Certificate[0]) {
+		t.Fatal("renewed certificate was not selected")
+	}
+	// A mismatched or expired cache must never be served for the requested name.
+	for _, template := range []*x509.Certificate{
+		{DNSNames: []string{"other.example.ts.net"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(10 * 24 * time.Hour)},
+		{DNSNames: []string{"box.example.ts.net"}, NotBefore: time.Now().Add(-48 * time.Hour), NotAfter: time.Now().Add(-time.Hour)},
+	} {
+		badCert, badKey, err := makeHTTPSCert(template, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = saveHTTPSPair(h.dir, "tailscale", badCert, badKey); err != nil {
+			t.Fatal(err)
+		}
+		fail = true
+		restarted.refreshTailscale(context.Background(), true)
+		selected, _ := restarted.GetCertificate(&tls.ClientHelloInfo{ServerName: "box.example.ts.net"})
+		if selected != restarted.local {
+			t.Fatal("invalid cache was selected")
+		}
+	}
 	status = "bad JSON"
 	h.refreshTailscale(context.Background(), false)
 	if h.Status(false).Tailscale.State != "unavailable" || h.tailscale != nil {
+		t.Fatal(h.Status(false))
+	}
+}
+
+func mustParseHTTPSPair(t *testing.T, cert, key []byte) tls.Certificate {
+	t.Helper()
+	pair, err := tls.X509KeyPair(cert, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pair
+}
+
+func TestHTTPSRefreshSingleFlight(t *testing.T) {
+	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
+	h, err := OpenHTTPS(t.TempDir(), func(ctx context.Context, name string, args ...string) (string, error) {
+		if name == "tailscale" {
+			return `{"BackendState":"Running","CertDomains":["box.example.ts.net"]}`, nil
+		}
+		calls.Add(1)
+		close(started)
+		<-release
+		return "", errors.New("offline")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Refresh(context.Background(), false)
+	<-started
+	h.Refresh(context.Background(), false)
+	h.Refresh(context.Background(), true)
+	if calls.Load() != 1 {
+		t.Fatal("overlapping certificate request")
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		h.mu.RLock()
+		running := h.refreshing
+		h.mu.RUnlock()
+		if !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("refresh did not finish")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if h.Status(false).Tailscale.State != "error" {
 		t.Fatal(h.Status(false))
 	}
 }
