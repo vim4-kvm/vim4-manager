@@ -924,7 +924,7 @@ def attach_media(fd, app, cdrom, readonly):
     remove_network = not linked and app in ('nanokvm', 'jetkvm') and network.is_symlink()
     links = [p.name for p in config.iterdir() if p.is_symlink() and p != disk
              and not (remove_network and p == network)]
-    endpoints = 1 + sum(2 if name.startswith(('ncm.', 'ecm.', 'rndis.')) else 1 for name in links)
+    endpoints = 1 + sum(2 if name.startswith(('ncm.', 'ecm.', 'rndis.', 'acm.')) else 1 for name in links)
     if endpoints > 5:
         raise ValueError('There aren\'t enough USB endpoints. Disable a USB network adapter, microphone, or HID function in the current KVM interface.')
     old = {key: (lun / key).read_text() for key in ('ro', 'cdrom')}
@@ -1165,6 +1165,19 @@ def systemctl(*args):
     subprocess.run(['systemctl', *args], check=True, timeout=60, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
 
 
+def restore_onekvm_usb(unit):
+    helper = Path('/usr/libexec/vim4-onekvm')
+    if unit == APPS['onekvm'] or not helper.exists():
+        return
+    # ExecStopPost may have deferred restoration until the host ejected media.
+    # usb-restore is a successful no-op when no restoration is pending.
+    try:
+        subprocess.run([str(helper), 'usb-restore'], check=True, timeout=60,
+                       env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError('One-KVM USB restoration failed; the target application was not started.') from error
+
+
 def installed(unit):
     result = subprocess.run(['systemctl', 'show', '--property=LoadState', '--value', unit],
                             capture_output=True, text=True, timeout=10, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
@@ -1185,6 +1198,7 @@ def select(app):
     # process has released backend port 8081, HID and the encoder before starting.
     if others:
         systemctl('stop', *others)
+    restore_onekvm_usb(unit)
     systemctl('restart', unit)
     # Enablement links must survive the data=writeback root filesystem.
     os.sync()
@@ -1198,6 +1212,7 @@ def restart(unit):
         others = [other for other in APPS.values() if other != unit and installed(other)]
         if others:
             systemctl('stop', *others)
+        restore_onekvm_usb(unit)
         systemctl('restart', unit)
         return
     # The HDMI service reconfigures capture underneath a running encoder; stop

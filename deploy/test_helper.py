@@ -1010,6 +1010,58 @@ class TailscaleTest(unittest.TestCase):
 
 
 class HelperTest(unittest.TestCase):
+    def test_restore_after_eject_precedes_target_start(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        lun = root / 'lun'
+        for command in ('select', 'restart'):
+            for app in ('nanokvm', 'jetkvm', 'pikvm', 'onekvm'):
+                with self.subTest(command=command, app=app), \
+                     patch.object(helper, 'PIKVM_LUN_FILE', lun), \
+                     patch.object(helper, 'PIKVM_USB_STATE', root / 'absent'), \
+                     patch.object(helper, 'installed', return_value=True), \
+                     patch.object(helper.os, 'sync'), \
+                     patch.object(Path, 'exists', return_value=True), \
+                     patch.object(helper.subprocess, 'run', side_effect=lambda *a, **k: self.calls.append(('restore',))) as run:
+                    self.calls.clear()
+                    # One-KVM has stopped with media mounted; the host then ejects.
+                    lun.write_text('/disk.img')
+                    helper.systemctl('stop', 'one-kvm.service')
+                    lun.write_text('')
+                    helper.main([command, app if command == 'select' else helper.APPS[app]])
+                    if app == 'onekvm':
+                        run.assert_not_called()
+                    else:
+                        run.assert_called_once_with(['/usr/libexec/vim4-onekvm', 'usb-restore'],
+                                                    check=True, timeout=60,
+                                                    env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+                        self.assertEqual(self.calls[-2:], [('restore',), ('restart', helper.APPS[app])])
+                        self.assertEqual(self.calls[-3][0], 'stop')
+
+    def test_restore_failure_aborts_start(self):
+        for command in (['select', 'nanokvm'], ['restart', 'nanokvm.service']):
+            for error in (subprocess.CalledProcessError(1, 'usb-restore'),
+                          subprocess.TimeoutExpired('usb-restore', 60)):
+                with self.subTest(command=command, error=error), \
+                     patch.object(helper, 'check_pikvm_media'), \
+                     patch.object(helper, 'installed', return_value=True), \
+                     patch.object(Path, 'exists', return_value=True), \
+                     patch.object(helper.subprocess, 'run', side_effect=error):
+                    self.calls.clear()
+                    with self.assertRaisesRegex(ValueError, 'One-KVM USB restoration failed'):
+                        helper.main(command)
+                    self.assertFalse(any(call[0] == 'restart' for call in self.calls))
+
+    def test_missing_restore_helper_is_skipped(self):
+        for command in (['select', 'nanokvm'], ['restart', 'nanokvm.service']):
+            with patch.object(helper, 'check_pikvm_media'), \
+                 patch.object(helper, 'installed', return_value=True), \
+                 patch.object(helper.os, 'sync'), \
+                 patch.object(Path, 'exists', return_value=False), \
+                 patch.object(helper.subprocess, 'run') as run:
+                helper.main(command)
+                run.assert_not_called()
+                self.assertEqual(self.calls[-1], ('restart', 'nanokvm.service'))
+
     def test_existing_app_media_blocks_entering_pikvm_before_service_changes(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         lun = root / 'lun'

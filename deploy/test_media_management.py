@@ -75,6 +75,18 @@ class MediaManagementTest(unittest.TestCase):
         self.assertEqual((self.gadget / 'UDC').read_text(), 'controller')
         self.assertTrue((self.config / 'ncm.usb0').is_symlink())
 
+    def test_acm_over_budget_refuses_before_any_gadget_change(self):
+        (self.config / 'ncm.usb0').unlink()
+        self.link('acm.usb0')
+        with patch.object(Path, 'write_text') as write, \
+             patch.object(Path, 'symlink_to') as link, \
+             patch.object(Path, 'unlink') as unlink:
+            with self.assertRaisesRegex(ValueError, 'enough USB endpoints'):
+                helper.attach_media(123, 'onekvm', False, True)
+        write.assert_not_called()
+        link.assert_not_called()
+        unlink.assert_not_called()
+
     def test_iso_is_always_readonly_and_existing_link_avoids_rebind(self):
         (self.images / 'rescue.iso').write_bytes(bytes(2048))
         (self.config / 'ncm.usb0').unlink()
