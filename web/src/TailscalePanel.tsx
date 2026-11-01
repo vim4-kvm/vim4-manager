@@ -44,6 +44,13 @@ type Action = "install" | "uninstall" | "up" | "down" | "login" | "logout";
 const JOB_LABEL: Record<string, string> = { get install() { return t("tailscale.installingTailscale"); }, get uninstall() { return t("tailscale.uninstallingTailscale"); } };
 const CONTROL_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/;
 
+/** The same listener URL on another host, keeping the scheme and port the API reports. */
+function onHost(url: string, host: string) {
+  const next = new URL(url);
+  next.hostname = host;
+  return next.origin;
+}
+
 /**
  * An issued Tailscale certificate gives HTTPS names; otherwise the tailnet IP
  * and MagicDNS rows, over HTTPS once plain HTTP redirects.
@@ -51,14 +58,16 @@ const CONTROL_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/;
 function accessURLs(state: TailscaleState, https?: HttpsState): UrlRow[] {
   if (https?.tailscale.state === "issued" && https.tailscale.name) {
     const name = https.tailscale.name;
-    return [{ label: t("nav.apps"), url: `https://${name}:8443` }, { label: t("nav.manager"), url: `https://${name}` }];
+    return [{ label: t("nav.apps"), url: onHost(https.urls.kvm, name) }, { label: t("nav.manager"), url: onHost(https.urls.manager, name) }];
   }
-  const [scheme, kvmPort] = !https || https.http_enabled ? ["http", 8080] : ["https", 8443];
+  const http = !https || https.http_enabled;
+  const kvm = (host: string) => http ? `http://${host}:8080` : onHost(https.urls.kvm, host);
+  const manager = (host: string) => http ? `http://${host}` : onHost(https.urls.manager, host);
   const ip = state.ips?.find((a) => !a.includes(":"));
   const urls: UrlRow[] = [];
-  if (ip) urls.push({ label: t("nav.apps"), url: `${scheme}://${ip}:${kvmPort}` });
-  if (state.dnsName) urls.push({ label: "MagicDNS", url: `${scheme}://${state.dnsName}:${kvmPort}` });
-  if (ip) urls.push({ label: t("nav.manager"), url: `${scheme}://${ip}` });
+  if (ip) urls.push({ label: t("nav.apps"), url: kvm(ip) });
+  if (state.dnsName) urls.push({ label: "MagicDNS", url: kvm(state.dnsName) });
+  if (ip) urls.push({ label: t("nav.manager"), url: manager(ip) });
   return urls;
 }
 

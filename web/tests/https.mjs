@@ -64,6 +64,9 @@ try {
     ["issued", undefined, ["https://khadas.tailb66bbe.ts.net:8443", "https://khadas.tailb66bbe.ts.net"]],
     ["http on", (d) => { d.https.tailscale = { state: "disabled" }; }, ["http://100.87.252.96:8080", "http://khadas.tailb66bbe.ts.net:8080", "http://100.87.252.96"]],
     ["http off", (d) => { d.https.tailscale = { state: "error", error: "x" }; d.https.http_enabled = false; }, ["https://100.87.252.96:8443", "https://khadas.tailb66bbe.ts.net:8443", "https://100.87.252.96"]],
+    // Ports come from the API's URLs, so custom TLS listeners carry over to the Tailscale names.
+    ["issued, custom ports", (d) => { d.https.urls = { manager: "https://192.168.50.210:9443", kvm: "https://192.168.50.210:18443" }; }, ["https://khadas.tailb66bbe.ts.net:18443", "https://khadas.tailb66bbe.ts.net:9443"]],
+    ["http off, custom ports", (d) => { ((d) => { d.https.urls = { manager: "https://192.168.50.210:9443", kvm: "https://192.168.50.210:18443" }; })(d); d.https.tailscale = { state: "disabled" }; d.https.http_enabled = false; }, ["https://100.87.252.96:18443", "https://khadas.tailb66bbe.ts.net:18443", "https://100.87.252.96:9443"]],
   ]) {
     const { page, context, tailscale } = await open(browser, mockData(edit));
     await tailscale.getByText("Access URLs").waitFor();
@@ -124,6 +127,30 @@ try {
     await context.close();
   }
 
+  // A failed refresh after a good read keeps the facts but marks them stale and locks the controls.
+  {
+    const data = mockData((d) => { d.https.tailscale = { state: "error", error: "x" }; });
+    const { page, context, card, errors } = await open(browser, data);
+    const toggle = card.getByRole("switch", { name: "Keep HTTP access" });
+    await toggle.waitFor();
+    assert(await toggle.isEnabled());
+    data.httpsError = true;
+    const alert = card.getByRole("alert");
+    await alert.getByText("Couldn't load HTTPS status.").waitFor({ timeout: 8000 });
+    assert.equal(await alert.getByRole("link", { name: "Open over HTTPS" }).getAttribute("href"), "https://192.168.50.210/#/network");
+    await card.getByText("Local certificate").waitFor();
+    assert(await toggle.isDisabled(), "switch locked while stale");
+    assert(await card.getByRole("button", { name: "Retry", exact: true }).last().isDisabled(), "certificate retry locked while stale");
+    await toggle.click({ force: true });
+    assert.deepEqual(data.writes, []);
+    data.httpsError = false;
+    await alert.getByRole("button", { name: "Retry" }).click();
+    await alert.waitFor({ state: "detached" });
+    assert(await toggle.isEnabled(), "a fresh read unlocks the switch");
+    assert.deepEqual(errors, []);
+    await context.close();
+  }
+
   // Load failure offers a retry; Tailscale certificate row hides when unavailable and retries on error.
   {
     const data = mockData((d) => { d.httpsError = true; d.https.tailscale = { state: "unavailable" }; });
@@ -169,7 +196,7 @@ try {
     assert(row.centered && row.below && row.full, JSON.stringify(row));
     await context.close();
   }
-  console.log("HTTPS UI checks passed: Tailscale URL rows (issued, HTTP on, HTTP off), HTTP-off guard over HTTP, confirm/cancel, turn on without dialog, failed write revert + toast, load retry, Tailscale certificate hidden/error retry, mobile URL wrapping.");
+  console.log("HTTPS UI checks passed: Tailscale URL rows (issued, HTTP on, HTTP off, custom ports), stale read locks controls, HTTP-off guard over HTTP, confirm/cancel, turn on without dialog, failed write revert + toast, load retry, Tailscale certificate hidden/error retry, mobile URL wrapping.");
 
   if (out) await capture(out);
 } finally {
@@ -182,6 +209,7 @@ async function capture(dir) {
   const zh = { switch: "同时保留 HTTP 访问" };
   const scenarios = [
     { name: "loading", edit: (d) => { d.hold = true; }, ready: ({ card }) => card.locator('[aria-busy="true"]').waitFor() },
+    { name: "stale-error", actions: [async ({ card }, data) => { data.httpsError = true; await card.getByText("无法读取 HTTPS 状态。").waitFor({ timeout: 8000 }); }] },
     { name: "load-error", edit: (d) => { d.httpsError = true; }, ready: ({ card }) => card.getByText("无法读取 HTTPS 状态。").waitFor() },
     { name: "http-page-http-on", full: true, themes: ["light", "dark"], locales: ["zh-CN", "en"] },
     { name: "https-page-http-on", edit: secure },
@@ -208,7 +236,7 @@ async function capture(dir) {
       if (scenario.ready) await scenario.ready(view);
       else await region.locator("ul a").first().waitFor();
       if (scenario.region === "tailscale") await view.tailscale.getByText(data.https.tailscale.state === "issued" ? "https://khadas" : "MagicDNS", { exact: data.https.tailscale.state !== "issued" }).first().waitFor();
-      for (const action of scenario.actions ?? []) await action(view);
+      for (const action of scenario.actions ?? []) await action(view, data);
       await view.page.evaluate(() => document.fonts.ready);
       assert.deepEqual(view.errors, [], scenario.name);
       assert(await view.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${scenario.name}: horizontal overflow at ${width}px`);

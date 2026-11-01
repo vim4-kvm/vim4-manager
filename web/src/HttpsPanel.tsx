@@ -96,14 +96,20 @@ export function HttpsPanel() {
       status={https ? t("https.on") : undefined} control={null} /></div></div>
   );
 
+  // Also shown over cached facts: e.g. an HTTP tab left open after HTTP was turned off elsewhere can no longer read.
+  const loadError = failed && (
+    <div className="flex flex-wrap items-center gap-3 text-sm text-destructive" role="alert">
+      {t("https.loadFailed")}{" "}
+      <Button variant="link" size="inline" onClick={() => void useHttpsStore.getState().refresh()}>{t("common.retry")}</Button>
+      {https && !https.request_secure && <Button asChild variant="link" size="inline"><a href={secureHref(https)}>{t("https.openOverHttps")}</a></Button>}
+    </div>
+  );
+
   if (!https && !failed) return <SettingsCard label="HTTPS"><PanelSkeleton rows={4} /></SettingsCard>;
   if (!https) return (
     <SettingsCard label="HTTPS"><FadeIn className="flex min-w-0 flex-col gap-5">
       {header}
-      <div className="flex flex-wrap items-center gap-3 text-sm text-destructive" role="alert">
-        {t("https.loadFailed")}{" "}
-        <Button variant="link" size="inline" onClick={() => void useHttpsStore.getState().refresh()}>{t("common.retry")}</Button>
-      </div>
+      {loadError}
     </FadeIn></SettingsCard>
   );
 
@@ -116,6 +122,7 @@ export function HttpsPanel() {
     <SettingsCard label="HTTPS">
       <FadeIn className="flex min-w-0 flex-col gap-5">
         {header}
+        {loadError}
         <FactGrid cols={2}>
           <Fact label={t("tailscale.accessUrls")} className="@md:col-span-2" value={<div className="flex flex-col gap-2 text-sm font-normal">
             <UrlList rows={[{ label: t("nav.apps"), url: https.urls.kvm }, { label: t("nav.manager"), url: https.urls.manager }]} />
@@ -154,7 +161,7 @@ export function HttpsPanel() {
               {tailscale.state === "disabled" && <div className="mt-2"><Button asChild variant="link" size="inline"><a href={TAILSCALE_DNS} target="_blank" rel="noreferrer noopener">{t("https.openTailscaleDns")}</a></Button></div>}
               {tailscale.state === "error" && tailscale.error && <p className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]" title={tailscale.error}>{tailscale.error}</p>}
               {tailscale.state === "error" && <div className="mt-3">
-                <Button variant="outline" className={STACK} disabled={retrying} aria-busy={retrying} onClick={() => void retry()}>
+                <Button variant="outline" className={STACK} disabled={retrying || failed} aria-busy={retrying} onClick={() => void retry()}>
                   {retrying && <Spinner />}{t("common.retry")}</Button>
               </div>}
             </Fact>
@@ -167,7 +174,7 @@ export function HttpsPanel() {
         <div role="group" aria-labelledby={switchId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1">
           <h3 id={switchId} className="text-sm font-medium">{t("https.keepHttp")}</h3>
           <div className="col-start-2 row-start-1 flex sm:row-span-2">
-            <Switch aria-label={t("https.keepHttp")} checked={saving ?? https.http_enabled} disabled={saving !== undefined} onCheckedChange={toggle} />
+            <Switch aria-label={t("https.keepHttp")} checked={saving ?? https.http_enabled} disabled={saving !== undefined || failed} onCheckedChange={toggle} />
           </div>
           <p className="col-span-full text-sm text-pretty text-muted-foreground sm:col-span-1">{t("https.keepHttpHelp")}</p>
         </div>
