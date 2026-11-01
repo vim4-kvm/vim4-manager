@@ -8,6 +8,9 @@ export function dateTime(value: number | Date, options?: Intl.DateTimeFormatOpti
     month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23", ...options,
   }).format(value);
 }
+export function date(value: number | Date): string {
+  return new Intl.DateTimeFormat(getLocale(), { dateStyle: "medium" }).format(value);
+}
 export function time(value: number | Date): string {
   return new Intl.DateTimeFormat(getLocale(), { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).format(value);
 }

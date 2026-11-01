@@ -122,7 +122,7 @@ try {
         "/__vim4/api/auth/state": data.auth, "/api/status": data.status, "/api/edid": data.edid, "/api/media": data.media,
         "/api/disks": data.disks, "/api/disks/files": data.files, "/api/storage": data.storage, "/api/nasdisk": data.nasdisk,
         "/api/storage/dirs": { entries: [{ name: "工具" }, { name: "录像" }], truncated: false },
-        "/api/wifi": data.wifi, "/api/wifi/networks": { networks: data.networks }, "/api/tailscale": data.tailscale,
+        "/api/wifi": data.wifi, "/api/wifi/networks": { networks: data.networks }, "/api/tailscale": data.tailscale, "/__vim4/api/https": data.https,
         "/api/passthrough": data.passthrough, "/api/kernel": data.kernel, "/api/updates": data.updates, "/api/account/sessions": data.account,
       };
       return route.fulfill({ status: path in responses ? 200 : 404, json: localizeResponse(path, responses[path], route.request().headers().cookie) ?? { error: "Unexpected test API" } });
