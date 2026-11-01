@@ -96,6 +96,9 @@ func (s *Service) Watch(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		if s.HTTPS != nil {
+			s.HTTPS.Refresh(ctx, false)
+		}
 		if next, err := s.snapshot(ctx); err == nil {
 			if last != nil {
 				s.compare(last, next)

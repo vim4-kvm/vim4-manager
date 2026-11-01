@@ -62,6 +62,17 @@ func CheckHost(service *board.Service, next http.Handler, extra []string) http.H
 		}
 		host = strings.ToLower(strings.TrimSuffix(host, "."))
 		allowed := names[host]
+		if r.TLS != nil && service.HTTPS != nil {
+			state := service.HTTPS.Status(true)
+			for _, name := range state.Local.Names {
+				if strings.EqualFold(host, name) {
+					allowed = true
+				}
+			}
+			if state.Tailscale.State == "issued" && strings.EqualFold(host, state.Tailscale.Name) {
+				allowed = true
+			}
+		}
 		if ip, err := netip.ParseAddr(host); err == nil {
 			ip = ip.Unmap()
 			addresses, _ := net.InterfaceAddrs()

@@ -12,6 +12,9 @@ import (
 // the isolated board API used by unit tests without credentials or hardware.
 func AuthenticatedHandler(service *board.Service, assets fs.FS, sessions *auth.Store) http.Handler {
 	mux := http.NewServeMux()
+	if service.HTTPS != nil {
+		httpsRoutes(mux, service, sessions)
+	}
 	mux.Handle("/__vim4/", AuthHandler(assets, sessions))
 	mux.Handle("/api/account/", sessions.AccountRoutes())
 	boardHandler := Handler(service, assets)

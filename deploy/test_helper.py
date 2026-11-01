@@ -21,6 +21,31 @@ loader.exec_module(helper)
 
 
 
+class TailscaleCertificateTest(unittest.TestCase):
+    def test_certificate_uses_private_temporary_paths_and_advertised_name(self):
+        def run(*args, **kwargs):
+            if args[1] == 'status':
+                return Mock(stdout=json.dumps({'CertDomains': ['box.example.ts.net']}))
+            self.assertEqual(args[:2], ('tailscale', 'cert'))
+            cert = Path(args[2].removeprefix('--cert-file='))
+            key = Path(args[3].removeprefix('--key-file='))
+            self.assertEqual(cert.parent, key.parent)
+            self.assertEqual(cert.parent.stat().st_mode & 0o777, 0o700)
+            cert.write_text('certificate')
+            key.write_text('private key')
+            self.directory = cert.parent
+            return Mock()
+        with patch.object(helper, 'tailscale_run', side_effect=run) as command:
+            self.assertEqual(helper.tailscale_command(['tailscale-cert', 'box.example.ts.net']),
+                             {'cert': 'certificate', 'key': 'private key'})
+            self.assertFalse(self.directory.exists())
+            self.assertEqual(command.call_count, 2)
+            for name in ('other.ts.net', '../box.example.ts.net', 'box.example.ts.net;id'):
+                with self.assertRaises(ValueError):
+                    helper.tailscale_command(['tailscale-cert', name])
+            self.assertEqual(command.call_count, 5)
+
+
 class MainlineEDIDTest(unittest.TestCase):
     def setUp(self):
         self.enterContext(patch.object(helper.platform, 'release', return_value='7.3.0-vim4kvm-npu1+'))

@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 User=khadas
 Group=khadas
-# Port 80 without root; the KVM gateway's 8080 needs no capability.
+# Ports 80/443 without root; the KVM gateway's 8080/8443 need no capability.
 # Switching goes through the sudoers-restricted helper,
 # so NoNewPrivileges must stay off.
 AmbientCapabilities=CAP_NET_BIND_SERVICE

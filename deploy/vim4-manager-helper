@@ -406,6 +406,20 @@ def tailscale_login(url, previous=''):
 
 
 def tailscale_command(argv):
+    if len(argv) == 2 and argv[0] == 'tailscale-cert':
+        name = argv[1]
+        status = tailscale_run('tailscale', 'status', '--json', timeout=4)
+        domains = json.loads(status.stdout).get('CertDomains') or []
+        if name not in domains or not re.fullmatch(r'[a-zA-Z0-9.-]+\.ts\.net', name):
+            raise ValueError('Certificate name is not advertised by Tailscale')
+        # Root writes only inside its own temporary directory; the manager
+        # persists the returned pair in its service-owned state directory.
+        with tempfile.TemporaryDirectory(prefix='vim4-tailscale-cert-') as directory:
+            cert = Path(directory) / 'cert.pem'
+            key = Path(directory) / 'key.pem'
+            tailscale_run('tailscale', 'cert', '--cert-file=' + str(cert),
+                          '--key-file=' + str(key), name, timeout=110)
+            return {'cert': cert.read_text(), 'key': key.read_text()}
     previous = ''
     match argv:
         case ['tailscale-package', action] if action in ('install', 'uninstall'):

@@ -51,6 +51,7 @@ func KVMHandler(service *board.Service, assets fs.FS, sessions *auth.Store, back
 			}
 		},
 		ModifyResponse: func(r *http.Response) error {
+			r.Header.Del("Strict-Transport-Security")
 			for name := range r.Header {
 				if strings.HasPrefix(strings.ToLower(name), "access-control-allow-") {
 					r.Header.Del(name)
@@ -63,6 +64,12 @@ func KVMHandler(service *board.Service, assets fs.FS, sessions *auth.Store, back
 	forward := kvmOrigin(proxy)
 	protected := sessions.Require(forward)
 	login := AuthHandler(assets, sessions)
+	if service.HTTPS != nil {
+		mux := http.NewServeMux()
+		httpsRoutes(mux, service, sessions)
+		mux.Handle("/", login)
+		login = localWrites(requireJSON(mux))
+	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestPath := path.Clean(r.URL.Path)
 		if strings.HasPrefix(requestPath, "/__vim4/") {

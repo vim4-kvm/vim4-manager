@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"io/fs"
@@ -21,6 +22,13 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "set-http" {
+		if err := auth.HTTPCommand(os.Args[2:], os.Stderr); err != nil {
+			slog.Error("set HTTP", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "gpu-snapshot" {
 		if err := board.WriteGPUSnapshot(os.Stdout); err != nil {
 			slog.Error("GPU snapshot", "error", err)
@@ -36,6 +44,8 @@ func main() {
 		return
 	}
 	listen := flag.String("listen", ":80", "HTTP listen address")
+	httpsListen := flag.String("https-listen", ":443", "HTTPS listen address")
+	kvmHTTPSListen := flag.String("kvm-https-listen", ":8443", "KVM HTTPS listen address")
 	kvmListen := flag.String("kvm-listen", ":8080", "KVM gateway listen address")
 	kvmBackend := flag.String("kvm-backend", "127.0.0.1:8081", "KVM backend address")
 	stateDir := flag.String("state-dir", auth.DefaultDirectory, "Authentication state directory")
@@ -60,14 +70,35 @@ func main() {
 		slog.Error("passthrough settings", "error", err)
 		os.Exit(1)
 	}
-	server := &http.Server{Addr: *listen, Handler: web.CheckHost(service, web.AuthenticatedHandler(service, assets, sessions), strings.Split(*allowedHosts, ",")), ReadHeaderTimeout: 10 * time.Second}
+	service.HTTPS, err = board.OpenHTTPS(*stateDir, board.Exec)
+	if err != nil {
+		slog.Error("HTTPS settings", "error", err)
+		os.Exit(1)
+	}
+	manager := web.CheckHost(service, web.AuthenticatedHandler(service, assets, sessions), strings.Split(*allowedHosts, ","))
+	server := &http.Server{Addr: *listen, Handler: web.CheckHost(service, web.HTTPAccess(service.HTTPS, manager, *httpsListen), strings.Split(*allowedHosts, ",")), ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	for address, handler := range map[string]http.Handler{
+		*httpsListen:    manager,
+		*kvmHTTPSListen: web.KVMHandler(service, assets, sessions, *kvmBackend, strings.Split(*allowedHosts, ",")),
+	} {
+		tlsServer := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
+			TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: service.HTTPS.GetCertificate}}
+		go func() {
+			closeOnStop := context.AfterFunc(ctx, func() { _ = tlsServer.Close() })
+			defer closeOnStop()
+			if err := tlsServer.ListenAndServeTLS("", ""); !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("TLS listener", "address", tlsServer.Addr, "error", err)
+				stop()
+			}
+		}()
+	}
 	kvmDone := make(chan struct{})
 	go func() {
 		defer close(kvmDone)
 		handler := web.KVMHandler(service, assets, sessions, *kvmBackend, strings.Split(*allowedHosts, ","))
-		if err := web.ServeKVM(ctx, *kvmListen, handler, service.Events); err != nil {
+		if err := web.ServeKVM(ctx, *kvmListen, web.CheckHost(service, web.HTTPAccess(service.HTTPS, handler, *kvmHTTPSListen), strings.Split(*allowedHosts, ",")), service.Events); err != nil {
 			slog.Error("KVM gateway", "error", err)
 		}
 	}()
