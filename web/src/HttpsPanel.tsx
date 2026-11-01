@@ -96,12 +96,12 @@ export function HttpsPanel() {
       status={https ? t("https.on") : undefined} control={null} /></div></div>
   );
 
-  // Also shown over cached facts: e.g. an HTTP tab left open after HTTP was turned off elsewhere can no longer read.
+  // Also shown over cached facts: e.g. an HTTP tab left open after HTTP was turned off elsewhere can no longer
+  // read; the facts below still carry the "Open over HTTPS" link.
   const loadError = failed && (
     <div className="flex flex-wrap items-center gap-3 text-sm text-destructive" role="alert">
       {t("https.loadFailed")}{" "}
       <Button variant="link" size="inline" onClick={() => void useHttpsStore.getState().refresh()}>{t("common.retry")}</Button>
-      {https && !https.request_secure && <Button asChild variant="link" size="inline"><a href={secureHref(https)}>{t("https.openOverHttps")}</a></Button>}
     </div>
   );
 

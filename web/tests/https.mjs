@@ -137,7 +137,10 @@ try {
     data.httpsError = true;
     const alert = card.getByRole("alert");
     await alert.getByText("Couldn't load HTTPS status.").waitFor({ timeout: 8000 });
-    assert.equal(await alert.getByRole("link", { name: "Open over HTTPS" }).getAttribute("href"), "https://192.168.50.210/#/network");
+    assert.equal(await alert.getByRole("link").count(), 0, "the HTTPS link stays only on the access URL line");
+    const links = card.getByRole("link", { name: "Open over HTTPS" });
+    assert.equal(await links.count(), 1);
+    assert.equal(await links.getAttribute("href"), "https://192.168.50.210/#/network");
     await card.getByText("Local certificate").waitFor();
     assert(await toggle.isDisabled(), "switch locked while stale");
     assert(await card.getByRole("button", { name: "Retry", exact: true }).last().isDisabled(), "certificate retry locked while stale");
