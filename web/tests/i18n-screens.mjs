@@ -83,7 +83,7 @@ async function mockAPI(context, data, page, state) {
     "/__vim4/api/auth/state": data.auth, "/api/status": data.status, "/api/edid": data.edid, "/api/media": data.media,
     "/api/disks": data.disks, "/api/disks/files": data.files, "/api/storage": data.storage, "/api/nasdisk": data.nasdisk,
     "/api/storage/dirs": { entries: [], truncated: false }, "/api/wifi": data.wifi,
-    "/api/wifi/networks": { networks: data.networks }, "/api/tailscale": data.tailscale,
+    "/api/wifi/networks": { networks: data.networks }, "/api/tailscale": data.tailscale, "/__vim4/api/https": data.https,
     "/api/passthrough": data.passthrough, "/api/kernel": data.kernel, "/api/updates": data.updates, "/api/account/sessions": data.account,
   };
   await context.route("**/*", route => {
