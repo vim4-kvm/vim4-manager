@@ -48,6 +48,7 @@ export function HttpsPanel() {
   const [help, setHelp] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const helpId = useId();
+  const switchId = useId();
 
   useEffect(() => {
     const { refresh } = useHttpsStore.getState();
@@ -147,10 +148,11 @@ export function HttpsPanel() {
             <Fact label={t("https.tailscaleCertificate")} valueKey={tailscale.state}
               value={tailscale.state === "issued" ? <span className="font-mono font-normal">{tailscale.name}</span>
                 : tailscale.state === "pending" ? <span className="flex items-center gap-1.5 font-normal text-muted-foreground"><Spinner />{t("https.requesting")}</span>
-                : tailscale.state === "error" ? <span className="font-normal text-destructive">{t("https.requestFailed", { error: tailscale.error ?? "" })}</span>
+                : tailscale.state === "error" ? <span className="text-destructive">{t("https.requestFailed")}</span>
                 : <span className="font-normal text-pretty">{t("https.tailscaleDisabled")}</span>}
               detail={tailscale.state === "issued" && tailscale.not_after ? t("https.tailscaleValid", { date: date(new Date(tailscale.not_after)) }) : undefined}>
               {tailscale.state === "disabled" && <div className="mt-2"><Button asChild variant="link" size="inline"><a href={TAILSCALE_DNS} target="_blank" rel="noreferrer noopener">{t("https.openTailscaleDns")}</a></Button></div>}
+              {tailscale.state === "error" && tailscale.error && <p className="line-clamp-2 text-xs text-muted-foreground [overflow-wrap:anywhere]" title={tailscale.error}>{tailscale.error}</p>}
               {tailscale.state === "error" && <div className="mt-3">
                 <Button variant="outline" className={STACK} disabled={retrying} aria-busy={retrying} onClick={() => void retry()}>
                   {retrying && <Spinner />}{t("common.retry")}</Button>
@@ -161,8 +163,14 @@ export function HttpsPanel() {
       </FadeIn>
 
       <div className="flex flex-col gap-3">
-        <SettingRow title={t("https.keepHttp")} description={t("https.keepHttpHelp")}
-          control={<Switch aria-label={t("https.keepHttp")} checked={saving ?? https.http_enabled} disabled={saving !== undefined} onCheckedChange={toggle} />} />
+        {/* Unlike SettingRow, phones keep the switch on the title line instead of below the description. */}
+        <div role="group" aria-labelledby={switchId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-1">
+          <h3 id={switchId} className="text-sm font-medium">{t("https.keepHttp")}</h3>
+          <div className="col-start-2 row-start-1 flex sm:row-span-2">
+            <Switch aria-label={t("https.keepHttp")} checked={saving ?? https.http_enabled} disabled={saving !== undefined} onCheckedChange={toggle} />
+          </div>
+          <p className="col-span-full text-sm text-pretty text-muted-foreground sm:col-span-1">{t("https.keepHttpHelp")}</p>
+        </div>
         {guard && !https.request_secure && (
           <p role="status" className="flex flex-wrap items-baseline gap-x-1.5 text-xs text-warning-foreground">{t("https.openHttpsFirst")} {openOverHttps}</p>
         )}

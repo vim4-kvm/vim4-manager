@@ -427,7 +427,7 @@ export const en = {
   "https.openTailscaleDns": "Open Tailscale DNS settings",
   "https.requesting": "Requesting…",
   "https.tailscaleValid": "Valid until {date}, renews automatically",
-  "https.requestFailed": "Request failed: {error}",
+  "https.requestFailed": "Request failed",
   "https.keepHttp": "Keep HTTP access",
   "https.keepHttpHelp": "When off, HTTP addresses redirect to HTTPS. UU Remote is unaffected; scripts and MCP clients must use the HTTPS address.",
   "https.openHttpsFirst": "Open this page over HTTPS first to confirm it works, then turn this off.",

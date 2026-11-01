@@ -134,7 +134,8 @@ try {
     await card.getByText("Local certificate").waitFor();
     assert.equal(await card.getByText("Tailscale certificate").count(), 0);
     data.https = { ...data.https, tailscale: { state: "error", error: "tailscale cert: 500 Internal Server Error" } };
-    await card.getByText("Request failed: tailscale cert: 500 Internal Server Error").waitFor({ timeout: 8000 });
+    await card.getByText("Request failed", { exact: true }).waitFor({ timeout: 8000 });
+    assert.equal(await card.getByTitle("tailscale cert: 500 Internal Server Error").textContent(), "tailscale cert: 500 Internal Server Error");
     await card.getByRole("button", { name: "Retry" }).click();
     await card.getByText("Requesting…").waitFor();
     assert.deepEqual(data.writes, ["retry"]);
@@ -156,6 +157,16 @@ try {
     assert.equal(layout.length, 5);
     for (const row of layout) assert(row.unsplit && row.below && row.fits, JSON.stringify(row));
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no horizontal overflow at 390px");
+    // The switch shares the title line on phones; the description runs full width below.
+    const row = await page.evaluate(() => {
+      const box = (el) => el.getBoundingClientRect();
+      const toggle = document.querySelector('[role="switch"][aria-label="Keep HTTP access"]');
+      const group = toggle.closest('[role="group"]');
+      const [title, help] = [group.querySelector("h3"), group.querySelector("p")];
+      return { centered: Math.abs((box(toggle).top + box(toggle).bottom) / 2 - (box(title).top + box(title).bottom) / 2) < 2,
+        below: box(help).top >= box(title).bottom, full: box(help).width >= box(group).width - 1 };
+    });
+    assert(row.centered && row.below && row.full, JSON.stringify(row));
     await context.close();
   }
   console.log("HTTPS UI checks passed: Tailscale URL rows (issued, HTTP on, HTTP off), HTTP-off guard over HTTP, confirm/cancel, turn on without dialog, failed write revert + toast, load retry, Tailscale certificate hidden/error retry, mobile URL wrapping.");
@@ -181,14 +192,15 @@ async function capture(dir) {
     { name: "tailscale-disabled", edit: (d) => { d.https.tailscale = { state: "disabled" }; } },
     { name: "tailscale-pending", edit: (d) => { d.https.tailscale = { state: "pending" }; } },
     { name: "tailscale-issued" },
-    { name: "tailscale-error", edit: (d) => { d.https.tailscale = { state: "error", error: "tailscale cert: 500 Internal Server Error: acme: authorization timed out" }; } },
+    { name: "tailscale-error", locales: ["zh-CN", "en"], edit: (d) => { d.https.tailscale = { state: "error", error: "tailscale cert: 500 Internal Server Error: acme: authorization timed out" }; } },
     { name: "how-to-trust", actions: [async ({ card }) => { await card.getByRole("button", { name: "如何信任" }).click(); await card.getByText("钥匙串访问", { exact: false }).waitFor(); }] },
     { name: "tailscale-card-urls-issued", region: "tailscale" },
     { name: "tailscale-card-urls-http-on", region: "tailscale", edit: (d) => { d.https.tailscale = { state: "disabled" }; } },
     { name: "tailscale-card-urls-http-off", region: "tailscale", edit: (d) => { d.https.tailscale = { state: "disabled" }; d.https.http_enabled = false; } },
   ];
   for (const scenario of scenarios) for (const width of [1440, 390]) for (const theme of scenario.themes ?? ["light"]) for (const locale of scenario.locales ?? ["zh-CN"]) {
-    if (process.env.SCREEN_FILTER && !scenario.name.includes(process.env.SCREEN_FILTER)) continue;
+    if (process.env.SCREEN_FILTER && !process.env.SCREEN_FILTER.split(",").includes(scenario.name)) continue;
+    if (process.env.SCREEN_THEME && theme !== process.env.SCREEN_THEME) continue;
     const data = mockData(scenario.edit);
     const view = await open(browser, data, { width, theme, locale });
     try {
