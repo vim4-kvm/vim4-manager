@@ -127,6 +127,29 @@ try {
     await context.close();
   }
 
+  // KVM links follow the page scheme: an HTTPS page uses the gateway's TLS listener, an HTTP page keeps 8080.
+  {
+    const { page, context, card } = await open(browser, mockData());
+    await card.locator("ul a").first().waitFor();
+    const urls = await page.evaluate(async () => {
+      const { kvmURL } = await import("/src/lib/units.ts");
+      const { useHttpsStore } = await import("/src/stores/https.ts");
+      const secure = { protocol: "https:", hostname: "vim4" };
+      const loaded = kvmURL(8080, "onekvm", secure);
+      const https = useHttpsStore.getState().https;
+      useHttpsStore.setState({ https: { ...https, urls: { ...https.urls, kvm: "https://192.168.50.210:18443" } } });
+      const custom = kvmURL(8080, "onekvm", secure);
+      useHttpsStore.setState({ https: undefined });
+      return { loaded, custom, unloaded: kvmURL(8080, "onekvm", secure), http: kvmURL(8080, "onekvm", { protocol: "http:", hostname: "vim4" }) };
+    });
+    assert.deepEqual(urls, { loaded: "https://vim4:8443/?kvm=onekvm", custom: "https://vim4:18443/?kvm=onekvm", unloaded: "https://vim4:8443/?kvm=onekvm", http: "http://vim4:8080/?kvm=onekvm" });
+    await page.goto(`${base}/#/apps`);
+    const appLink = page.getByRole("link", { name: "Open One-KVM" }).first();
+    await appLink.waitFor();
+    assert.equal(new URL(await appLink.getAttribute("href")).port, "8080", "HTTP page opens the plain gateway");
+    await context.close();
+  }
+
   // A failed refresh after a good read keeps the facts but marks them stale and locks the controls.
   {
     const data = mockData((d) => { d.https.tailscale = { state: "error", error: "x" }; });
@@ -199,7 +222,7 @@ try {
     assert(row.centered && row.below && row.full, JSON.stringify(row));
     await context.close();
   }
-  console.log("HTTPS UI checks passed: Tailscale URL rows (issued, HTTP on, HTTP off, custom ports), stale read locks controls, HTTP-off guard over HTTP, confirm/cancel, turn on without dialog, failed write revert + toast, load retry, Tailscale certificate hidden/error retry, mobile URL wrapping.");
+  console.log("HTTPS UI checks passed: Tailscale URL rows (issued, HTTP on, HTTP off, custom ports), stale read locks controls, KVM link ports (https → 8443/API port, http → 8080), HTTP-off guard over HTTP, confirm/cancel, turn on without dialog, failed write revert + toast, load retry, Tailscale certificate hidden/error retry, mobile URL wrapping.");
 
   if (out) await capture(out);
 } finally {

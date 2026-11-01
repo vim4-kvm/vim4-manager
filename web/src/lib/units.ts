@@ -2,6 +2,7 @@ import type { Unit } from "@/api";
 import type { Tone } from "@/components/StatusDot";
 import { getLocale, t } from "@/i18n";
 import { dateTime, durationPart, number, time } from "@/i18n/format";
+import { useHttpsStore } from "@/stores/https";
 
 export function unitTone(unit: Unit): Tone {
   if (!unit.loaded) return "idle";
@@ -46,8 +47,20 @@ export function tempTone(c: number): Tone {
   return c >= 85 ? "critical" : c >= 70 ? "warning" : "good";
 }
 
-export function kvmURL(port: number, app: string): string {
-  return `${location.protocol}//${location.hostname}:${port}/?kvm=${encodeURIComponent(app)}`;
+type Page = Pick<Location, "protocol" | "hostname">;
+
+/**
+ * The KVM gateway port matching this page's scheme: the plain-HTTP app port,
+ * or on an HTTPS page the gateway's TLS listener (8443 unless the HTTPS status says otherwise).
+ */
+export function kvmPort(port: number, page: Page = location): number {
+  if (page.protocol !== "https:") return port;
+  const kvm = useHttpsStore.getState().https?.urls.kvm;
+  return kvm ? Number(new URL(kvm).port || 443) : 8443;
+}
+
+export function kvmURL(port: number, app: string, page: Page = location): string {
+  return `${page.protocol}//${page.hostname}:${kvmPort(port, page)}/?kvm=${encodeURIComponent(app)}`;
 }
 
 export const celsius = (v: number) => `${number(v, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} °C`;
