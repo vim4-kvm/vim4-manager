@@ -1209,6 +1209,19 @@ def restart(unit):
         raise ValueError('Unit is not managed')
     check_pikvm_media(entering=unit == APPS['pikvm'])
     if unit in APPS.values():
+        if PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
+            # A cross-app restart is a switch: USB restoration may defer while
+            # media is mounted, leaving the next app with incompatible HID.
+            for other in APPS.values():
+                if other == unit:
+                    continue
+                state = subprocess.run(
+                    ['systemctl', 'show', '--property=ActiveState,UnitFileState', other],
+                    check=True, capture_output=True, text=True, timeout=10,
+                    env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+                if any(line in ('ActiveState=active', 'UnitFileState=enabled')
+                       for line in state.stdout.splitlines()):
+                    check_pikvm_media(entering=True)
         others = [other for other in APPS.values() if other != unit and installed(other)]
         if others:
             systemctl('stop', *others)

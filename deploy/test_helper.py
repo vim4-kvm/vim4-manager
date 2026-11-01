@@ -1010,6 +1010,44 @@ class TailscaleTest(unittest.TestCase):
 
 
 class HelperTest(unittest.TestCase):
+    def test_mounted_cross_app_restart_requires_eject(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        lun = root / 'lun'
+        with patch.object(helper, 'PIKVM_LUN_FILE', lun), \
+             patch.object(helper, 'PIKVM_USB_STATE', root / 'absent'), \
+             patch.object(helper, 'installed', return_value=True):
+            for state in ('ActiveState=active', 'UnitFileState=enabled'):
+                lun.write_text('/disk.img')
+                def run(args, **kwargs):
+                    return subprocess.CompletedProcess(args, 0, state if args[-1] == 'one-kvm.service' else '')
+                with self.subTest(state=state), patch.object(helper.subprocess, 'run', side_effect=run):
+                    with self.assertRaisesRegex(ValueError, 'disk.img.*Safely eject'):
+                        helper.restart('nanokvm.service')
+                self.assertEqual(self.calls, [])
+                self.assertEqual(lun.read_text(), '/disk.img')
+            lun.write_text('')
+            with patch.object(helper, 'restore_onekvm_usb', side_effect=lambda unit: self.calls.append(('restore', unit))):
+                helper.restart('nanokvm.service')
+            self.assertEqual([call[0] for call in self.calls], ['stop', 'restore', 'restart'])
+
+    def test_same_app_restart_preserves_mounted_media(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        lun = root / 'lun'
+        lun.write_text('/disk.img')
+        for unit in ('nanokvm.service', 'one-kvm.service'):
+            def run(args, **kwargs):
+                return subprocess.CompletedProcess(args, 0,
+                    'ActiveState=active\nUnitFileState=enabled' if args[-1] == unit else 'ActiveState=inactive\nUnitFileState=disabled')
+            with self.subTest(unit=unit), \
+                 patch.object(helper, 'PIKVM_LUN_FILE', lun), \
+                 patch.object(helper, 'PIKVM_USB_STATE', root / 'absent'), \
+                 patch.object(helper, 'installed', return_value=True), \
+                 patch.object(helper.subprocess, 'run', side_effect=run), \
+                 patch.object(helper, 'restore_onekvm_usb'):
+                helper.restart(unit)
+            self.assertEqual(self.calls[-1], ('restart', unit))
+            self.assertEqual(lun.read_text(), '/disk.img')
+
     def test_restore_after_eject_precedes_target_start(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         lun = root / 'lun'
@@ -1038,6 +1076,9 @@ class HelperTest(unittest.TestCase):
                         self.assertEqual(self.calls[-3][0], 'stop')
 
     def test_restore_failure_aborts_start(self):
+        lun = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'lun'
+        lun.write_text('')
+        self.enterContext(patch.object(helper, 'PIKVM_LUN_FILE', lun))
         for command in (['select', 'nanokvm'], ['restart', 'nanokvm.service']):
             for error in (subprocess.CalledProcessError(1, 'usb-restore'),
                           subprocess.TimeoutExpired('usb-restore', 60)):
