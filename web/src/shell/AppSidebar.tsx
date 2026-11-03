@@ -5,6 +5,7 @@ import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar,
 } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
+import { kernelRelease } from "@/lib/version";
 import { usePassthroughStore } from "@/stores/passthrough";
 import { useStatusStore } from "@/stores/status";
 import { navHint, PAGE_GROUPS, PAGES, type PageId } from "./pages";
@@ -81,7 +82,7 @@ function Connection() {
         {(stale || !status) && <span title={stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}>{(stale || !status) && <StatusDot tone={stale ? "critical" : "warning"} />}</span>}
         <span className="truncate group-data-[collapsible=icon]:sr-only">{stale ? t("nav.disconnected") : status ? status.hardware.hostname : t("common.connecting")}</span>
       </span>
-      {status && <span data-kernel className="truncate font-mono text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{status.hardware.kernel}</span>}
+      {status && <span data-kernel title={status.hardware.kernel} className="truncate text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">{t("kernel.version", { version: kernelRelease(status.hardware.kernel).version })}</span>}
     </div>
   );
 }

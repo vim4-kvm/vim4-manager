@@ -396,7 +396,7 @@ export const en = {
   "kernel.runningReleaseSummary": "Running {release} · Each application's accounts, settings, and images are shared between kernels",
   "kernel.version": "Linux {version}",
   "kernel.versionBuilt": "Linux {version} · built {date}",
-  "kernel.restartHelp": "Set {name} as the default kernel and restart. This connection will close. Safely eject virtual disks first. If startup fails, use the serial console or OOWOW to recover.",
+  "kernel.restartHelp": "Make {name} the default and restart. This connection will close. Safely eject virtual disks first. If startup fails, use the serial console or OOWOW to recover.",
   "wifi.savedCount": "Saved networks ({count})",
   "wifi.startHotspotHelp": "Disconnect from the current Wi-Fi network and start hotspot “{name}”. Connect to it, then open http://{address} to access the manager.",
   "wifi.startHotspotRemoteHelp": "This Wi-Fi session will disconnect when hotspot “{name}” starts. Connect to it, then open http://{address} to access the manager.",

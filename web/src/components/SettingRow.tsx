@@ -9,12 +9,14 @@ import { cn } from "@/lib/utils";
  * right aligned below. `inactive` keeps a saved-but-not-effective
  * switch visibly on with a weaker fill while leaving it operable.
  */
-export function SettingRow({ title, badges, description, status, pending = false, control, inactive = false }: {
+export function SettingRow({ title, badges, description, status, statusError = false, pending = false, control, inactive = false }: {
   title: string;
   /** Small labels shown inline after the title (kept outside the heading name). */
   badges?: ReactNode;
   description?: ReactNode;
   status?: string;
+  /** The status text reports a failure. */
+  statusError?: boolean;
   pending?: boolean;
   control: ReactNode;
   inactive?: boolean;
@@ -30,7 +32,7 @@ export function SettingRow({ title, badges, description, status, pending = false
       <div className={cn("col-start-1 row-start-3 flex min-w-0 flex-wrap items-center justify-end gap-3 @max-md:mt-2 @md:col-start-2 @md:row-start-1", description && "@md:row-span-2",
         inactive && "[&_[data-slot=switch][data-state=checked]]:bg-primary/40")}>
         {status !== undefined && (
-          <span role="status" className="flex max-w-64 items-center gap-1.5 text-right text-sm text-muted-foreground">
+          <span role="status" className={cn("flex max-w-64 items-center gap-1.5 text-right text-sm", statusError ? "text-destructive" : "text-muted-foreground")}>
             {pending && <Spinner />}
             <FadeText id={status} />
           </span>

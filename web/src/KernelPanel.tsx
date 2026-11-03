@@ -80,7 +80,7 @@ export function KernelPanel() {
         <span className="block">{kernelVersion(kernel.release)}</span>
         <span className="mt-0.5 block font-mono text-xs break-all text-muted-foreground/80">{kernel.release}</span>
       </>}
-        status={kernel.error || (kernel.release === state.running ? undefined : kernel.available ? t("kernel.available") : t("kernel.unavailable"))}
+        status={kernel.error || (kernel.release === state.running ? undefined : kernel.available ? t("kernel.available") : t("kernel.unavailable"))} statusError={!!kernel.error}
         control={<Button variant="outline" disabled={busy || rebooting || !kernel.available || !!choice}
           onClick={() => setChoice(kernel)}>{kernel.release === state.running ? t("kernel.restartThisKernel") : t("kernel.switchAndRestart")}</Button>} />
     </div>}</AnimatedList></FadeIn>}

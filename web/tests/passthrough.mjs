@@ -12,7 +12,7 @@ const status = {
   active: "onekvm", apps: [{ id: "onekvm", name: "One-KVM", port: 8080,
     unit: { name: "vim4-onekvm.service", loaded: true, active: "active", sub: "running", enabled: "enabled" } }], platform: [],
   media: { known: true, inserted: false, connected: false },
-  hardware: { hostname: "vim4", kernel: "7.3.0", uptimeSeconds: 60, load1: 0, cpus: 8,
+  hardware: { hostname: "vim4", kernel: "7.3.1-vim4-20261103", uptimeSeconds: 60, load1: 0, cpus: 8,
     memTotalKiB: 1024, memAvailableKiB: 512, tempC: 50, zones: [], fanAuto: true,
     fanPercent: 30, usb: "configured", hdrCurve: { white: 203, peak: 1000 } },
   system: { links: [], disk: { totalBytes: 1, freeBytes: 1 }, packages: [] }, events: [], history: [],
@@ -219,7 +219,10 @@ try {
           assert.equal(await card.locator("dl, dt").count(), 0, "unsupported hides the entire fact area");
           assert.equal(await card.locator("[data-passthrough-body]").textContent(), cases[0][4]);
           assert.equal(await card.getByRole("link", { name: "Updates → Kernel" }).getAttribute("href"), "#/updates");
-          if (device === "desktop") assert.equal(await page.locator("[data-kernel]").textContent(), "7.3.0");
+          if (device === "desktop") {
+            assert.equal(await page.locator("[data-kernel]").textContent(), "Linux 7.3.1");
+            assert.equal(await page.locator("[data-kernel]").getAttribute("title"), "7.3.1-vim4-20261103", "the full release stays available as a tooltip");
+          }
         }
         if (device === "desktop") {
           assert.equal(await navHint("media").count(), 0, "normal empty media adds no unrelated warning");

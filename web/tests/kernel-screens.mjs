@@ -2,7 +2,7 @@
 // node web/tests/kernel-screens.mjs [output-dir]
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { fixtures, vendorRelease } from "./ui-fixtures.mjs";
+import { fixtures, mainlineRelease, vendorRelease } from "./ui-fixtures.mjs";
 
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
 const base = process.env.TEST_URL || "http://127.0.0.1:5188";
@@ -23,6 +23,7 @@ const states = [
   { name: "vendor-default-mainline-running", kernel: { running: dated, kernels: kernels(dated, { vendorSelected: true }) } },
   { name: "mainline-unavailable-error", kernel: { running: vendorRelease, kernels: kernels(dated, { vendorSelected: true, error: "Kernel checksum mismatch: Image" }) } },
   { name: "confirm-dialog", kernel: { running: dated, kernels: kernels(dated) }, dialog: true },
+  { name: "sidebar-footer", kernel: { running: dated, kernels: kernels(dated) }, sidebar: true },
 ];
 
 await mkdir(out, { recursive: true });
@@ -68,11 +69,18 @@ try {
         await vendor.getByRole("button", { name: text.switch, exact: true }).click();
         await page.getByRole("alertdialog").getByRole("heading", { name: text.dialog, exact: true }).waitFor();
       }
+      if (state.sidebar) {
+        if (width === 390) await page.locator("header button[aria-expanded]").first().click();
+        const footer = page.locator("[data-kernel]");
+        await footer.waitFor();
+        assert.equal(await footer.textContent(), "Linux 7.3.1");
+        assert.equal(await footer.getAttribute("title"), mainlineRelease);
+      }
       await page.evaluate(() => document.fonts.ready);
       assert.deepEqual(errors, [], name);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${name}: horizontal overflow`);
       await page.mouse.move(0, 0);
-      if (state.dialog) await page.screenshot({ path: `${out}/${name}`, animations: "disabled" });
+      if (state.dialog || state.sidebar) await page.screenshot({ path: `${out}/${name}`, animations: "disabled" });
       else {
         const box = await panel.boundingBox();
         const scroll = await page.evaluate(() => ({ x: scrollX, y: scrollY }));

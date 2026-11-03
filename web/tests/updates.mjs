@@ -84,6 +84,13 @@ try {
   await page.reload();
   await kernelPanel.getByText(/^Running Vendor kernel · Linux 5\.15\.137 · /).waitFor();
   assert.equal(await card("Mainline kernel").getByRole("status").textContent(), "Kernel checksum mismatch");
+  const statusColor = locator => locator.getByRole("status").evaluate(el => getComputedStyle(el).color);
+  assert.equal(await statusColor(card("Mainline kernel")), await kernelPanel.evaluate(el => {
+    const probe = el.appendChild(Object.assign(document.createElement("span"), { className: "text-destructive" }));
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }), "kernel errors use the destructive text color");
   assert.equal(await card("Mainline kernel").getByRole("button", { name: "Switch and restart", exact: true }).isDisabled(), true);
   running = "6.1.0-unlisted";
   await page.reload();
@@ -93,7 +100,7 @@ try {
   await page.reload();
   await kernelPanel.getByRole("button", { name: "Switch and restart", exact: true }).click();
   await page.getByRole("alertdialog").getByRole("heading", { name: "Switch to Vendor kernel", exact: true }).waitFor();
-  await page.getByRole("alertdialog").getByText(/^Set Vendor kernel as the default kernel and restart\./).waitFor();
+  await page.getByRole("alertdialog").getByText(/^Make Vendor kernel the default and restart\./).waitFor();
   await page.getByRole("alertdialog").waitFor();
   assert.deepEqual(switches, [], "choosing a kernel cannot immediately reboot");
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true }).click();
