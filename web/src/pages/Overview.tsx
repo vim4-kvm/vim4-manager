@@ -15,7 +15,7 @@ import { SettingsCard } from "@/components/SettingsCard";
 import { StatusDot, StatusLabel, type Tone } from "@/components/StatusDot";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { celsius, clockTime, duration, hdrLabel, kvmURL, since, tempTone, unitLabel, unitTone } from "@/lib/units";
+import { celsius, clockTime, duration, hdrLabel, kvmPort, kvmURL, since, tempTone, unitLabel, unitTone } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import { baseVersion, isDevelopmentVersion } from "@/lib/version";
 import { useStatusStore } from "@/stores/status";
@@ -95,7 +95,7 @@ function ActiveApp({ status, now }: { status: Status; now: number }) {
               {version && <span data-version title={version} className="inline-flex flex-wrap items-center gap-1.5">
                 <span>{isDevelopmentVersion(version) ? baseVersion(version) : version}</span><DevelopmentBadge version={version} />
               </span>}
-              <span data-host className="font-mono">{location.hostname}:{app.port}</span>
+              <span data-host className="font-mono">{location.hostname}:{kvmPort(app.port)}</span>
             </div>
           </div>
         </div>

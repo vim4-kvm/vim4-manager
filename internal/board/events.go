@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -96,6 +97,12 @@ func (s *Service) Watch(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
+		if s.HTTPS != nil {
+			if err := s.HTTPS.reloadHTTP(); err != nil {
+				slog.Error("reload HTTP setting", "error", err)
+			}
+			s.HTTPS.Refresh(ctx, false)
+		}
 		if next, err := s.snapshot(ctx); err == nil {
 			if last != nil {
 				s.compare(last, next)

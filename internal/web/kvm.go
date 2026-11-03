@@ -51,6 +51,7 @@ func KVMHandler(service *board.Service, assets fs.FS, sessions *auth.Store, back
 			}
 		},
 		ModifyResponse: func(r *http.Response) error {
+			r.Header.Del("Strict-Transport-Security")
 			for name := range r.Header {
 				if strings.HasPrefix(strings.ToLower(name), "access-control-allow-") {
 					r.Header.Del(name)
@@ -63,6 +64,12 @@ func KVMHandler(service *board.Service, assets fs.FS, sessions *auth.Store, back
 	forward := kvmOrigin(proxy)
 	protected := sessions.Require(forward)
 	login := AuthHandler(assets, sessions)
+	if service.HTTPS != nil {
+		mux := http.NewServeMux()
+		httpsRoutes(mux, service, sessions)
+		mux.Handle("/", login)
+		login = localWrites(requireJSON(mux))
+	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestPath := path.Clean(r.URL.Path)
 		if strings.HasPrefix(requestPath, "/__vim4/") {
@@ -161,27 +168,37 @@ func kvmUnavailable(w http.ResponseWriter, r *http.Request, _ error) {
 // ServeKVM retries a legacy application's occupied port without delaying the
 // manager listener. The context also closes upgraded connections on shutdown.
 func ServeKVM(ctx context.Context, address string, handler http.Handler, events *board.Events) error {
-	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 10 * time.Second,
-		BaseContext: func(net.Listener) context.Context { return ctx }}
+	server := &http.Server{Addr: address, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	return serveListener(ctx, server, events, i18n.Message{Key: "events.gatewayStarted"}, i18n.Message{Key: "events.gatewayWaiting"})
+}
+
+// serveListener retries an occupied port independently of the other listeners.
+// Both TLS and cleartext gateways inherit cancellation for upgraded requests.
+func serveListener(ctx context.Context, server *http.Server, events *board.Events, started, unavailable i18n.Message) error {
+	server.BaseContext = func(net.Listener) context.Context { return ctx }
 	waiting := false
 	for {
 		if ctx.Err() != nil {
 			return nil
 		}
-		listener, err := net.Listen("tcp", address)
+		listener, err := net.Listen("tcp", server.Addr)
 		if err == nil {
 			defer listener.Close()
-			events.AddMessage("good", i18n.Message{Key: "events.gatewayStarted"})
+			events.AddMessage("good", started)
 			stop := context.AfterFunc(ctx, func() { _ = server.Close() })
 			defer stop()
-			err = server.Serve(listener)
+			if server.TLSConfig != nil {
+				err = server.ServeTLS(listener, "", "")
+			} else {
+				err = server.Serve(listener)
+			}
 			if errors.Is(err, http.ErrServerClosed) {
 				return nil
 			}
 			return err
 		}
 		if !waiting {
-			events.AddMessage("warning", i18n.Message{Key: "events.gatewayWaiting"})
+			events.AddMessage("warning", unavailable)
 			waiting = true
 		}
 		timer := time.NewTimer(2 * time.Second)

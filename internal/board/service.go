@@ -30,6 +30,7 @@ type Service struct {
 	Events      *Events
 	Updater     *Updater
 	Passthrough *Passthrough
+	HTTPS       *HTTPS
 	mu          sync.Mutex
 	powerMu     sync.Mutex
 	powerAt     time.Time

@@ -406,6 +406,20 @@ def tailscale_login(url, previous=''):
 
 
 def tailscale_command(argv):
+    if len(argv) == 2 and argv[0] == 'tailscale-cert':
+        name = argv[1]
+        status = tailscale_run('tailscale', 'status', '--json', timeout=4)
+        domains = json.loads(status.stdout).get('CertDomains') or []
+        if name not in domains or not re.fullmatch(r'[a-zA-Z0-9.-]+\.ts\.net', name):
+            raise ValueError('Certificate name is not advertised by Tailscale')
+        # Root writes only inside its own temporary directory; the manager
+        # persists the returned pair in its service-owned state directory.
+        with tempfile.TemporaryDirectory(prefix='vim4-tailscale-cert-') as directory:
+            cert = Path(directory) / 'cert.pem'
+            key = Path(directory) / 'key.pem'
+            tailscale_run('tailscale', 'cert', '--cert-file=' + str(cert),
+                          '--key-file=' + str(key), name, timeout=110)
+            return {'cert': cert.read_text(), 'key': key.read_text()}
     previous = ''
     match argv:
         case ['tailscale-package', action] if action in ('install', 'uninstall'):
@@ -924,7 +938,7 @@ def attach_media(fd, app, cdrom, readonly):
     remove_network = not linked and app in ('nanokvm', 'jetkvm') and network.is_symlink()
     links = [p.name for p in config.iterdir() if p.is_symlink() and p != disk
              and not (remove_network and p == network)]
-    endpoints = 1 + sum(2 if name.startswith(('ncm.', 'ecm.', 'rndis.')) else 1 for name in links)
+    endpoints = 1 + sum(2 if name.startswith(('ncm.', 'ecm.', 'rndis.', 'acm.')) else 1 for name in links)
     if endpoints > 5:
         raise ValueError('There aren\'t enough USB endpoints. Disable a USB network adapter, microphone, or HID function in the current KVM interface.')
     old = {key: (lun / key).read_text() for key in ('ro', 'cdrom')}
@@ -1165,6 +1179,19 @@ def systemctl(*args):
     subprocess.run(['systemctl', *args], check=True, timeout=60, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
 
 
+def restore_onekvm_usb(unit):
+    helper = Path('/usr/libexec/vim4-onekvm')
+    if unit == APPS['onekvm'] or not helper.exists():
+        return
+    # ExecStopPost may have deferred restoration until the host ejected media.
+    # usb-restore is a successful no-op when no restoration is pending.
+    try:
+        subprocess.run([str(helper), 'usb-restore'], check=True, timeout=60,
+                       env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+    except (OSError, subprocess.SubprocessError) as error:
+        raise ValueError('One-KVM USB restoration failed; the target application was not started.') from error
+
+
 def installed(unit):
     result = subprocess.run(['systemctl', 'show', '--property=LoadState', '--value', unit],
                             capture_output=True, text=True, timeout=10, env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
@@ -1185,6 +1212,7 @@ def select(app):
     # process has released backend port 8081, HID and the encoder before starting.
     if others:
         systemctl('stop', *others)
+    restore_onekvm_usb(unit)
     systemctl('restart', unit)
     # Enablement links must survive the data=writeback root filesystem.
     os.sync()
@@ -1195,9 +1223,23 @@ def restart(unit):
         raise ValueError('Unit is not managed')
     check_pikvm_media(entering=unit == APPS['pikvm'])
     if unit in APPS.values():
+        if PIKVM_LUN_FILE.exists() and PIKVM_LUN_FILE.read_text().strip():
+            # A cross-app restart is a switch: USB restoration may defer while
+            # media is mounted, leaving the next app with incompatible HID.
+            for other in APPS.values():
+                if other == unit:
+                    continue
+                state = subprocess.run(
+                    ['systemctl', 'show', '--property=ActiveState,UnitFileState', other],
+                    check=True, capture_output=True, text=True, timeout=10,
+                    env={'LC_ALL': 'C', 'PATH': '/usr/bin:/bin'})
+                if any(line in ('ActiveState=active', 'UnitFileState=enabled')
+                       for line in state.stdout.splitlines()):
+                    check_pikvm_media(entering=True)
         others = [other for other in APPS.values() if other != unit and installed(other)]
         if others:
             systemctl('stop', *others)
+        restore_onekvm_usb(unit)
         systemctl('restart', unit)
         return
     # The HDMI service reconfigures capture underneath a running encoder; stop

@@ -42,7 +42,7 @@ export function Fact({ label, value, valueKey, detail, tone, href, destination, 
   const valueLine = (
     <span className={cn("flex min-w-0 items-center gap-2", !mutedValue && tone === "warning" && "text-warning-foreground", !mutedValue && tone === "critical" && "text-destructive")}>
       {!hideDot && tone && tone !== "good" && <StatusDot tone={tone} />}
-      <FadeText id={key} className="min-w-0 [overflow-wrap:anywhere]">{value}</FadeText>
+      <FadeText id={key} className="min-w-0 flex-1 [overflow-wrap:anywhere]">{value}</FadeText>
     </span>
   );
   return (

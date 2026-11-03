@@ -399,5 +399,7 @@ var en = map[string]string{
 	"access.crossSite":                  "Cross-site requests aren't allowed. Open the manager directly and try again.",
 	"access.host":                       "This host isn't allowed. Use the board's IP address or a configured hostname.",
 	"events.gatewayStarted":             "KVM gateway started",
+	"events.httpsStarted":               "HTTPS listener started at {address}",
+	"events.httpsWaiting":               "HTTPS listener is waiting for {address}",
 	"events.gatewayWaiting":             "KVM gateway is waiting for port 8080",
 }

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getUpdates, installUpdate, type Update } from "./api";
 import { DevelopmentBadge } from "@/components/DevelopmentBadge";
 import { isDevelopmentVersion } from "@/lib/version";
+import { kvmURL } from "@/lib/units";
 import { PageHeading } from "@/components/PageHeading";
 import { KernelPanel } from "@/KernelPanel";
 import { ExternalLink, RefreshCw, PackageOpen } from "lucide-react";
@@ -120,7 +121,7 @@ export function UpdatesPanel() {
                   </td>
                   <td className="text-right max-md:col-span-2 max-md:pt-0">
                     {update.available && update.selfService && active === SELF_SERVICE[update.package] && (
-                      <Button asChild variant="outline"><a href={`${location.protocol}//${location.hostname}:8080/?kvm=${active}`}>
+                      <Button asChild variant="outline"><a href={kvmURL(8080, active)}>
                         {t("updates.selfServiceAction", { name: update.name })}</a></Button>
                     )}
                     {update.available && !update.selfService && (

@@ -182,10 +182,10 @@ export interface MediaImage {
   id: string; name: string; source: string; size: number; cdrom: boolean;
 }
 
-export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+export async function request<T>(path: string, body?: unknown, signal?: AbortSignal, method = body === undefined ? "GET" : "POST"): Promise<T> {
   const response = await fetch(path, {
     signal,
-    method: body === undefined ? "GET" : "POST",
+    method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -196,6 +196,19 @@ export async function request<T>(path: string, body?: unknown, signal?: AbortSig
 }
 
 export const getStatus = () => request<Status>("/api/status");
+
+export interface HttpsState {
+  http_enabled: boolean;
+  request_secure: boolean;
+  urls: { manager: string; kvm: string };
+  local: { names: string[]; not_after: string; fingerprint_sha256: string };
+  tailscale: { state: "unavailable" | "disabled" | "pending" | "issued" | "error"; name?: string; not_after?: string; error?: string };
+}
+
+export const getHttps = (signal?: AbortSignal) => request<HttpsState>("/__vim4/api/https", undefined, signal);
+export const retryTailscaleCert = () => request("/__vim4/api/https/tailscale/retry", {});
+export const setHttpEnabled = (enabled: boolean) => request<HttpsState>("/__vim4/api/https", { http_enabled: enabled }, undefined, "PUT");
+
 export const selectApp = (app: string) => request("/api/select", { app });
 export const restartUnit = (unit: string) => request("/api/restart", { unit });
 export const setHDRCurve = (curve: HDRCurve) => request("/api/hdr-curve", curve);

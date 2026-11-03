@@ -60,7 +60,20 @@ try {
   const metricNames = ['CPU','Memory','Network','Power','Temperature','Fan'];
   const metricTitles = [];
   for (const name of metricNames) {
+    // Every frame of the switch keeps the chart drawn, so the card never collapses and springs back.
+    await page.evaluate(() => {
+      const card = document.querySelector('[data-trends]');
+      window.trendFrames = [];
+      const sample = () => {
+        window.trendFrames.push([Math.round(card.getBoundingClientRect().height), !!card.querySelector('svg[role=img]')]);
+        if (window.trendFrames.length < 12) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    });
     await page.getByRole('tab',{name,exact:true}).click();
+    await page.waitForFunction(() => window.trendFrames.length >= 12);
+    const frames = await page.evaluate(() => window.trendFrames);
+    assert(frames.every(([height, drawn]) => drawn && height === frames[0][0]), `${name} tab switch keeps the card height: ${JSON.stringify(frames)}`);
     metricTitles.push(await charts.locator('[data-trend-title]').textContent());
     assert.match(await charts.getByRole('img').getAttribute('aria-label'), /last 3 minutes/);
     assert.equal(await page.locator('[data-chart=unsampled]').count(),1);
@@ -102,6 +115,10 @@ try {
     assert.match(await charts.getByRole("img").getAttribute("aria-label"), /last 15 minutes/);
     for (const chart of await charts.all()) assert.match(await chart.getByRole("img").getAttribute("aria-label"), /last 15 minutes/);
   }
+  status.history = history(15).map((sample, i) => ({ ...sample, cpuPowerW: i % 2 ? 0.2 : 0.6 }));
+  await reload();
+  await page.getByRole("tab", { name: "Power", exact: true }).click();
+  assert.deepEqual(await charts.locator('[data-chart=tick][dominant-baseline="middle"]').allTextContents(), ["0", "0.2", "0.4", "0.6"], "a 3 × 0.2 axis draws its top tick once");
   status.hardware.hdmi.captureWidth = 1920;
   status.hardware.hdmi.captureHeight = 1080;
   status.system.packages = [{ name: "vim4-onekvm", version: "2.5.1+vim4.20261018.32.dev.4.gabcdef0.dirty" }];

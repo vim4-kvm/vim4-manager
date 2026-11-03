@@ -2,7 +2,7 @@
 
 VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKVM、One-KVM 或 PiKVM），
 查看 HDMI、USB、温度等板子状态和底层服务，调节 EDID、HDR 映射与风扇曲线。
-页面按侧边栏分为概览、KVM 界面、虚拟介质、数据盘、网络存储、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由），账户页从右上角进入。管理面板监听 **80**，统一登录的 KVM 网关监听 **8080**。
+页面按侧边栏分为概览、KVM 界面、虚拟介质、数据盘、网络存储、视频输入、HDMI 输出、散热、网络、底层服务和更新（`#/cooling` 等哈希路由），账户页从右上角进入。管理面板监听 **80 / 443 (HTTPS)**，统一登录的 KVM 网关监听 **8080 / 8443 (HTTPS)**。
 网络存储页（`#/storage`）管理下述 SMB/NFS 连接与 NAS 文件夹 U 盘。
 
 前端采用 [shadcn-admin](https://github.com/satnaing/shadcn-admin) 的分组导航、顶部工具栏、
@@ -108,6 +108,10 @@ PiKVM 使用 vim4-pikvm.service；管理器会等待旧服务退出后
 - `restart nanokvm.service|vim4-kvm.service|one-kvm.service|vim4-pikvm.service|vim4-kvm-hdmi.service`：重启 HDMI
   采集前先停止运行中的界面，完成后再启动。
 
+`select` 和应用 `restart` 启动非 One-KVM 应用前，会在停止其他应用后调用已安装的
+One-KVM helper 恢复待处理的 USB 配置（如挂载介质时延后的恢复）；恢复失败或超过 60 秒则不启动目标。
+应用 `restart` 若涉及其他正在运行或已选为开机启动的应用，须先安全弹出共享虚拟介质；同应用重启保留原有行为。
+
 - `hdr-mapping true|false`：保存全局远程画面 HDR 转 SDR 默认值，视频输入页切换。
   One-KVM 同步设置，UU 会话可临时覆盖，断开后恢复最新全局值；H.264、截图和
   不支持真 HDR 的应用保持 SDR，HDMI OUT 独立控制，不修改 EDID 或重启 HDMI。
@@ -164,6 +168,18 @@ POST 只接受 application/json，所有路由校验 Host，带 Origin 的写请
 `-allowed-hosts name1,name2` 显式配置。登录后局域网与 Tailscale 来源均可修改设置。
 
 ## Tailscale 组网
+
+HTTPS 始终开启，参数 `-https-listen :443`、`-kvm-https-listen :8443` 可修改监听地址。
+本机 ECDSA CA 与证书保存在 `-state-dir`（默认 `/var/lib/vim4-manager`），私钥权限 0600。
+`GET /__vim4/ca.crt` 无需登录即可下载 CA；导入客户端信任后可用板子 IP、本机名或 `.local` 名访问。
+叶证书包含当前非链路本地接口地址，地址变化或有效期不足 30 天时自动重签，CA 保持不变。
+Tailscale 已连接且启用 HTTPS 证书时，通过受限助手运行 `tailscale cert`，按 SNI 选择证书并自动续期。
+认证接口 `GET/PUT /__vim4/api/https` 返回证书状态和 `http_enabled`；
+`POST /__vim4/api/https/tailscale/retry` 重试申请。
+HTTP 默认保留；通过 HTTPS 关闭后，远程 HTTP 请求以 308 跳至对应 HTTPS 端口，回环工具仍可使用 HTTP。
+无 HSTS。恢复命令：`sudo vim4-manager set-http on`，运行中的服务会在几秒内自动读取并生效；
+测试目录可用 `vim4-manager set-http -state-dir DIR on|off`。
+现有 CAP_NET_BIND_SERVICE 同时覆盖 80 和 443，无需新增 capability 或安装步骤；需更新配套 helper 以申请 Tailscale 证书。
 
 管理器统一管理整机 `tailscaled`，独立于当前 KVM 应用。助手提供
 `tailscale-status`、`tailscale-install`、`tailscale-uninstall`、`tailscale-up`、

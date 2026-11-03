@@ -507,6 +507,8 @@ var zhCN = map[string]string{
 	"access.crossSite":                  "不允许跨站请求",
 	"access.host":                       "不允许的 Host，请使用板子 IP 或已配置的主机名",
 	"events.gatewayStarted":             "KVM 网关已启动",
+	"events.httpsStarted":               "HTTPS 监听已启动：{address}",
+	"events.httpsWaiting":               "HTTPS 监听等待地址释放：{address}",
 	"events.gatewayWaiting":             "KVM 网关等待 8080 端口释放",
 }
 

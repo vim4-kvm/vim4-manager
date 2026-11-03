@@ -1,11 +1,12 @@
 import { number } from "@/i18n/format";
 import { t, useLocale } from "@/i18n";
 import { NativeSelect } from "@/components/ui/native-select";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Tabs } from "radix-ui";
 import type { Hardware, Sample } from "@/api";
 import { TrendChart, useWidth, type Point } from "@/components/TrendChart";
 import { celsius } from "@/lib/units";
+import { cn } from "@/lib/utils";
 
 const metrics = [
   { id: "cpu", title: "CPU" }, { id: "gpu", title: "GPU" }, { id: "mem", get title() { return t("overview.memory"); } }, { id: "network", get title() { return t("trends.network"); } },
@@ -34,8 +35,9 @@ function resourceScale(points: Point[], percentage = false) {
   const peak = Math.max(0, ...points.map((p) => p.v));
   const magnitude = 10 ** Math.floor(Math.log10(peak > 0 ? peak / 3 : 1));
   const step = [1, 2, 2.5, 5, 10].map((n) => n * magnitude).find((n) => n >= peak / 3)!;
-  const upper = Math.min(percentage ? 100 : Infinity, Math.ceil(peak / step || 1) * step);
-  const ticks = Array.from({ length: Math.ceil(upper / step) + 1 }, (_, i) => Math.min(upper, +(i * step).toPrecision(12)));
+  // Round away float residue (3 × 0.2) so the top tick is not drawn twice.
+  const upper = Math.min(percentage ? 100 : Infinity, +(Math.ceil(peak / step || 1) * step).toPrecision(12));
+  const ticks = Array.from({ length: Math.ceil(+(upper / step).toPrecision(12)) + 1 }, (_, i) => Math.min(upper, +(i * step).toPrecision(12)));
   return { domain: [0, upper] as [number, number], ticks };
 }
 
@@ -54,17 +56,25 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
     if (el) setEdges({ left: el.scrollLeft > 1, right: el.scrollLeft + el.clientWidth < el.scrollWidth - 1 });
   };
   const [metric, setMetric] = useState<Metric>("cpu");
-  useEffect(() => {
+  const switched = useRef(false);
+  // One highlight slides between tabs; its first placement and reduced motion jump straight there.
+  const [indicator, setIndicator] = useState<{ x: number; width: number; slide: boolean }>();
+  const placeIndicator = () => {
+    const active = tabs.current?.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
+    if (active) setIndicator((current) => ({ x: active.offsetLeft, width: active.offsetWidth, slide: current !== undefined }));
+  };
+  useLayoutEffect(() => {
     const el = tabs.current;
     if (!el) return;
-    const active = el.querySelector<HTMLElement>('[data-state="active"]');
+    const active = el.querySelector<HTMLElement>('[role="tab"][data-state="active"]');
     if (active) {
       if (active.offsetLeft < el.scrollLeft) el.scrollLeft = active.offsetLeft;
       else if (active.offsetLeft + active.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollLeft = active.offsetLeft + active.offsetWidth - el.clientWidth;
     }
-    const observer = new ResizeObserver(updateEdges);
+    const observer = new ResizeObserver(() => { updateEdges(); placeIndicator(); });
     observer.observe(el);
     updateEdges();
+    placeIndicator();
     return () => observer.disconnect();
   }, [metric, locale]);
   const [windowMinutes, setWindowMinutes] = useState(15);
@@ -116,7 +126,7 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
   const minutes = samples.length ? partial ? Math.max(1, Math.floor(span / 60000)) : windowMinutes : 0;
   return (
     <section ref={chartRef} aria-labelledby="resource-trends" data-trends className="h-full min-w-0 rounded-xl border bg-card p-4 shadow-xs @lg:p-5">
-      <Tabs.Root value={metric} onValueChange={(value) => { setMetric(value as Metric); setHover(undefined); }}>
+      <Tabs.Root value={metric} onValueChange={(value) => { switched.current = true; setMetric(value as Metric); setHover(undefined); }}>
         <div className="mb-4 grid grid-cols-[1fr_auto] items-center gap-3 @4xl:grid-cols-[auto_minmax(0,1fr)_auto]">
           <h2 id="resource-trends" className="text-base font-medium ">{t("trends.resourceTrends")}</h2>
           <NativeSelect className="@4xl:col-start-3" size="sm" aria-label={t("trends.trendTimeRange")} value={windowMinutes} onChange={(event) => { setWindowMinutes(Number(event.target.value)); setHover(undefined); }}>
@@ -124,17 +134,21 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
           </NativeSelect>
         <Tabs.List ref={tabs} onScroll={updateEdges} aria-label={t("trends.resourceMetrics")} className="relative col-span-2 row-start-2 flex w-fit max-w-full @4xl:col-span-1 @4xl:col-start-2 @4xl:row-start-1 snap-x gap-0.5 overflow-x-auto rounded-md bg-muted p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{ maskImage: `linear-gradient(to right, ${edges.left ? "transparent, black 12px" : "black, black"}, ${edges.right ? "black calc(100% - 12px), transparent" : "black, black"})` }}>
+          {indicator && <span aria-hidden data-tab-indicator style={{ translate: `${indicator.x}px`, width: indicator.width }}
+            className={cn("absolute inset-y-1 left-0 rounded-sm bg-card shadow-xs", indicator.slide && "transition-[translate,width] duration-280 ease-(--ease-default) motion-reduce:transition-none")} />}
           {metrics.map((item) => <Tabs.Trigger key={item.id} value={item.id}
-            className="snap-start shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs">{item.title}</Tabs.Trigger>)}
+            className="relative snap-start shrink-0 rounded-sm px-2.5 py-1.5 text-xs font-medium text-muted-foreground outline-none transition-colors duration-200 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=active]:text-foreground">{item.title}</Tabs.Trigger>)}
         </Tabs.List>
         </div>
-        <Tabs.Content key={metric} value={metric} className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+        <Tabs.Content value={metric} className="outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
           <figure>
-            <figcaption className="mb-4 flex flex-col gap-4 @4xl:flex-row @4xl:items-center @4xl:justify-between">
+            {/* Only the readings fade; the chart stays mounted so its measured width never collapses. */}
+            <figcaption key={metric} className={cn("mb-4 flex flex-col gap-4 @4xl:flex-row @4xl:items-center @4xl:justify-between",
+              switched.current && "animate-in fade-in-0 duration-200 motion-reduce:animate-none")}>
             <div className="flex min-w-0 flex-col gap-1">
               <span data-trend-title className="text-xs text-muted-foreground">{selected.label}</span>
               <span data-trend-value className="text-3xl font-medium  tabular-nums">{selected.value}</span>
-              <span data-trend-detail className="text-xs text-muted-foreground">{selected.detail}</span>
+              <span data-trend-detail className="min-h-[2lh] text-xs text-muted-foreground @4xl:min-h-0">{selected.detail}</span>
             </div>
             <dl className="grid shrink-0 grid-cols-3 gap-4 text-xs @4xl:text-right">
               {[{ label: t("trends.average"), value: average }, { label: t("trends.peak"), value: peak },
@@ -143,7 +157,7 @@ export function ResourceTrends({ hw, history, now }: { hw: Hardware; history: Sa
                 ))}
             </dl>
             </figcaption>
-            <TrendChart {...selected} key={`${metric}-${windowMinutes}`} end={end} windowMs={windowMinutes * 60000} height={chartWidth >= 600 ? 240 : 180}
+            <TrendChart {...selected} morphKey={`${metric}-${windowMinutes}`} end={end} windowMs={windowMinutes * 60000} height={chartWidth >= 600 ? 240 : 180}
               hover={hover} onHover={setHover} sampledFrom={samples[0]?.t} sampledMinutes={minutes || windowMinutes} />
 
           </figure>

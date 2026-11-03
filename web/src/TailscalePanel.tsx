@@ -12,8 +12,9 @@ import { SettingsCard } from "@/components/SettingsCard";
 import { Switch } from "@/components/ui/switch";
 import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
-import { request } from "./api";
-import { CopyButton } from "@/components/CopyButton";
+import { request, type HttpsState } from "./api";
+import { useHttpsStore } from "@/stores/https";
+import { UrlList, type UrlRow } from "@/components/UrlList";
 import { TailscaleDevices, type TailscaleDevice } from "./TailscaleDevices";
 import { Network } from "lucide-react";
 import { t, useLocale } from "@/i18n";
@@ -43,12 +44,30 @@ type Action = "install" | "uninstall" | "up" | "down" | "login" | "logout";
 const JOB_LABEL: Record<string, string> = { get install() { return t("tailscale.installingTailscale"); }, get uninstall() { return t("tailscale.uninstallingTailscale"); } };
 const CONTROL_PATTERN = /^https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?$/;
 
-function accessURLs(state: TailscaleState) {
+/** The same listener URL on another host, keeping the scheme and port the API reports. */
+function onHost(url: string, host: string) {
+  const next = new URL(url);
+  next.hostname = host;
+  return next.origin;
+}
+
+/**
+ * An issued Tailscale certificate gives HTTPS names; otherwise the tailnet IP
+ * and MagicDNS rows, over HTTPS once plain HTTP redirects.
+ */
+function accessURLs(state: TailscaleState, https?: HttpsState): UrlRow[] {
+  if (https?.tailscale.state === "issued" && https.tailscale.name) {
+    const name = https.tailscale.name;
+    return [{ label: t("nav.apps"), url: onHost(https.urls.kvm, name) }, { label: t("nav.manager"), url: onHost(https.urls.manager, name) }];
+  }
+  const http = !https || https.http_enabled;
+  const kvm = (host: string) => http ? `http://${host}:8080` : onHost(https.urls.kvm, host);
+  const manager = (host: string) => http ? `http://${host}` : onHost(https.urls.manager, host);
   const ip = state.ips?.find((a) => !a.includes(":"));
-  const urls: { label: string; url: string }[] = [];
-  if (ip) urls.push({ label: t("nav.apps"), url: `http://${ip}:8080` });
-  if (state.dnsName) urls.push({ label: "MagicDNS", url: `http://${state.dnsName}:8080` });
-  if (ip) urls.push({ label: t("nav.manager"), url: `http://${ip}` });
+  const urls: UrlRow[] = [];
+  if (ip) urls.push({ label: t("nav.apps"), url: kvm(ip) });
+  if (state.dnsName) urls.push({ label: "MagicDNS", url: kvm(state.dnsName) });
+  if (ip) urls.push({ label: t("nav.manager"), url: manager(ip) });
   return urls;
 }
 
@@ -107,6 +126,8 @@ export function TailscalePanel() {
   }, [pending, locale]);
 
   const current = state ? phase(state) : undefined;
+  const https = useHttpsStore((s) => s.https);
+  const urls = state ? accessURLs(state, https) : [];
   const job = state?.job;
   const jobRunning = !!job?.running;
   const writable = true;
@@ -247,21 +268,7 @@ export function TailscalePanel() {
               <Fact label={t("tailscale.version")} value={state.version} />
             )}
             <Fact label={t("tailscale.accessUrls")} className="@md:col-span-2" value={<div className="flex flex-col gap-2 text-sm font-normal">
-                {accessURLs(state).length ? (
-                  <ul className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-3 rounded-lg bg-muted/50 p-3 [&_li]:contents">
-                    {accessURLs(state).map(({ label, url }) => (
-                      <li key={url}>
-                        <span className="text-xs text-muted-foreground">{label}</span>
-                        <a className="font-mono [overflow-wrap:anywhere]" href={url} target="_blank" rel="noreferrer noopener">
-                          {url}
-                        </a>
-                        <span className="justify-self-start"><CopyButton text={url} label={t("tailscale.url", { p0: String(label) })} /></span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <span className="font-mono break-all">—</span>
-                )}
+                {urls.length ? <UrlList rows={urls} /> : <span className="font-mono break-all">—</span>}
                 <span className="text-xs text-muted-foreground">{t("tailscale.openFromADeviceOnThe")}</span>
               </div>} />
           </FactGrid>

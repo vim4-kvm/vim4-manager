@@ -55,7 +55,8 @@ type Hardware struct {
 	HDRRemoteAvailable bool         `json:"hdrRemoteAvailable"`
 }
 
-// Zone is one readable thermal zone, named without the "_thermal" suffix.
+// Zone is one readable thermal zone, named without the "_thermal" (vendor 5.15)
+// or "-thermal" (mainline DT binding) suffix.
 type Zone struct {
 	Name  string  `json:"name"`
 	TempC float64 `json:"tempC"`
@@ -146,11 +147,18 @@ func readZones(root string) []Zone {
 			continue
 		}
 		zones = append(zones, Zone{
-			Name:  strings.TrimSuffix(strings.TrimSpace(string(name)), "_thermal"),
+			Name:  zoneName(strings.TrimSpace(string(name))),
 			TempC: float64(milli) / 1000,
 		})
 	}
 	return zones
+}
+
+func zoneName(kind string) string {
+	if name, ok := strings.CutSuffix(kind, "_thermal"); ok {
+		return name
+	}
+	return strings.TrimSuffix(kind, "-thermal")
 }
 
 // fanCurve mirrors mcu_fan_auto_speed_percent in drivers/misc/khadas-mcu.c:

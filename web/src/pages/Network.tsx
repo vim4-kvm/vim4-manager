@@ -2,6 +2,7 @@ import { useT } from "@/i18n";
 import { number } from "@/i18n/format";
 import { TailscalePanel } from "@/TailscalePanel";
 import { WifiControl } from "@/WifiControl";
+import { HttpsPanel } from "@/HttpsPanel";
 import { Network as NetworkIcon } from "lucide-react";
 import { PageHeading } from "@/components/PageHeading";
 import { SettingsCard } from "@/components/SettingsCard";
@@ -27,6 +28,6 @@ export function Network() {
             : t("network.unassigned")} /></FactGrid>
       </div>)}</div> : <p className="text-sm text-muted-foreground">{t("network.noEthernet")}</p>}
     </SettingsCard>
-    <WifiControl /><TailscalePanel />
+    <WifiControl /><HttpsPanel /><TailscalePanel />
   </>;
 }

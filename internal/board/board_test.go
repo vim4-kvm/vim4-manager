@@ -262,3 +262,12 @@ func TestHistoryRecordsCPUBetweenReadingsAndDropsOldest(t *testing.T) {
 		t.Errorf("samples = %+v", got)
 	}
 }
+
+func TestZoneName(t *testing.T) {
+	// 5.15 vendor DT uses soc_thermal; mainline bindings require a73-thermal.
+	for kind, want := range map[string]string{"soc_thermal": "soc", "a73-thermal": "a73", "cpu": "cpu"} {
+		if got := zoneName(kind); got != want {
+			t.Errorf("zoneName(%q) = %q, want %q", kind, got, want)
+		}
+	}
+}
