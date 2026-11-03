@@ -1,0 +1,64 @@
+{
+  "base": "http://localhost:5197",
+  "themes": [
+    "light",
+    "dark"
+  ],
+  "widths": [
+    1280,
+    390
+  ],
+  "locales": [
+    "zh-CN",
+    "en"
+  ],
+  "states": [
+    "mainline-running-default",
+    "mainline-running-default-legacy",
+    "vendor-default-mainline-running",
+    "mainline-unavailable-error",
+    "confirm-dialog"
+  ],
+  "captures": [
+    "mainline-running-default-zh-CN-light-1280.png",
+    "mainline-running-default-legacy-zh-CN-light-1280.png",
+    "vendor-default-mainline-running-zh-CN-light-1280.png",
+    "mainline-unavailable-error-zh-CN-light-1280.png",
+    "confirm-dialog-zh-CN-light-1280.png",
+    "mainline-running-default-zh-CN-light-390.png",
+    "mainline-running-default-legacy-zh-CN-light-390.png",
+    "vendor-default-mainline-running-zh-CN-light-390.png",
+    "mainline-unavailable-error-zh-CN-light-390.png",
+    "confirm-dialog-zh-CN-light-390.png",
+    "mainline-running-default-zh-CN-dark-1280.png",
+    "mainline-running-default-legacy-zh-CN-dark-1280.png",
+    "vendor-default-mainline-running-zh-CN-dark-1280.png",
+    "mainline-unavailable-error-zh-CN-dark-1280.png",
+    "confirm-dialog-zh-CN-dark-1280.png",
+    "mainline-running-default-zh-CN-dark-390.png",
+    "mainline-running-default-legacy-zh-CN-dark-390.png",
+    "vendor-default-mainline-running-zh-CN-dark-390.png",
+    "mainline-unavailable-error-zh-CN-dark-390.png",
+    "confirm-dialog-zh-CN-dark-390.png",
+    "mainline-running-default-en-light-1280.png",
+    "mainline-running-default-legacy-en-light-1280.png",
+    "vendor-default-mainline-running-en-light-1280.png",
+    "mainline-unavailable-error-en-light-1280.png",
+    "confirm-dialog-en-light-1280.png",
+    "mainline-running-default-en-light-390.png",
+    "mainline-running-default-legacy-en-light-390.png",
+    "vendor-default-mainline-running-en-light-390.png",
+    "mainline-unavailable-error-en-light-390.png",
+    "confirm-dialog-en-light-390.png",
+    "mainline-running-default-en-dark-1280.png",
+    "mainline-running-default-legacy-en-dark-1280.png",
+    "vendor-default-mainline-running-en-dark-1280.png",
+    "mainline-unavailable-error-en-dark-1280.png",
+    "confirm-dialog-en-dark-1280.png",
+    "mainline-running-default-en-dark-390.png",
+    "mainline-running-default-legacy-en-dark-390.png",
+    "vendor-default-mainline-running-en-dark-390.png",
+    "mainline-unavailable-error-en-dark-390.png",
+    "confirm-dialog-en-dark-390.png"
+  ]
+}

@@ -18,13 +18,15 @@ VIM4 KVM 管理面板：选择开机启用的网页 KVM 界面（NanoKVM、JetKV
 术语、文案规范和扩展方法见 [本地化说明](docs/i18n.md)。
 
 匹配的 5.15 / 7.x 共用完整管理器、应用数据和 8080 网关，公共启动器按内核选择硬件接口。
-内核面板按已登记清单读取 release，支持 `7.3.0-vim4kvm-uhd1+` 并标记「正式版」；
-rc7 仍可显示和切换，不显示正式版标记。可用性仍须通过清单的完整产物校验。
+内核面板按 id 显示「厂商内核」/「主线内核」（Vendor kernel / Mainline kernel），描述为 `Linux {版本}`；
+release 为 `<上游版本>-vim4-<YYYYMMDD>[.N]` 时追加构建日期，完整 release 另起一行等宽显示。可用性仍须通过清单的完整产物校验。
 更新页的「内核」从 `/etc/vim4-kvm/kernels.json` 列出已登记内核；
 `GET /api/kernel` 读取状态，`POST /api/kernel` 接受 `{id: "vendor"|"mainline", reboot: boolean}`。
 限定助手核对启动参数、Image、DTB 和模块哈希，保存默认项，重启前拒绝挂载中的虚拟盘并停止应用。
 切换需要重启；启动失败时仍需串口或 OOWOW 恢复，不提供自动失败回退。
 未安装双内核清单时不显示可切换项。板级依赖为 `vim4-runtime-api-1`。
+浏览器回归：`node web/tests/updates.mjs`；截图矩阵 `node web/tests/kernel-screens.mjs`，
+旧格式 release 设 `KERNEL_MAINLINE_RELEASE=7.3.1-vim4kvm-uhd7+` 重跑共享夹具。
 
 概览按「设备连接状态、HDMI/USB/PD/虚拟介质、资源趋势与当前 KVM、最近事件、设备健康」分区。
 资源趋势通过页签切换 CPU、GPU、内存、网络、温度、风扇和功耗，支持最近 5 或 15 分钟；

@@ -18,15 +18,18 @@ try {
   let pikvm = "2.5.1+vim4.20261015.63";
   const installs = [];
   const switches = [];
-  let kernelRelease = "7.3.0-vim4kvm-uhd1+";
+  const vendorRelease = "5.15.137-vim4kvm-hdrdual6";
+  let kernelRelease = "7.3.1-vim4-20261103";
+  let running = kernelRelease;
+  let mainlineError = "";
   await page.route("**/api/kernel", async route => {
     if (route.request().method() === "POST") {
       switches.push(route.request().postDataJSON());
       return route.fulfill({ json: { ok: true } });
     }
-    return route.fulfill({ json: { running: kernelRelease, kernels: [
-      { id: "vendor", name: "Linux 5.15", release: "5.15.137", selected: false, available: true, error: "" },
-      { id: "mainline", name: "Linux 7.x", release: kernelRelease, selected: true, available: true, error: "" },
+    return route.fulfill({ json: { running, kernels: [
+      { id: "vendor", name: "Linux 5.15", release: vendorRelease, selected: false, available: true, error: "" },
+      { id: "mainline", name: "Linux 7.x", release: kernelRelease, selected: true, available: !mainlineError, error: mainlineError },
     ] } });
   });
   await page.route("**/api/status", (route) => route.fulfill({ json: status }));
@@ -50,17 +53,47 @@ try {
   await page.goto(`${process.env.TEST_URL || "http://127.0.0.1:5188"}/#/updates`);
   await page.getByRole("heading", { name: "Updates", exact: true }).waitFor();
   const kernelPanel = page.getByRole("region", { name: "Kernel", exact: true });
-  await kernelPanel.locator('[data-slot="badge"]').getByText("Running", { exact: true }).waitFor();
-  await kernelPanel.getByText("Stable", { exact: true }).waitFor();
-  await kernelPanel.getByRole("button", { name: "Restart this kernel", exact: true }).waitFor();
-  kernelRelease = "7.3.0-rc7-vim4kvm-uhd1+";
+  const parsed = await page.evaluate(async releases => {
+    const { kernelRelease } = await import("/src/lib/version.ts");
+    return releases.map(kernelRelease);
+  }, ["5.15.137-vim4kvm-hdrdual6", "7.3.1-vim4kvm-uhd7+", "7.3.1-vim4-20261103", "7.3.2-vim4-20261210.2", "7.3.0-rc7-vim4kvm-uhd1+"]);
+  assert.deepEqual(parsed, [
+    { version: "5.15.137" }, { version: "7.3.1" }, { version: "7.3.1", buildDate: "2026-11-03" },
+    { version: "7.3.2", buildDate: "2026-12-10" }, { version: "7.3.0" },
+  ]);
+  const card = name => kernelPanel.getByRole("group", { name, exact: true });
+  for (const [release, summary] of [["7.3.1-vim4kvm-uhd7+", "Linux 7.3.1"], ["7.3.1-vim4-20261103", "Linux 7.3.1 · built 2026-11-03"]]) {
+    kernelRelease = running = release;
+    await page.reload();
+    await kernelPanel.getByText("Running Mainline kernel · Linux 7.3.1 · Each application's accounts, settings, and images are shared between kernels", { exact: true }).waitFor();
+    const mainline = card("Mainline kernel");
+    await mainline.getByText(summary, { exact: true }).waitFor();
+    await mainline.getByText(release, { exact: true }).waitFor();
+    assert.deepEqual(await mainline.locator('[data-slot="badge"]').allTextContents(), ["Default boot", "Running"]);
+    assert.equal(await mainline.getByRole("status").count(), 0, "the running badge replaces the status text");
+    await mainline.getByRole("button", { name: "Restart this kernel", exact: true }).waitFor();
+    const vendor = card("Vendor kernel");
+    await vendor.getByText("Linux 5.15.137", { exact: true }).waitFor();
+    await vendor.getByText(vendorRelease, { exact: true }).waitFor();
+    assert.equal(await vendor.getByRole("status").textContent(), "Available");
+    assert.equal(await vendor.locator('[data-slot="badge"]').count(), 0);
+  }
+  assert.equal(await kernelPanel.getByText("Stable", { exact: true }).count(), 0, "no release is singled out as stable");
+  running = vendorRelease;
+  mainlineError = "Kernel checksum mismatch";
   await page.reload();
-  await kernelPanel.getByText(kernelRelease, { exact: true }).last().waitFor();
-  assert.equal(await kernelPanel.getByText("Stable", { exact: true }).count(), 0);
-  kernelRelease = "7.3.0-vim4kvm-uhd1+";
+  await kernelPanel.getByText(/^Running Vendor kernel · Linux 5\.15\.137 · /).waitFor();
+  assert.equal(await card("Mainline kernel").getByRole("status").textContent(), "Kernel checksum mismatch");
+  assert.equal(await card("Mainline kernel").getByRole("button", { name: "Switch and restart", exact: true }).isDisabled(), true);
+  running = "6.1.0-unlisted";
   await page.reload();
-  await kernelPanel.getByText("Stable", { exact: true }).waitFor();
+  await kernelPanel.getByText(/^Running 6\.1\.0-unlisted · /).waitFor();
+  running = kernelRelease;
+  mainlineError = "";
+  await page.reload();
   await kernelPanel.getByRole("button", { name: "Switch and restart", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("heading", { name: "Switch to Vendor kernel", exact: true }).waitFor();
+  await page.getByRole("alertdialog").getByText(/^Set Vendor kernel as the default kernel and restart\./).waitFor();
   await page.getByRole("alertdialog").waitFor();
   assert.deepEqual(switches, [], "choosing a kernel cannot immediately reboot");
   await page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true }).click();

@@ -29,6 +29,9 @@ export function localizeResponse(path, value, cookie = "") {
   }
   return result;
 }
+// Kernel suites run once per release format; set KERNEL_MAINLINE_RELEASE=7.3.1-vim4kvm-uhd7+ for the legacy one.
+export const mainlineRelease = process.env.KERNEL_MAINLINE_RELEASE || "7.3.1-vim4-20261103";
+export const vendorRelease = "5.15.137-vim4kvm-hdrdual6";
 // Deterministic, offline API data shared by the before/after capture matrix.
 export function fixtures(locale = "en") {
   const now = Date.now();
@@ -43,7 +46,7 @@ export function fixtures(locale = "en") {
       active: "onekvm", media,
       apps: ["nanokvm", "jetkvm", "onekvm", "pikvm"].map((id, i) => ({ id, name: ["NanoKVM", "JetKVM", "One-KVM", "PiKVM"][i], port: 8080, description: "", unit: unit(`vim4-${id}.service`, id === "onekvm" ? "active" : "inactive") })),
       platform: [{ name: "", restartable: true, unit: unit("vim4-hdmi.service") }, { name: "", restartable: true, unit: unit("vim4-usb-gadget.service") }, { name: "", restartable: false, unit: { ...unit("vim4-pd.service"), sub: "exited" } }],
-      hardware: { hostname: "vim4", kernel: "7.3.0-vim4kvm-uhd1+", uptimeSeconds: 259200, load1: 0.3, cpus: 8,
+      hardware: { hostname: "vim4", kernel: mainlineRelease, uptimeSeconds: 259200, load1: 0.3, cpus: 8,
         memTotalKiB: 8000000, memAvailableKiB: 6400000, tempC: 52.4, fanAuto: true, fanPercent: 30, fanTriggers: { low: 60, mid: 80, high: 100 },
         zones: [{ name: "soc", tempC: 52.4 }, { name: "ddr", tempC: 48.8 }], usb: "configured",
         hdmi: { signal: true, audio: true, width: 3840, height: 2160, captureWidth: 3840, captureHeight: 2160, refreshHz: 60, colorSpace: "YUV444", hdr: "HDR10-GAMMA_ST2084" }, hdrCurve: { white: 203, peak: 1000 } },
@@ -72,7 +75,7 @@ export function fixtures(locale = "en") {
       local: { names: ["192.168.50.210", "100.64.0.7", "vim4", "vim4.local", "localhost", "127.0.0.1", "::1"], not_after: "2027-12-03T00:00:00Z",
         fingerprint_sha256: "3A:9F:1C:7E:54:B2:0D:88:E1:46:2F:C9:6B:13:A0:5D:F7:8E:22:4C:91:D3:6A:0B:5E:C8:17:F4:39:2D:86:AB" },
       tailscale: { state: "issued", name: "vim4.tail1234.ts.net", not_after: "2027-01-30T00:00:00Z" } },
-    kernel: { running: "7.3.0-vim4kvm-uhd1+", kernels: [{ id: "vendor", name: "Linux 5.15", release: "5.15.137", selected: false, available: true, error: "" }, { id: "mainline", name: "Linux 7.x", release: "7.3.0-vim4kvm-uhd1+", selected: true, available: true, error: "" }] },
+    kernel: { running: mainlineRelease, kernels: [{ id: "vendor", name: "Linux 5.15", release: vendorRelease, selected: false, available: true, error: "" }, { id: "mainline", name: "Linux 7.x", release: mainlineRelease, selected: true, available: true, error: "" }] },
     updates: [{ package: "vim4-manager", name: "", repo: "vim4-manager", installed: "1.4.0", latest: "1.4.1", available: true, selfService: false }, { package: "vim4-onekvm", name: "One-KVM", repo: "One-KVM", installed: "2.5.1", latest: "2.5.2", available: true, selfService: true }],
     account: { username: "admin", passwordChanged: new Date(now - 7 * 86400e3).toISOString(), sessions: [{ id: "current", address: "192.168.50.12", userAgent: "Mozilla/5.0 Macintosh Chrome/132", lastActive: new Date(now).toISOString(), current: true }, { id: "phone", address: "100.88.1.5", userAgent: "Mozilla/5.0 iPhone Safari/604", lastActive: new Date(now - 15 * 60e3).toISOString(), current: false }] },
   };
