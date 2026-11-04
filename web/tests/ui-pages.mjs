@@ -152,7 +152,7 @@ try {
         const sidebar = await page.locator('[data-slot="sidebar-container"]').boundingBox();
         assert(await page.evaluate(() => scrollY) > 0, "sidebar evidence uses a genuinely scrolled viewport");
         assert(Math.abs(sidebar.y) < 1 && sidebar.height === 900, "sidebar fills the scrolled viewport");
-        assert(await page.getByRole("button", {name:"Change appearance"}).isVisible());
+        assert(await page.getByRole("button", {name:"Account menu"}).isVisible());
         const scrolled = `sidebar-scrolled-${theme}-${width}.png`;
         await page.screenshot({ path: `${out}/${scrolled}`, fullPage: false, animations: "disabled" });
         captures.push(scrolled);

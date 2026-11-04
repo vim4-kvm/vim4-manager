@@ -95,9 +95,14 @@ try {
   assert(Math.abs(sizeEdge - await right(fileRow.getByText("12 B", { exact: true }))) < 1, "hover actions do not move metadata");
   await page.mouse.move(0, 0);
   await page.getByRole("button", { name: "Maintenance", exact: true }).click();
-  for (const theme of ["Light", "Dark"]) {
-    await page.getByRole("button", { name: "Change appearance" }).click();
+  const chooseTheme = async theme => {
+    await page.getByRole("button", { name: "Account menu", exact: true }).click();
     await page.getByRole("menuitemradio", { name: theme, exact: true }).click();
+    await page.keyboard.press("Escape");
+    await page.getByRole("menu").waitFor({ state: "hidden" });
+  };
+  for (const theme of ["Light", "Dark"]) {
+    await chooseTheme(theme);
     const rest = await destructiveContrast(page);
     await page.getByRole("button", { name: "Format…" }).hover();
     await page.waitForTimeout(200);
@@ -105,8 +110,7 @@ try {
     assert(rest.length >= 2, "format and delete buttons are measured");
     for (const value of [...rest, ...hover]) assert(value.ratio >= 4.5, `${theme} destructive contrast ${JSON.stringify(value)}`);
   }
-  await page.getByRole("button", { name: "Change appearance" }).click();
-  await page.getByRole("menuitemradio", { name: "System", exact: true }).click();
+  await chooseTheme("System");
   await page.mouse.move(0, 0);
   assert.equal(await page.getByRole("link", { name: "Download readme.txt" }).count(), 0, "row actions are not clickable while hidden");
   await page.getByRole("button", { name: /^readme\.txt/ }).click();

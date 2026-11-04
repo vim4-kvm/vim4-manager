@@ -15,17 +15,21 @@ async function expectTheme(page, theme) {
   assert.equal(await page.locator("html").evaluate((el) => getComputedStyle(el).colorScheme), theme);
   assert.equal(await page.locator("html").evaluate((el) => el.classList.contains("dark")), theme === "dark", "Tailwind dark class follows the theme");
 }
+const accountButton = (page) => page.getByRole("button", { name: "Account menu", exact: true });
+const appearance = (page) => page.getByRole("menu", { name: "Account menu" }).getByRole("group", { name: "Appearance" });
+// Choosing keeps the account menu open; Escape returns focus to the avatar.
 async function choose(page,name) {
- await page.getByRole("menu", {name:"Appearance"}).waitFor({state:"hidden"});
- await page.getByRole("button",{name:"Change appearance"}).click();
- const item = page.getByRole("menuitemradio",{name,exact:true});
+ await page.getByRole("menu", {name:"Account menu"}).waitFor({state:"hidden"});
+ await accountButton(page).click();
+ const item = appearance(page).getByRole("menuitemradio",{name,exact:true});
  await item.focus();
  await page.keyboard.press("Enter");
+ await page.keyboard.press("Escape");
  await menuClosed(page);
 }
 async function menuClosed(page) {
-  await page.getByRole("menu", { name: "Appearance" }).waitFor({ state: "hidden" });
-  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Change appearance");
+  await page.getByRole("menu", { name: "Account menu" }).waitFor({ state: "hidden" });
+  await page.waitForFunction(() => document.activeElement?.getAttribute("aria-label") === "Account menu");
 }
 async function context(options = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, reducedMotion: "reduce", ...options });
@@ -40,16 +44,15 @@ try {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.goto(url);
   await expectTheme(page, "dark");
-  const appearance = page.getByRole("menu", { name: "Appearance" });
-  assert.equal(await page.getByRole("button", { name: "Change appearance" }).count(), 1, "one shared header control is accessible");
+  assert.equal(await page.locator("header button").count(), 2, "the top bar holds only the sidebar toggle and the avatar");
   await page.emulateMedia({ colorScheme: "light" });
   await expectTheme(page, "light");
   await choose(page, "Dark");
   await expectTheme(page, "dark");
   await page.reload();
   await expectTheme(page, "dark");
-  await page.getByRole("button", {name:"Change appearance"}).click();
-  assert.equal(await appearance.getByRole("menuitemradio", { name: "Dark" }).getAttribute("aria-checked"), "true");
+  await accountButton(page).click();
+  assert.equal(await appearance(page).getByRole("menuitemradio", { name: "Dark" }).getAttribute("aria-checked"), "true");
   await page.keyboard.press("Escape");
   await menuClosed(page);
   await choose(page, "System");
@@ -59,16 +62,23 @@ try {
   await page.emulateMedia({ colorScheme: "light" });
   await expectTheme(page, "light");
 
-  // Keyboard navigation wraps within the menu before selection.
-  await page.getByRole('button',{name:'Change appearance'}).focus();
+  // Arrow keys walk the appearance and language segments, then the account items, and wrap.
+  await accountButton(page).focus();
   await page.keyboard.press('Enter');
-  const waitFocus = async name => { await page.waitForFunction(name => document.activeElement?.textContent.trim() === name, name); };
+  const waitFocus = async name => { await page.waitForFunction(name => (document.activeElement?.getAttribute("aria-label") || document.activeElement?.textContent.trim()) === name, name); };
   await waitFocus('Light');
-  await page.keyboard.press('End'); await waitFocus('System');
-  await page.keyboard.press('ArrowDown'); await waitFocus('Light');
-  await page.keyboard.press('ArrowUp'); await waitFocus('System');
+  for (const name of ['Dark', 'System', 'English', '中文', 'Account and signed-in devices', 'Sign out', 'Light']) {
+    await page.keyboard.press('ArrowDown'); await waitFocus(name);
+  }
+  await page.keyboard.press('ArrowUp'); await waitFocus('Sign out');
+  await page.keyboard.press('Home'); await waitFocus('Light');
+  await page.keyboard.press('ArrowDown'); await waitFocus('Dark');
+  await page.keyboard.press('ArrowDown'); await waitFocus('System');
   await page.keyboard.press('Enter');
-  await menuClosed(page);
+  await appearance(page).getByRole("menuitemradio",{name:"System",exact:true,checked:true}).waitFor();
+  await waitFocus('System');
+  await page.keyboard.press('Tab');
+  await page.getByRole("menu", { name: "Account menu" }).waitFor({ state: "hidden" });
   const other = await session.newPage();
   await other.goto(url);
   await choose(page, "Dark");
@@ -76,19 +86,20 @@ try {
   await choose(other,"Light");
   await expectTheme(page, "light");
   await other.evaluate((key) => localStorage.removeItem(key), key);
-  await page.getByRole("button",{name:"Change appearance"}).click();
-  await appearance.getByRole("menuitemradio",{name:"System",exact:true,checked:true}).waitFor();
+  await accountButton(page).click();
+  await appearance(page).getByRole("menuitemradio",{name:"System",exact:true,checked:true}).waitFor();
   await page.keyboard.press("Escape");
   await menuClosed(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Open menu", exact: true }).waitFor();
   await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
-  assert.equal(await page.getByRole("button",{name:"Change appearance"}).count(),1,"mobile shares the header control");
-  await page.getByRole("button", { name: "Change appearance", exact: true }).click();
-  await appearance.waitFor({ state: "visible" });
-  assert.equal(await appearance.count(), 1, "only the menu sheet control is accessible");
-  assert.equal(await appearance.getByRole("menuitemradio").count(), 3);
+  assert.equal(await accountButton(page).count(),1,"mobile shares the avatar menu");
+  await accountButton(page).click();
+  await appearance(page).waitFor({ state: "visible" });
+  assert.equal(await page.getByRole("group", { name: "Appearance" }).count(), 1, "only the account menu offers appearance");
+  assert.equal(await appearance(page).getByRole("menuitemradio").count(), 3);
+  assert(await page.getByRole("menu").evaluate(menu => { const box = menu.getBoundingClientRect(); return box.left >= 0 && box.right <= innerWidth; }), "menu stays inside the phone viewport");
   await page.keyboard.press("Escape");
   await menuClosed(page);
   await choose(page, "System");

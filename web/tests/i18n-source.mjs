@@ -6,7 +6,7 @@ for (const file of await readdir(root, { recursive: true })) {
   if (file === "i18n/zh-CN.ts" || !/\.(tsx?|css)$/.test(file)) continue;
   const text = await readFile(new URL(file, root), "utf8");
   for (const [index, line] of text.split("\n").entries()) {
-    const allowed = file === "i18n/index.ts" ? line.replace("简体中文", "") : line;
+    const allowed = file === "i18n/index.ts" ? line.replace(/简体中文|中文/g, "") : line;
     if (/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(allowed)) violations.push(`${file}:${index + 1}`);
   }
 }

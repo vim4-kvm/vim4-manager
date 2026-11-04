@@ -28,7 +28,7 @@ async function session({ languages = ["en-US"], saved, login = false, width = 14
   });
   const page = await context.newPage();
   await page.goto(`${base}/${login ? "__vim4/login" : "#/overview"}`);
-  await page.getByRole("button", { name: /Language/ }).waitFor();
+  await languageButton(page).waitFor();
   if (login) await page.locator("#username").waitFor();
   return { context, page };
 }
@@ -36,9 +36,17 @@ async function expectLocale(page, locale) {
   await page.waitForFunction((locale) => document.documentElement.lang === locale, locale);
   assert.match(await page.evaluate(() => document.cookie), new RegExp(`vim4_lang=${locale}(;|$)`));
 }
+// App pages switch language from the account menu, which shortens Chinese and stays open; login has its own menu.
+const isLogin = page => new URL(page.url()).pathname.endsWith("/login");
+const languageButton = page => isLogin(page) ? page.getByRole("button", { name: /Language/ }) : page.getByRole("button", { name: /^(Account menu|账户菜单)$/ });
+const languageItem = (page, language) => page.getByRole("menuitemradio", { name: !isLogin(page) && language === "简体中文" ? "中文" : language, exact: true });
 async function choose(page, language) {
-  await page.getByRole("button", { name: /Language/ }).click();
-  await page.getByRole("menuitemradio", { name: language, exact: true }).click();
+  await languageButton(page).click();
+  await languageItem(page, language).click();
+  if (!isLogin(page)) {
+    await languageItem(page, language).and(page.locator("[aria-checked=true]")).waitFor();
+    await page.keyboard.press("Escape");
+  }
   await page.getByRole("menu").waitFor({ state: "hidden" });
 }
 async function dismissMenu(page) {
@@ -80,22 +88,24 @@ try {
   await expectLocale(page, "en");
   pass("reverse cross-tab sync and reload persistence");
   // Freeze the polling clock: only a locale-triggered read can satisfy this.
-  await page.getByRole("button", { name: /Language/ }).click();
-  await page.getByRole("menuitemradio", { name: "简体中文", exact: true }).waitFor();
+  await languageButton(page).click();
+  await languageItem(page, "简体中文").waitFor();
   await page.clock.install({ time: new Date(0) });
   await page.clock.pauseAt(new Date(60000));
   const refreshed = page.waitForRequest(request => new URL(request.url()).pathname === "/api/status", { timeout: 1500 });
-  await page.getByRole("menuitemradio", { name: "简体中文", exact: true }).press("Enter");
+  await languageItem(page, "简体中文").press("Enter");
   // Allow React's effect frame, while staying well below the 3 s poll interval.
   await page.clock.runFor(100);
   const refreshRequest = await refreshed;
   assert.match(refreshRequest.headers().cookie ?? "", /vim4_lang=zh-CN/);
   await page.clock.resume();
-  await page.getByRole("menu").waitFor({ state: "hidden" });
+  await page.getByRole("group", { name: "语言 / Language" }).getByText("中文", { exact: true }).waitFor();
+  await page.getByRole("group", { name: "外观" }).waitFor();
+  await dismissMenu(page);
   pass("locale changes immediately refetch server text with the new cookie while the polling clock is paused");
   for (const locale of ["en", "zh-CN"]) {
     await choose(page, locale === "en" ? "English" : "简体中文");
-    await page.getByRole("button", { name: /Language/ }).click();
+    await languageButton(page).click();
     await screenshot(page, `header-${locale}-desktop-light-menu`);
     await dismissMenu(page);
   }
@@ -117,7 +127,7 @@ try {
       await page.getByLabel(locale === "en" ? "Password" : "密码", { exact: true }).waitFor();
       const viewport = width === 390 ? "mobile" : "desktop";
       await screenshot(page, `login-${locale}-${viewport}-${theme}`);
-      await page.getByRole("button", { name: /Language/ }).click();
+      await languageButton(page).click();
       await screenshot(page, `login-${locale}-${viewport}-${theme}-menu`);
       await dismissMenu(page);
       assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
@@ -148,20 +158,52 @@ try {
     await catalogGate;
     await route.continue();
   });
-  await choose(delayed.page, "简体中文");
-  await delayed.page.waitForFunction(() => document.querySelector('header button[aria-label="Language"] svg')?.getAttribute("class")?.includes("animate-spin"));
+  await languageButton(delayed.page).click();
+  await languageItem(delayed.page, "简体中文").click();
+  await delayed.page.locator('[role=menuitemradio][lang=zh-CN] svg[class*=animate-spin]').waitFor();
+  assert.equal(await languageItem(delayed.page, "English").getAttribute("aria-checked"), "true", "the old language stays selected while loading");
   await expectLocale(delayed.page, "en");
   await delayed.page.getByRole("navigation", { name: "Pages", exact: true }).waitFor();
   releaseCatalog();
   await expectLocale(delayed.page, "zh-CN");
+  await delayed.page.getByRole("group", { name: "外观" }).waitFor();
   await delayed.page.getByRole("navigation", { name: "页面", exact: true }).waitFor();
   await delayed.context.close();
+  const failed = await session();
+  await failed.context.route(/\/src\/i18n\/zh-CN\.ts(?:\?.*)?$/, route => route.abort());
+  await languageButton(failed.page).click();
+  await languageItem(failed.page, "简体中文").click();
+  const alert = failed.page.getByRole("menu").getByRole("alert");
+  await alert.getByText("Couldn't connect to the board. Check the network and try again.", { exact: true }).waitFor();
+  assert.equal(await languageItem(failed.page, "English").getAttribute("aria-checked"), "true", "a failed load keeps the old language selected");
+  await expectLocale(failed.page, "en");
+  await dismissMenu(failed.page);
+  await languageButton(failed.page).click();
+  await languageItem(failed.page, "English").waitFor();
+  assert.equal(await alert.count(), 0, "reopening clears the language error");
+  await failed.context.unroute(/\/src\/i18n\/zh-CN\.ts(?:\?.*)?$/);
+  await languageItem(failed.page, "简体中文").click();
+  await expectLocale(failed.page, "zh-CN");
+  await failed.page.getByRole("group", { name: "外观" }).waitFor();
+  assert.equal(await alert.count(), 0);
+  await failed.context.close();
   for (const login of [false, true]) {
     const initial = await session({ saved: "zh-CN", login });
     await expectLocale(initial.page, "zh-CN");
     await initial.page.getByRole("button", { name: login ? "登录" : "刷新设备状态", exact: true }).waitFor();
     await initial.context.close();
   }
-  pass("lazy Chinese catalog keeps English visible until ready, shows delayed loading, and initializes both entries in Chinese");
+  pass("lazy Chinese catalog keeps English visible until ready, shows delayed loading, recovers from a failed load, and initializes both entries in Chinese");
+  // The fixture rejects logout; the visible error must re-render in the new language.
+  const signOut = await session();
+  await languageButton(signOut.page).click();
+  await signOut.page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+  const signOutAlert = signOut.page.getByRole("menu").getByRole("alert");
+  await signOutAlert.getByText("Couldn't sign out. Try again.", { exact: true }).waitFor();
+  await languageItem(signOut.page, "简体中文").click();
+  await expectLocale(signOut.page, "zh-CN");
+  await signOutAlert.getByText("退出失败，请重试", { exact: true }).waitFor();
+  await signOut.context.close();
+  pass("a visible sign-out error follows a language switch inside the menu");
 } finally { await browser.close(); }
 console.log(`${count} localization checks passed`);

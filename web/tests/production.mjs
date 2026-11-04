@@ -27,7 +27,7 @@ try {
     const errors = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${base}/${login ? "__vim4/login" : "#/overview"}`);
-    await page.getByRole("button", { name: /Language/ }).waitFor();
+    await page.getByRole("button", { name: login ? /Language/ : /^(Account menu|账户菜单)$/ }).waitFor();
     await page.locator("img").first().waitFor();
     const images = await page.locator("img").evaluateAll(async images => {
       await Promise.all(images.map(image => image.decode()));

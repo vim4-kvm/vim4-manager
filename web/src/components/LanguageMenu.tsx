@@ -5,7 +5,7 @@ import { languageChoices, selectLocale, useLocale, useT, type Locale } from "@/i
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
-export function LanguageMenu({ login = false, initialOpen = false }: { login?: boolean; initialOpen?: boolean }) {
+export function LanguageMenu({ initialOpen = false }: { initialOpen?: boolean }) {
   const locale = useLocale();
   const t = useT();
   const [loading, setLoading] = useState(false);
@@ -19,10 +19,10 @@ export function LanguageMenu({ login = false, initialOpen = false }: { login?: b
   }
   return <DropdownMenu modal={false} defaultOpen={initialOpen}>
     <DropdownMenuTrigger asChild>
-      <Button variant="ghost" size={login ? "sm" : "icon"} className={login ? undefined : "rounded-full"}
+      <Button variant="ghost" size="sm"
         aria-label={t("common.language")} title={error ? t("common.connectionFailed") : t("common.language")}>
         {loading ? <Spinner className="size-5" /> : <Languages aria-hidden="true" className="size-5" />}
-        {login && <>{languageChoices.find((choice) => choice.value === locale)!.label}<ChevronDown aria-hidden="true" className="size-4" /></>}
+        {languageChoices.find((choice) => choice.value === locale)!.label}<ChevronDown aria-hidden="true" className="size-4" />
         {error && <span role="alert" className="sr-only">{t("common.connectionFailed")}</span>}
       </Button>
     </DropdownMenuTrigger>

@@ -4,8 +4,8 @@ import type { Key, MessageParams } from "./catalog";
 
 export type Locale = "en" | "zh-CN";
 export const languageChoices = [
-  { value: "en", label: "English" },
-  { value: "zh-CN", label: "简体中文" },
+  { value: "en", label: "English", short: "English" },
+  { value: "zh-CN", label: "简体中文", short: "中文" },
 ] as const;
 const storageKey = "vim4-manager-language";
 type Catalog = { [K in Key]: string | { one: string; other: string } };

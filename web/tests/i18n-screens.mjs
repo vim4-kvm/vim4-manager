@@ -142,7 +142,9 @@ try {
     const name = `${pageId}-${locale}-${viewport}-${theme}${state ? `-${state}` : ""}.png`;
     try {
       await page.goto(`${base}/${pageId === "login" ? "__vim4/login" : `#/${pageId}`}`);
-      await page.getByRole("button", { name: /Language/ }).waitFor();
+      // App pages switch language from the account menu; login keeps its own switch.
+      const menuButton = pageId === "login" ? page.getByRole("button", { name: /Language/ }) : page.getByRole("button", { name: /^(Account menu|账户菜单)$/ });
+      await menuButton.waitFor();
       if (pageId === "login" && state !== "empty") await page.locator("#username").waitFor();
       else if (pageId !== "login") await page.locator("#page-title").waitFor();
       if (width === 1280) assert.equal(await page.locator("header button[aria-expanded]").first().getAttribute("aria-expanded"), "true", "1280px overview keeps the sidebar expanded");
@@ -157,7 +159,7 @@ try {
         await page.getByRole("alert").waitFor();
       }
       if (state === "menu") {
-        await page.getByRole("button", { name: /Language/ }).click();
+        await menuButton.click();
         await page.getByRole("menuitemradio", { name: "English", exact: true }).waitFor();
       }
       await page.evaluate(async () => {

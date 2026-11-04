@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import { t } from "./i18n";
 
 export type Theme = "light" | "dark" | "system";
 const STORAGE_KEY = "vim4-manager-theme";
@@ -86,10 +85,3 @@ export function useThemePreference(): Theme {
 export function useResolvedTheme(): "light" | "dark" {
   return useSyncExternalStore(subscribe, () => resolvedTheme);
 }
-
-/** Labels shared by every appearance control. */
-export const themeChoices: { value: Theme; label: string; title: string }[] = [
-  { value: "light", get label() { return t("theme.light"); }, get title() { return t("theme.light"); } },
-  { value: "dark", get label() { return t("theme.dark"); }, get title() { return t("theme.dark"); } },
-  { value: "system", get label() { return t("theme.system"); }, get title() { return t("theme.system"); } },
-];

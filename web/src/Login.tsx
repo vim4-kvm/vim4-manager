@@ -189,7 +189,7 @@ function Login() {
 
   return (
     <main className="flex min-h-svh flex-col items-center gap-6 px-4 pt-[max(48px,20vh)] pb-8 max-[480px]:pt-[max(80px,12vh)]">
-      <div className="absolute top-4 right-4"><LanguageSwitch login /></div>
+      <div className="absolute top-4 right-4"><LanguageSwitch /></div>
       <header role="group" aria-label={t("common.device")} className="flex w-full max-w-[400px] flex-col items-center gap-2 text-center [&_h1]:text-xl [&_h1]:font-medium [&_p]:text-sm [&_p]:text-muted-foreground">
         <BrandMark className="mb-2 size-11" />
         {!state && !error ? (

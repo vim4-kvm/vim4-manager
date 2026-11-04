@@ -2,8 +2,6 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, LazyMotion, m, MotionConfig, useReducedMotion } from "motion/react";
 import { LucideProvider, Menu, PanelLeft } from "lucide-react";
 import { AccountMenu } from "@/components/AccountMenu";
-import { ThemeSwitch } from "@/components/ThemeSwitch";
-import { LanguageSwitch } from "@/components/LanguageSwitch";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
@@ -28,11 +26,7 @@ function TopBar({ page }: { page: PageId }) {
       </Button>
       <span aria-hidden="true" className="h-5 w-px shrink-0 bg-border md:hidden" />
       <span className="min-w-0 flex-1 truncate font-medium"><span className="md:hidden">{meta.title}</span></span>
-      <div className="flex shrink-0 items-center gap-1">
-        <LanguageSwitch />
-        <ThemeSwitch />
-        <AccountMenu compact />
-      </div>
+      <AccountMenu />
     </header>
   );
 }

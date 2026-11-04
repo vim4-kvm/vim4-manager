@@ -78,7 +78,7 @@ async function checkCompactHeader(page, width) {
   assert(menu && account);
   assert(menu.x + menu.width <= account.x, "menu button precedes the account button");
   assert(Math.abs(menu.y + menu.height / 2 - account.y - account.height / 2) <= 1, "top bar controls vertically align");
-  assert.equal(await page.getByRole("radiogroup", { name: "Appearance" }).count(), 0, "sidebar controls stay in the closed sheet");
+  assert.equal(await page.locator("header button").count(), 2, "appearance and language live in the account menu");
   assert(await page.locator("[data-account-devices]").getByRole("button", { name: "Sign out of this device", exact: true }).isVisible());
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
 }
@@ -111,7 +111,7 @@ async function checkLoginContrast(page) {
       });
       return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
     }
-    return ["[role=menu] [data-slot=dropdown-menu-label] strong", "[role=menu] [data-slot=dropdown-menu-label] small", "[role=menu] [role=menuitem]", "[data-account-success]", "[role=row] [data-slot=badge]", "[data-account-notes]", "main h1", "main label", "main input", "main button[data-variant=default]", "main [role=alert]", "main code", "main [aria-invalid=true]"].flatMap(selector =>
+    return ["[role=menu] [data-slot=dropdown-menu-label] strong", "[role=menu] [data-slot=dropdown-menu-label] small", "[role=menu] [role=menuitem]", "[role=menu] [role=menuitemradio]", "[data-account-success]", "[role=row] [data-slot=badge]", "[data-account-notes]", "main h1", "main label", "main input", "main button[data-variant=default]", "main [role=alert]", "main code", "main [aria-invalid=true]"].flatMap(selector =>
       [...document.querySelectorAll(selector)].map(element => {
         const foreground = luminance(rgba(getComputedStyle(element).color));
         const surface = luminance(background(element));
@@ -404,14 +404,14 @@ try {
   await checkAccountContrast(page);
   await menuButton.focus();
   await page.keyboard.press("Enter");
-  await focused(menu.getByRole("menuitem").first());
-  await page.keyboard.press("ArrowDown");
+  await focused(menu.getByRole("menuitemradio").first());
+  await page.keyboard.press("ArrowUp");
   await focused(menu.getByRole("menuitem").last());
   await page.keyboard.press("ArrowDown");
-  await focused(menu.getByRole("menuitem").first());
+  await focused(menu.getByRole("menuitemradio").first());
   await page.keyboard.press("End");
   await page.keyboard.press("Home");
-  await focused(menu.getByRole("menuitem").first());
+  await focused(menu.getByRole("menuitemradio").first());
   await shot("sidebar-menu-dark");
   await checkLoginContrast(page);
   await page.keyboard.press("Escape");
