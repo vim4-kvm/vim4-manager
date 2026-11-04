@@ -6,7 +6,7 @@
 
 ## 语义
 
-厂商来源是驱动最近 DVFS 周期的忙碌率，不是管理器采样区间平均；存在但无效仍留空。
+厂商 Mali 与 7.x kbase 共用 mpgpu 来源，是驱动最近 DVFS 周期的忙碌率，不是管理器采样区间平均；存在但无效仍留空。
 Panfrost 使用全进程 fdinfo 的引擎时间增量，同一客户端去重后跨客户端汇总，
 取最忙引擎来避免流水线重叠重复计数。公式和来源优先级只查 [sampleGPU、estimateGPU](../internal/board/gpu.go)。
 
