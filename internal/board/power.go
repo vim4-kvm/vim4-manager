@@ -6,13 +6,20 @@ import (
 	"time"
 )
 
-// Power separates the live VBUS threshold from the historical PD contract.
+// Power separates the kernel contract and VBUS threshold from boot history.
 // Neither reports input current, board power consumption, or the active source.
 type Power struct {
 	VBUSPresent  *bool              `json:"vbusPresent"`
 	BootContract *PowerContract     `json:"bootContract"`
 	FirmwarePD   *FirmwarePD        `json:"firmwarePD,omitempty"`
 	LastContract *LastPowerContract `json:"lastContract,omitempty"`
+	KernelPD     *KernelPD          `json:"kernelPD,omitempty"`
+}
+
+// KernelPD remains present when TCPM owns the port but has no confirmed contract.
+type KernelPD struct {
+	State    string         `json:"state"`
+	Contract *PowerContract `json:"contract"`
 }
 
 // LastPowerContract records confirmed history from an earlier boot.

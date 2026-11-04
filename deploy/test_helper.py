@@ -104,6 +104,21 @@ class MainlineEDIDTest(unittest.TestCase):
 class PowerTest(unittest.TestCase):
     COMPLETE = 'PD bootstrap complete; USB-capable 5V contract established\n'
 
+    def test_kernel_owner_never_uses_i2c_or_promotes_boot_history(self):
+        for state,contract in [('ready', {'voltageV':5, 'currentA':3}),
+                               ('unconfirmed', None), ('unavailable', None)]:
+            kernel = {'state':state, 'contract':contract}
+            with self.subTest(state=state), \
+                    patch.object(helper.vim4pd, 'kernel_power', return_value=kernel), \
+                    patch.object(helper, 'firmware_power', return_value={'contract':{'voltageV':9,'currentA':2}}), \
+                    patch.object(helper.subprocess, 'check_output') as run, \
+                    patch.object(helper, 'previous_contract') as history:
+                result = helper.power_status()
+                self.assertEqual(result['kernelPD'], kernel)
+                self.assertIsNone(result['bootContract'])
+                run.assert_not_called()
+                history.assert_not_called()
+
     def test_cross_boot_history_is_included_in_power_status(self):
         last = {'voltageV': 5, 'currentA': 3, 'usbComm': True, 'rdo': '1304b12c',
                 'origin': 'linux', 'bootId': 'previous', 'establishedAt': '2026-10-22T12:00:00+00:00'}

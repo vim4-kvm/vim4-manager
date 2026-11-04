@@ -148,6 +148,7 @@ export interface FirmwarePD {
 export interface Status {
   passthrough?: PassthroughState;
   power?: {
+    kernelPD?: { state: "ready" | "unconfirmed" | "unavailable"; contract: { voltageV: number; currentA: number } | null };
     vbusPresent: boolean | null;
     bootContract: { voltageV: number; currentA: number } | null;
     firmwarePD?: FirmwarePD;

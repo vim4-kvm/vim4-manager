@@ -1113,6 +1113,7 @@ export const en = {
   "edid.confirmHelp": "The target computer will detect the display again. Its screen may go blank briefly or its desktop layout may change. JetKVM will restart if it is running.",
   "edid.change": "Change EDID",
   "power.linux": "Linux initialization",
+  "power.kernel": "Current kernel PD contract",
   "power.firmware": "Boot firmware negotiation",
   "power.budget": "{source} · Power budget: {watts} W",
   "power.budgetNoVoltage": "{source} · Power budget: {watts} W · No USB-C voltage detected now",

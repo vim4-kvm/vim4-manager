@@ -129,22 +129,25 @@ function PowerFact({ power, kernel }: { power: Status["power"]; kernel: string }
   const panel = useId();
   const fw = power?.firmwarePD;
   const linux = power?.bootContract;
-  const contract = linux || fw?.contract;
-  const warm = !contract && fw?.timedOut && fw.sourceCapabilities.length === 0 && power?.vbusPresent === true;
+  const kernelPD = power?.kernelPD;
+  const contract = kernelPD ? kernelPD.contract : linux || fw?.contract;
+  const warm = !kernelPD && !contract && fw?.timedOut && fw.sourceCapabilities.length === 0 && power?.vbusPresent === true;
   const last = warm ? power?.lastContract : undefined;
   const lastTime = last ? contractTime(last.establishedAt) : "";
   const allowance = contract ? `${contract.voltageV}V ${contract.currentA}A` : "";
-  const value = contract ? (linux ? `${contract.voltageV} V / ${contract.currentA} A` : t("overview.pdContract", { p0: String(allowance) }))
+  const value = contract ? (kernelPD || linux ? `${number(contract.voltageV)} V / ${number(contract.currentA)} A` : t("overview.pdContract", { p0: String(allowance) }))
+    : kernelPD ? t(kernelPD.state === "unavailable" ? "overview.statusUnavailable" : "overview.noConfirmedPdContract")
     : warm ? last ? t("overview.vARetained", { p0: String(last.voltageV), p1: String(last.currentA) }) : t("overview.typeCOnly")
     : fw ? (fw.psReady && !fw.ioError && !fw.typecFallback ? t("overview.pdReadyBudgetUnknown") : fw.typecFallback ? t("overview.typeCNoConfirmedPdContract") : t("overview.noConfirmedPdContract"))
     : power?.vbusPresent === true ? t("overview.usbCVoltageDetected") : power?.vbusPresent === false ? t("overview.noUsbCVoltageDetected") : t("overview.statusUnavailable");
-  const detail = contract ? t("overview.powerBudgetW", { p0: String(+(contract.voltageV * contract.currentA).toFixed(2)), p1: String(linux ? t("overview.linuxInitialization") : t("overview.bootFirmwareNegotiation")) })
+  const detail = contract ? t("overview.powerBudgetW", { p0: number(contract.voltageV * contract.currentA, { maximumFractionDigits: 2 }), p1: kernelPD ? t("power.kernel") : linux ? t("overview.linuxInitialization") : t("overview.bootFirmwareNegotiation") })
+    : kernelPD ? t("power.kernel")
     : last ? t("overview.notRenegotiatedPrevious", { p0: String(lastTime) })
     : fw ? `${warm ? t("overview.notRenegotiated") : t("overview.bootFirmware")} · Rp ${fw.rp === "default" ? t("overview.defaultCurrent") : fw.rp === "unknown" ? t("common.unknown") : fw.rp}`
     : kernel.startsWith("7.") ? t("overview.usingBootFirmwareInitializationPowerBudget") : t("overview.noConfirmedPowerBudgetForThis");
   return (
     <Fact card mutedValue={!contract && !last} label={t("overview.usbCPower")} value={value} detail={detail} href="#/services" destination={t("overview.systemServices")}>
-      {fw && (
+      {fw && !kernelPD && (
         <div data-pd-capabilities className="mt-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
           <button type="button" aria-expanded={open} aria-controls={panel} onClick={() => setOpen(!open)}
             className="relative z-10 inline-flex items-center gap-1 rounded-sm text-left outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">

@@ -1115,6 +1115,7 @@ export const zhCN = defineCatalog({
   "edid.confirmHelp": "被控电脑会重新识别显示器，可能短暂黑屏或改变桌面布局；JetKVM 运行中会重启",
   "edid.change": "切换",
   "power.linux": "Linux 初始化",
+  "power.kernel": "内核实时 PD 合同",
   "power.firmware": "启动固件协商",
   "power.budget": "{source} · 供电额度 {watts} W",
   "power.budgetNoVoltage": "{source} · 供电额度 {watts} W · 当前未检测到 USB-C 电压",

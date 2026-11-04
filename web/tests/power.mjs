@@ -160,6 +160,30 @@ try {
   await tile.getByText("Boot firmware · PD contract incomplete", { exact: true }).waitFor();
   assert.equal(await tile.getByText("Reconnect USB-C power to read the full negotiation", { exact: true }).count(), 0);
   await captureWidths('s5-empty-pdo');
+  // Kernel state replaces both firmware and old Linux history on current PD ports.
+  status.power.bootContract = { voltageV: 9, currentA: 2 };
+  status.power.kernelPD = { state: 'ready', contract: { voltageV: 5, currentA: 3 } };
+  await page.reload();
+  await page.getByRole('tab', { name:'Power', exact:true }).click();
+  await tile.getByText('5 V / 3 A', { exact:true }).waitFor();
+  await tile.getByText('15 W budget · Current kernel PD contract', { exact:true }).waitFor();
+  assert.equal(await tile.locator('[data-pd-capabilities]').count(), 0);
+  await captureWidths('tcpm-ready');
+  await page.getByRole('button', { name:'Account menu', exact:true }).click();
+  await page.getByRole('menuitemradio', { name:'中文', exact:true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByText('内核实时 PD 合同', { exact:false }).first().waitFor();
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= innerWidth);
+  await page.getByRole('button', { name:'账户菜单', exact:true }).click();
+  await page.getByRole('menuitemradio', { name:'English', exact:true }).click();
+  await page.keyboard.press('Escape');
+  for (const [state, value] of [['unconfirmed','No confirmed PD contract'], ['unavailable','Status unavailable']]) {
+    status.power.kernelPD = { state, contract: null };
+    await page.reload();
+    await page.getByRole('tab', { name:'Power', exact:true }).click();
+    await tile.getByText(value, { exact:true }).waitFor();
+    assert.equal(await tile.getByText(/9 V|Retained|Not renegotiated/).count(), 0);
+  }
   // Empty charts all use the same component; none should layer two placeholders.
   status.history = [];
   await page.reload();

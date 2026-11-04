@@ -60,6 +60,7 @@ UPDATE_STAGING = Path('/var/lib/vim4-manager-update')
 UPDATE_LIMIT = 256 << 20
 sys.path.insert(0, '/usr/lib/vim4-kvm/python')
 import vim4media
+import vim4pd
 from vim4pd import boot_power_contract, firmware_power, previous_contract
 
 media_catalog = vim4media.catalog
@@ -174,6 +175,13 @@ def power_status():
     firmware = firmware_power()
     if firmware is not None:
         result['firmwarePD'] = firmware
+    # Older board packages have only the boot-history reader. Upgrading the
+    # manager must remain compatible; install the new board reader first.
+    reader = getattr(vim4pd, 'kernel_power', None)
+    kernel = reader() if reader else None
+    if kernel is not None:
+        result['kernelPD'] = kernel
+        return result
     # Packaged and manual board installs use different fixed locations.
     binary = next((p for p in ('/usr/sbin/usb-pd-init', '/usr/local/sbin/usb-pd-init')
                    if Path(p).is_file()), None)

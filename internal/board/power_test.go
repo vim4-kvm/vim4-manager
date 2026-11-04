@@ -44,3 +44,25 @@ func TestPowerLastContract(t *testing.T) {
 		t.Fatal("stale history survived malformed helper output")
 	}
 }
+
+func TestKernelPowerIsNotReusedAfterReadFailure(t *testing.T) {
+	s := &Service{Run: func(context.Context, string, ...string) (string, error) {
+		return `{"kernelPD":{"state":"ready","contract":{"voltageV":5,"currentA":3}}}`, nil
+	}}
+	p := s.power(context.Background())
+	if p.KernelPD == nil || p.KernelPD.State != "ready" || p.KernelPD.Contract.CurrentA != 3 {
+		t.Fatal(p)
+	}
+	s.powerAt = time.Time{}
+	s.Run = func(context.Context, string, ...string) (string, error) {
+		return `{"kernelPD":{"state":"unconfirmed","contract":null}}`, nil
+	}
+	if p = s.power(context.Background()); p.KernelPD == nil || p.KernelPD.Contract != nil {
+		t.Fatal("stale contract survived kernel state change", p)
+	}
+	s.powerAt = time.Time{}
+	s.Run = func(context.Context, string, ...string) (string, error) { return "", errors.New("unavailable") }
+	if s.power(context.Background()).KernelPD != nil {
+		t.Fatal("stale contract survived helper failure")
+	}
+}
