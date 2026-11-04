@@ -1,3 +1,7 @@
+> 归档日期：2026-11-03。已完成的界面重构过程记录，数值、版本和方案仅描述当时配置，不作为当前操作规范。
+> 当前开发入口见 [README](../../../README.md#结构)，归档索引见 [本目录导航](README.md)。
+> 章节导航：[目标](#目标) · [技术栈（定稿）](#技术栈定稿) · [动效](#动效) · [设计令牌（沿用现有品牌色，映射到 shadcn 变量）](#设计令牌沿用现有品牌色映射到-shadcn-变量) · [布局](#布局) · [共享组件（`web/src/components/`，所有页面必须复用，禁止各页自造）](#共享组件websrccomponents所有页面必须复用禁止各页自造) · [状态管理（zustand）](#状态管理zustand) · [文案](#文案) · [交付流程](#交付流程)。
+
 # vim4-manager 前端重构规格（设计：Claude 主会话；实现：子代理）
 
 ## 目标
@@ -69,6 +73,6 @@
   - **阶段 1**：基础设施（Tailwind、shadcn 初始化、令牌、深色、Toaster、zustand store、共享组件、应用外壳：侧栏/手机顶栏/Sheet/页头）+ 迁移「概览」与「HDMI 输出」两页。停下来交截图给我审。
   - 阶段 2：其余页面（按 视频输入 → 虚拟介质 → 数据盘 → 网络存储 → KVM 界面 → 网络 → 散热 → 底层服务 → 更新 → 账户/登录）。
   - 阶段 3：删除 styles.css 与 Icons.tsx，体积与可访问性收尾。
-- 截图：用现有 `web/tests/*.mjs` 的 mock/fixture 或 Vite dev + 拦截 API 的 mock，Playwright（Chromium）对每个迁移页面截：浅色/深色 × 1280px/390px；状态多的页面（HDMI 输出）每个关键状态各一组。存 `docs/ui-refactor/screens/<阶段>/`，同时截一组**重构前**同页对照（从 origin/main 构建）。
+- 截图：用现有 `web/tests/*.mjs` 的 mock/fixture 或 Vite dev + 拦截 API 的 mock，Playwright（Chromium）对每个迁移页面截：浅色/深色 × 1280px/390px；状态多的页面（HDMI 输出）每个关键状态各一组。存 `docs/archive/ui-refactor/screens/<阶段>/`，同时截一组**重构前**同页对照（从 origin/main 构建）。
 - 验证：`npm run typecheck`、`npm run build`、现有 `web/tests/*.mjs` 全部通过（选择器改为 role/label，不依赖旧类名）；Go 侧 `go build ./... && go test ./...`；报告打包体积前后对比。
 - 不部署到板子，不推送 main；分支可推送到 origin。

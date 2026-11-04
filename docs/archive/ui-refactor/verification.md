@@ -1,3 +1,7 @@
+> 归档日期：2026-11-03。已完成的界面重构过程记录，数值、版本和方案仅描述当时配置，不作为当前操作规范。
+> 当前开发入口见 [README](../../../README.md#结构)，归档索引见 [本目录导航](README.md)。
+> 章节导航：[阶段与行为](#阶段与行为) · [验证](#验证) · [打包体积](#打包体积) · [截图](#截图) · [文案与待审项](#文案与待审项) · [审美与交互收尾（Claude）](#审美与交互收尾claude) · [用户验收修正（2026-10-25）](#用户验收修正2026-10-25)。
+
 # 前端重构验收记录
 
 分支：`ui/shadcn-refactor`。比较基线：`origin/main` 的 `fa088412c73c767a919441d96d4f9f6f9a31b12d`。
@@ -56,9 +60,9 @@ Motion 令牌集中于 `lib/motion.ts`，页面使用 `AnimatePresence mode="wai
 合计 **706 张**。各目录的 `manifest.json` 列出对应文件；`ui-screens.mjs`、`ui-pages.mjs` 可复现矩阵。
 
 ```sh
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-screens.mjs http://127.0.0.1:5188 docs/ui-refactor/screens/phase1/after --after
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-pages.mjs http://127.0.0.1:5188 docs/ui-refactor/screens/phase2/after --after
-PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-pages.mjs http://127.0.0.1:5188 docs/ui-refactor/screens/phase3/after --after --phase3
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-screens.mjs http://127.0.0.1:5188 docs/archive/ui-refactor/screens/phase1/after --after
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-pages.mjs http://127.0.0.1:5188 docs/archive/ui-refactor/screens/phase2/after --after
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node web/tests/ui-pages.mjs http://127.0.0.1:5188 docs/archive/ui-refactor/screens/phase3/after --after --phase3
 ```
 
 ## 文案与待审项
