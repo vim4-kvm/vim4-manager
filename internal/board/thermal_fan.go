@@ -74,7 +74,7 @@ func thermalFanCurve(root, device string) ([]CurvePoint, *FanTriggers, bool) {
 	}
 	curve := make([]CurvePoint, 15)
 	for i, duty := range []int{5, 10, 15, 20, 25, 30, 35, 43, 52, 61, 70, 77, 85, 92, 100} {
-		curve[i] = CurvePoint{TempC: temperatures[i] / 1000, Percent: duty}
+		curve[i] = CurvePoint{TempC: float64(temperatures[i]) / 1000, Percent: duty}
 	}
 	return curve, &FanTriggers{Low: temperatures[6] / 1000, Mid: temperatures[10] / 1000, High: temperatures[14] / 1000}, automatic
 }

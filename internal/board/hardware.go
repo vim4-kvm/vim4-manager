@@ -64,8 +64,8 @@ type Zone struct {
 
 // CurvePoint is a vertex of the fan curve: duty percent at a temperature.
 type CurvePoint struct {
-	TempC   int `json:"tempC"`
-	Percent int `json:"percent"`
+	TempC   float64 `json:"tempC"`
+	Percent int     `json:"percent"`
 }
 
 // ReadHardware reads from root, which is "/" on the board and a fixture in tests.
@@ -189,7 +189,7 @@ func fanCurve(attr string) ([]CurvePoint, *FanTriggers) {
 	}
 	start := max(levels[0]-15, 0)
 	daily := max(levels[0]-5, start+1)
-	return []CurvePoint{{start, 5}, {daily, 25}, {levels[0], 35}, {levels[1], 70}, {levels[2], 100}},
+	return []CurvePoint{{float64(start), 5}, {float64(daily), 25}, {float64(levels[0]), 35}, {float64(levels[1]), 70}, {float64(levels[2]), 100}},
 		&FanTriggers{Low: levels[0], Mid: levels[1], High: levels[2]}
 }
 

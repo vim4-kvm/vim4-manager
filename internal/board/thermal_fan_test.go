@@ -43,6 +43,9 @@ func TestThermalFanNumberingAndPartialConfiguration(t *testing.T) {
 	if h.FanPct != 43 || h.TempC != 45 || !h.FanAuto || h.FanTriggers == nil || *h.FanTriggers != DefaultFanTriggers || len(h.FanCurve) != 15 {
 		t.Fatalf("standard fan: %+v", h)
 	}
+	if h.FanCurve[1].TempC != 47.5 {
+		t.Fatalf("fractional trip temperature was truncated: %v", h.FanCurve[1])
+	}
 	write(filepath.Join(base, "thermal_zone9/trip_point_9_temp"), "65000")
 	if h = ReadHardware(root); h.FanTriggers != nil {
 		t.Fatal("inconsistent zones exposed as an editable saved curve")
