@@ -29,9 +29,6 @@ const HANDLES: { key: keyof FanTriggers; label: string; duty: number }[] = [
   { key: "high", get label() { return t("cooling.high"); }, duty: 100 },
 ];
 
-// The SoC thermal zone's first passive trip point, where CPU throttling begins.
-const THROTTLE_C = 95;
-
 const T_MIN = 20;
 const T_MAX = 105;
 const HEIGHT = 240;
@@ -55,7 +52,12 @@ function invalidTemperature(label: string, min: number, max: number) {
 }
 
 /** Vertices of mcu_fan_auto_speed_percent in drivers/misc/khadas-mcu.c. */
-function vertices(t: FanTriggers): [number, number][] {
+function vertices(t: FanTriggers, stepped = false): [number, number][] {
+  if (stepped) return [
+    ...[5, 10, 15, 20, 25, 30].map((duty, i): [number, number] => [t.low - 15 + i * 2.5, duty]),
+    ...[35, 43, 52, 61].map((duty, i): [number, number] => [t.low + (t.mid - t.low) * i / 4, duty]),
+    ...[70, 77, 85, 92, 100].map((duty, i): [number, number] => [t.mid + (t.high - t.mid) * i / 4, duty]),
+  ];
   const start = Math.max(t.low - 15, 0);
   const daily = Math.max(t.low - 5, start + 1);
   return [
@@ -67,18 +69,19 @@ function vertices(t: FanTriggers): [number, number][] {
   ];
 }
 
-export function fanDuty(t: FanTriggers, temp: number): number {
-  const points = vertices(t);
+export function fanDuty(t: FanTriggers, temp: number, stepped = false): number {
+  const points = vertices(t, stepped);
   if (temp < points[0][0]) return 0;
   for (let i = 1; i < points.length; i++) {
     const [t0, d0] = points[i - 1];
     const [t1, d1] = points[i];
-    if (temp < t1) return Math.round(d0 + ((temp - t0) * (d1 - d0)) / (t1 - t0));
+    if (temp < t1) return stepped ? d0 : Math.round(d0 + ((temp - t0) * (d1 - d0)) / (t1 - t0));
   }
   return 100;
 }
 
 function CurveEditor({
+  stepped,
   draft,
   saved,
   tempC,
@@ -86,6 +89,7 @@ function CurveEditor({
   disabled,
   onChange,
 }: {
+  stepped: boolean;
   draft: FanTriggers;
   saved: FanTriggers;
   tempC: number;
@@ -99,16 +103,18 @@ function CurveEditor({
   const [hover, setHover] = useState<number>();
   const dragging = useRef<keyof FanTriggers>(undefined);
   const plotW = Math.max(0, width - PAD_LEFT - PAD_RIGHT);
+  // CPU passive trip differs between the mainline board DT and vendor 5.15.
+  const throttleC = stepped ? 85 : 95;
   const x = (t: number) => PAD_LEFT + ((Math.min(T_MAX, Math.max(T_MIN, t)) - T_MIN) / (T_MAX - T_MIN)) * plotW;
   const y = (p: number) => PAD_TOP + (1 - p / 100) * HEIGHT;
   const tempAt = (clientX: number, box: DOMRect) => T_MIN + ((clientX - box.left - PAD_LEFT) / plotW) * (T_MAX - T_MIN);
 
   const path = (t: FanTriggers) => {
-    const points = vertices(t);
+    const points = vertices(t, stepped);
     return [
       `M${x(T_MIN)},${y(0)}`,
       `L${x(points[0][0])},${y(0)}`,
-      ...points.map(([tc, d]) => `L${x(tc)},${y(d)}`),
+      ...points.map(([tc, d], i) => `${stepped ? `L${x(tc)},${y(i ? points[i - 1][1] : 0)} ` : ""}L${x(tc)},${y(d)}`),
       `L${x(T_MAX)},${y(100)}`,
     ].join("");
   };
@@ -133,7 +139,7 @@ function CurveEditor({
   };
 
   const dirty = !same(draft, saved);
-  const hoverDuty = hover === undefined ? undefined : fanDuty(draft, hover);
+  const hoverDuty = hover === undefined ? undefined : fanDuty(draft, hover, stepped);
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -186,9 +192,9 @@ function CurveEditor({
                 {t}°
               </text>
             ))}
-            <rect className="fill-destructive-fill/10" x={x(THROTTLE_C)} y={PAD_TOP} width={x(T_MAX) - x(THROTTLE_C)} height={HEIGHT} />
-            <text className="fill-muted-foreground text-xs tabular-nums" x={x(THROTTLE_C) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
-              {t("cooling.throttle", { temperature: number(THROTTLE_C) })}
+            <rect className="fill-destructive-fill/10" x={x(throttleC)} y={PAD_TOP} width={x(T_MAX) - x(throttleC)} height={HEIGHT} />
+            <text className="fill-muted-foreground text-xs tabular-nums" x={x(throttleC) - 6} y={PAD_TOP + HEIGHT - 8} textAnchor="end">
+              {t("cooling.throttle", { temperature: number(throttleC) })}
             </text>
             {dirty && <path className="fill-none [stroke-linecap:round] [stroke-linejoin:round] stroke-muted-foreground [stroke-dasharray:4_4] [stroke-width:1.25]" d={path(saved)} />}
             <path className="fill-none stroke-chart-1 [stroke-width:2] [stroke-linecap:round] [stroke-linejoin:round]" d={path(draft)} />
@@ -255,6 +261,7 @@ function CurveEditor({
 }
 
 export function FanPanel({
+  stepped = false,
   saved,
   auto,
   tempC,
@@ -262,6 +269,7 @@ export function FanPanel({
   busy,
   onApply,
 }: {
+  stepped?: boolean;
   saved: FanTriggers;
   auto: boolean;
   tempC: number;
@@ -293,6 +301,7 @@ export function FanPanel({
         </Segmented>
 
         <CurveEditor
+          stepped={stepped}
           draft={invalid ? saved : shown}
           saved={saved}
           tempC={tempC}

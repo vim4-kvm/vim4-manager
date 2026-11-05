@@ -51,6 +51,7 @@ JETKVM_CONFIG = Path('/var/lib/jetkvm/config.json')
 FAN_CONFIG = '/etc/default/vim4-kvm-fan'
 FAN_SYSFS = Path('/sys/class/fan')
 MAINLINE_FAN = Path('/sys/bus/platform/devices/khadas-mcu-fan-ctrl')
+THERMAL_SYSFS = Path('/sys/class/thermal')
 FAN_KEYS = ('FAN_TRIGGER_LOW', 'FAN_TRIGGER_MID', 'FAN_TRIGGER_HIGH')
 # Packages without their own web updater. The manager downloads as khadas;
 # only this helper, as root, installs them.
@@ -1881,16 +1882,72 @@ def celsius(text, low, high):
 
 
 def fan_triggers(low, mid, high):
-    # Limits match internal/board/fan.go. The driver starts the fan 15 °C
-    # below low; the SoC passive trip point is 95 °C.
+    # Limits match internal/board/fan.go. The first fan point is 15 °C below low.
     low = celsius(low, 35, 80)
     mid = celsius(mid, low + 5, 95)
     high = celsius(high, mid + 5, 100)
     return low, mid, high
 
 
+def thermal_fan_trips():
+    """Return the board DT's ordered fan trips, never CPU protection trips."""
+    devices = [p for p in THERMAL_SYSFS.glob('cooling_device*')
+               if (p / 'type').read_text().strip() == 'khadas-mcu-fan']
+    if not devices:
+        return None
+    if len(devices) != 1 or int((devices[0] / 'max_state').read_text()) != 100:
+        raise ValueError('Unexpected VIM4 fan cooling device')
+    zones = {}
+    for zone in THERMAL_SYSFS.glob('thermal_zone*'):
+        kind = (zone / 'type').read_text().strip()
+        if kind not in ('a73-thermal', 'a53-thermal', 'gpu-thermal',
+                        'nna-thermal', 'vpu-thermal', 'hevc-thermal'):
+            continue
+        ids = sorted({int((zone / (link.name + '_trip_point')).read_text())
+                      for link in zone.glob('cdev[0-9]*') if link.is_symlink()
+                      and link.resolve() == devices[0].resolve()})
+        if len(ids) != 15:
+            raise ValueError(f'{kind}: expected 15 fan trips')
+        for index in ids:
+            if (zone / f'trip_point_{index}_type').read_text().strip() != 'active':
+                raise ValueError(f'{kind}: fan map refers to a protection trip')
+        zones[kind] = [zone / f'trip_point_{index}_temp' for index in ids]
+    if len(zones) != 6:
+        raise ValueError('Fan thermal zones are not ready; settings were not applied')
+    return list(zones.values())
+
+
+def thermal_fan_temperatures(low, mid, high):
+    low, mid, high = low * 1000, mid * 1000, high * 1000
+    return ([low - 15000 + i * 2500 for i in range(6)] +
+            [low + (mid - low) * i // 4 for i in range(4)] +
+            [mid + (high - mid) * i // 4 for i in range(5)])
+
+
+def write_thermal_fan_triggers(zones, low, mid, high):
+    targets = thermal_fan_temperatures(low, mid, high)
+    # Preflight every path before changing any zone. Sysfs has no batch commit.
+    current = [[int(path.read_text()) for path in paths] for paths in zones]
+    try:
+        for paths, previous in zip(zones, current):
+            # Move upper points up first, then lower points down first.
+            for indexes, rising in ((range(14, -1, -1), True), (range(15), False)):
+                for i in indexes:
+                    changed = targets[i] > previous[i] if rising else targets[i] < previous[i]
+                    if changed:
+                        paths[i].write_text(f'{targets[i]}\n')
+        if any([int(path.read_text()) for path in paths] != targets for paths in zones):
+            raise ValueError('Fan trip readback differs from requested temperatures')
+    except (OSError, ValueError) as error:
+        raise ValueError(f'Fan settings may be partially applied; not saved: {error}') from error
+
+
 def write_fan_triggers(low, mid, high):
     """Apply in an order the driver accepts from any valid starting curve."""
+    zones = thermal_fan_trips()
+    if zones is not None:
+        write_thermal_fan_triggers(zones, low, mid, high)
+        return
     if platform.release().startswith('7.'):
         path = MAINLINE_FAN / 'trigger_temperatures'
         target = f'{low} {mid} {high}'

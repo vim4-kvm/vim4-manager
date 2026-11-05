@@ -104,6 +104,15 @@ func ReadHardware(root string) Hardware {
 			h.FanCurve, h.FanTriggers = fanCurve("level0:" + levels[0] + " level1:" + levels[1] + " level2:" + levels[2])
 		}
 	}
+	if device := thermalFanDevice(root); device != "" {
+		h.FanPct, _ = strconv.Atoi(thermalRead(filepath.Join(device, "cur_state")))
+		h.FanCurve, h.FanTriggers, h.FanAuto = thermalFanCurve(root, device)
+		var hottest float64
+		for _, zone := range h.Zones {
+			hottest = max(hottest, zone.TempC)
+		}
+		h.TempC = hottest
+	}
 	if states, _ := filepath.Glob(filepath.Join(root, "sys/class/udc/*/state")); len(states) > 0 {
 		data, _ := os.ReadFile(states[0])
 		h.USB = strings.TrimSpace(string(data))

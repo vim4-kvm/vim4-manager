@@ -77,6 +77,12 @@ func (h *History) Sample(now time.Time) {
 	if value := read("sys/bus/platform/devices/khadas-mcu-fan-ctrl/speed_percent"); value != "" {
 		s.FanPct, _ = strconv.Atoi(value)
 	}
+	if device := thermalFanDevice(h.Root); device != "" {
+		s.FanPct, _ = strconv.Atoi(thermalRead(filepath.Join(device, "cur_state")))
+		for _, zone := range readZones(h.Root) {
+			s.TempC = max(s.TempC, zone.TempC)
+		}
+	}
 	rx, tx := netBytes(h.Root)
 	currentPower := readCPUPowerSnapshot(h.Execute)
 

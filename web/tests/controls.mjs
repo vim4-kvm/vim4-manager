@@ -7,6 +7,7 @@ try {
   const page = await browser.newPage({ reducedMotion: "reduce", viewport: { width: 1280, height: 900 } });
   await (await import("./auth-fixture.mjs")).pinLanguage(page);
   const data = fixtures();
+  if (process.env.STEPPED_FAN) data.status.hardware.fanCurve = Array.from({ length: 15 }, () => ({ tempC: 0, percent: 0 }));
   const errors = [], writes = [];
   data.status.platform[0].name = "HDMI capture";
   let releaseStatus;
@@ -83,6 +84,12 @@ try {
   assert.deepEqual(writes.filter(w => w.path === "/api/hdr-mapping").map(w => w.body), [{enabled:false}, {enabled:true}]);
 
   await page.getByRole("link", { name: /Cooling/ }).click();
+  const duties = await page.evaluate(async () => {
+    const { fanDuty } = await import("/src/FanPanel.tsx");
+    const curve = { low: 60, mid: 80, high: 100 };
+    return [fanDuty(curve, 54.9, true), fanDuty(curve, 55, true), fanDuty(curve, 54.9)];
+  });
+  assert.deepEqual(duties, [20, 25, 25], "step mode must hold below a trip while legacy mode interpolates");
   const low = page.getByRole("spinbutton", { name: /Start temperature/ });
   await low.fill("90");
   await page.getByRole("alert").getByText(/Set Start temperature between/).waitFor();

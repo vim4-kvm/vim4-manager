@@ -28,7 +28,7 @@ export function Cooling() {
       </dl>
     </section>
     {hw.fanTriggers ? <SettingsCard title={t("cooling.curve")} description={t("cooling.help")}>
-      <FanPanel saved={hw.fanTriggers} auto={hw.fanAuto} tempC={hw.tempC} percent={hw.fanPercent} busy={busy}
+      <FanPanel stepped={hw.fanCurve?.length === 15} saved={hw.fanTriggers} auto={hw.fanAuto} tempC={hw.tempC} percent={hw.fanPercent} busy={busy}
         onApply={async (curve) => { await run(t("cooling.applying"), () => setFanCurve(curve), t("cooling.applied", { low: number(curve.low), mid: number(curve.mid), high: number(curve.high) })); }} />
     </SettingsCard> : <p className="text-sm text-muted-foreground">{t("cooling.unavailable")}</p>}
   </>;
