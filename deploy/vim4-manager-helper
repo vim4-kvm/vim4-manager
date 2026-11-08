@@ -183,6 +183,10 @@ def power_status():
     if kernel is not None:
         result['kernelPD'] = kernel
         return result
+    # A declared controller blacklisted from TCPM keeps the U-Boot contract;
+    # userspace still never probes it over raw I2C.
+    if getattr(vim4pd, 'kernel_pd_enabled', lambda: False)():
+        return result
     # Packaged and manual board installs use different fixed locations.
     binary = next((p for p in ('/usr/sbin/usb-pd-init', '/usr/local/sbin/usb-pd-init')
                    if Path(p).is_file()), None)

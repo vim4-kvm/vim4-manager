@@ -119,6 +119,19 @@ class PowerTest(unittest.TestCase):
                 run.assert_not_called()
                 history.assert_not_called()
 
+    def test_blacklisted_kernel_owner_reports_only_firmware_handoff(self):
+        firmware = {'contract': None, 'timedOut': True, 'typecFallback': True, 'rp': '3A'}
+        with patch.object(helper.vim4pd, 'kernel_power', return_value=None), \
+                patch.object(helper.vim4pd, 'kernel_pd_enabled', return_value=True), \
+                patch.object(helper, 'firmware_power', return_value=firmware), \
+                patch.object(helper.subprocess, 'check_output') as run, \
+                patch.object(helper, 'previous_contract') as history:
+            result = helper.power_status()
+        self.assertEqual(result, {'vbusPresent': None, 'bootContract': None,
+                                  'firmwarePD': firmware})
+        run.assert_not_called()
+        history.assert_not_called()
+
     def test_cross_boot_history_is_included_in_power_status(self):
         last = {'voltageV': 5, 'currentA': 3, 'usbComm': True, 'rdo': '1304b12c',
                 'origin': 'linux', 'bootId': 'previous', 'establishedAt': '2026-10-22T12:00:00+00:00'}
