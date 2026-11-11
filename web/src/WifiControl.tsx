@@ -17,6 +17,7 @@ import { StatusDot } from "@/components/StatusDot";
 import { Switch } from "@/components/ui/switch";
 import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { request, wifiWrite, type SavedWifi, type WifiNetwork, type WifiState } from "./api";
 import { PasswordInput } from "@/components/PasswordInput";
 import { WifiHotspot } from "./WifiHotspot";
@@ -42,6 +43,7 @@ function band(frequency: number) {
 
 export function WifiControl() {
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const busy = useActionStore((s) => !!s.busy);
   const [reading, setReading] = useState(true);
   const [state, setState] = useState<WifiState>();
@@ -57,7 +59,7 @@ export function WifiControl() {
   const [showSaved, setShowSaved] = useState(false);
 
   useEffect(() => {
-    if (pending) return;
+    if (pending || !pageVisible) return;
     let cancelled = false;
     let timer: number;
     async function refresh() {
@@ -78,7 +80,7 @@ export function WifiControl() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending, locale]);
+  }, [pending, pageVisible, locale]);
 
   const clientMode = !!state?.supported && state.enabled && state.hardwareEnabled && state.mode === "client";
 
@@ -99,11 +101,11 @@ export function WifiControl() {
   }
 
   useEffect(() => {
-    if (!clientMode || pending) return;
+    if (!clientMode || pending || !pageVisible) return;
     void scan(networks === undefined);
     const timer = window.setInterval(() => void scan(false), 15000);
     return () => window.clearInterval(timer);
-  }, [clientMode, pending]);
+  }, [clientMode, pending, pageVisible]);
 
   async function act(label: string, run: () => Promise<unknown>) {
     setPending(label);

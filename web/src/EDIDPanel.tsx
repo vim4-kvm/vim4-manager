@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { request } from "./api";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Fact, FactGrid } from "@/components/FactGrid";
@@ -22,6 +23,7 @@ interface EDIDState {
 export function EDIDPanel() {
   const t = useT();
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
   const [state, setState] = useState<EDIDState>();
@@ -29,7 +31,7 @@ export function EDIDPanel() {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
-    if (busy) return;
+    if (busy || !pageVisible) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -44,7 +46,7 @@ export function EDIDPanel() {
     };
     void refresh();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [busy, locale]);
+  }, [busy, pageVisible, locale]);
 
   if (!state) {
     return <div>

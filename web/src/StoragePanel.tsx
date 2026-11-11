@@ -21,6 +21,7 @@ import { StatusDot, type Tone } from "@/components/StatusDot";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { nasDiskWrite, request, storageWrite, type Storage, type StorageConfig, type StorageState, type StorageTest, type StorageType } from "./api";
 import { bytes } from "./DiskPanel";
 import { CopyButton } from "@/components/CopyButton";
@@ -94,6 +95,7 @@ function stateLabel(s: Storage): { tone: Tone; text: string } {
 
 export function StoragePanel() {
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const busy = useActionStore((s) => !!s.busy);
   const [state, setState] = useState<StorageState>();
   const [stale, setStale] = useState(true);
@@ -113,7 +115,7 @@ export function StoragePanel() {
   }, [session]);
 
   useEffect(() => {
-    if (pending) return;
+    if (pending || !pageVisible) return;
     let cancelled = false;
     let timer: number;
     async function refresh() {
@@ -134,7 +136,7 @@ export function StoragePanel() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending, locale]);
+  }, [pending, pageVisible, locale]);
 
   async function act(label: string, run: () => Promise<unknown>) {
     setPending(label);

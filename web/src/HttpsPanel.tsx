@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useId, useState, type ReactNode } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { ChevronDown, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -40,6 +41,7 @@ function secureHref(https: HttpsState) {
 export function HttpsPanel() {
   const t = useT();
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const https = useHttpsStore((s) => s.https);
   const failed = useHttpsStore((s) => s.failed);
   const [saving, setSaving] = useState<boolean>();
@@ -51,11 +53,12 @@ export function HttpsPanel() {
   const switchId = useId();
 
   useEffect(() => {
+    if (!pageVisible) return;
     const { refresh } = useHttpsStore.getState();
     void refresh();
     const timer = window.setInterval(refresh, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [locale]);
+  }, [pageVisible, locale]);
 
   async function save(enabled: boolean) {
     setSaving(enabled);

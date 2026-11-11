@@ -32,7 +32,7 @@ VIM4 KVM 管理面板，统一登录、选择 KVM 应用并维护板级设备。
 前端从 [App](web/src/App.tsx) 和[路由](web/src/shell/routes.tsx) 进入，页面在 [pages](web/src/pages)，
 跨页面状态由 [stores](web/src/stores) 管理，请求类型集中于 [api.ts](web/src/api.ts)。
 新界面复用 [components](web/src/components)、[主题](web/src/theme.tsx)和[样式令牌](web/src/index.css)。
-按页加载、轮询随页面生命周期停止；读取失败保留旧数据并明确标旧，不将缺失数据补零。
+按页加载、轮询随页面生命周期停止，标签页隐藏时暂停、显示后立即刷新；读取失败保留旧数据并明确标旧，不将缺失数据补零。
 文案遵循[i18n](docs/i18n.md#catalogs-and-formatting)，不要在模块初始化时缓存翻译结果。
 
 板级 HDMI、USB gadget、PD 和时钟由公共服务维护，各 KVM 应用互斥使用共享硬件。

@@ -12,6 +12,7 @@ import { SettingsCard } from "@/components/SettingsCard";
 import { Switch } from "@/components/ui/switch";
 import { useActionStore } from "@/stores/action";
 import { useEffect, useState } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { request, type HttpsState } from "./api";
 import { useHttpsStore } from "@/stores/https";
 import { UrlList, type UrlRow } from "@/components/UrlList";
@@ -90,6 +91,7 @@ function phase(state: TailscaleState) {
 
 export function TailscalePanel() {
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const busy = useActionStore((s) => !!s.busy);
   const [reading, setReading] = useState(true);
   const [state, setState] = useState<TailscaleState>();
@@ -103,6 +105,7 @@ export function TailscalePanel() {
   const [authURL, setAuthURL] = useState("");
 
   useEffect(() => {
+    if (!pageVisible) return;
     let cancelled = false;
     let timer: number;
     async function refresh() {
@@ -123,7 +126,7 @@ export function TailscalePanel() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending, locale]);
+  }, [pending, pageVisible, locale]);
 
   const current = state ? phase(state) : undefined;
   const https = useHttpsStore((s) => s.https);

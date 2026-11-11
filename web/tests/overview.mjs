@@ -34,6 +34,20 @@ try {
     await charts.locator("svg").last().waitFor();
   };
   await reload();
+  // A background tab stops polling the board and refreshes as soon as it is shown again.
+  let polls = 0;
+  page.on("request", (r) => { if (new URL(r.url()).pathname === "/api/status") polls++; });
+  const visibility = (state) => page.evaluate((state) => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, state);
+  await visibility("hidden");
+  polls = 0;
+  await page.waitForTimeout(3500);
+  assert.equal(polls, 0, "hidden tab does not poll status");
+  await visibility("visible");
+  await page.waitForTimeout(300);
+  assert.equal(polls, 1, "shown tab refreshes immediately");
   const board = page.getByRole("region", { name: "Device connections", exact: true });
   const desktopDiagram = board.locator(".device-connections-compact").filter({ visible: true });
   assert((await desktopDiagram.getByRole("img").boundingBox()).width > 200, "compact board image is visible");
@@ -167,7 +181,7 @@ try {
       return a.left >= b.left - 1 && a.right <= b.right + 1;
     });
   }
-  console.log("PASS: overview history, axes, readouts, order, events, responsive layout, keyboard tooltips and scrolling tabs in both locales");
+  console.log("PASS: overview history, axes, readouts, order, events, responsive layout, keyboard tooltips, scrolling tabs in both locales and hidden-tab polling");
 } finally {
   await browser.close();
 }

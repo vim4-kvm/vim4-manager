@@ -1,6 +1,7 @@
 import { PortTag } from "@/components/PortTag";
 import { number } from "@/i18n/format";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { request, type PassthroughState } from "@/api";
 import { MonitorOff } from "lucide-react";
 import { DeviceConnections } from "@/components/DeviceConnections";
@@ -72,6 +73,7 @@ function PassthroughSkeleton() {
 export function PassthroughPanel() {
  useLocale();
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const status = useStatusStore((s) => s.status);
   const busy = useActionStore((s) => !!s.busy);
   const run = useActionStore((s) => s.run);
@@ -100,7 +102,7 @@ export function PassthroughPanel() {
   }, [onState]);
 
   useEffect(() => {
-    if (busy || pending) return;
+    if (busy || pending || !pageVisible) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -119,7 +121,7 @@ export function PassthroughPanel() {
     };
     void refresh();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [busy, pending, accept, locale]);
+  }, [busy, pending, accept, pageVisible, locale]);
 
   async function change(body: { enabled?: boolean; audio?: boolean; hdr?: boolean }) {
     if (actionPending.current) return;
