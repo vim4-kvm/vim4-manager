@@ -15,6 +15,7 @@ import { SettingsCard } from "@/components/SettingsCard";
 import { StatusDot, type Tone } from "@/components/StatusDot";
 import { useStatusStore } from "@/stores/status";
 import { useEffect, useState } from "react";
+import { usePageVisible } from "@/hooks/use-page-visible";
 import { nasDiskWrite, request, storageWrite, type NasDiskCounts, type NasDiskLast, type NasDiskSession, type NasDiskState, type Storage } from "./api";
 import { bytes } from "./DiskPanel";
 import { hostEject, mediaName } from "./MediaPanel";
@@ -66,6 +67,7 @@ function when(seconds: number) {
 
 export function useNasDisk() {
   const locale = useLocale();
+  const pageVisible = usePageVisible();
   const [state, setState] = useState<NasDiskState>();
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
@@ -81,7 +83,7 @@ export function useNasDisk() {
   const hasActivity = active || !!last || !!state?.pending.length;
 
   useEffect(() => {
-    if (pending) return;
+    if (pending || !pageVisible) return;
     let cancelled = false;
     let timer: number;
     async function refresh() {
@@ -99,7 +101,7 @@ export function useNasDisk() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [pending, active, locale]);
+  }, [pending, active, pageVisible, locale]);
 
   async function act(label: string, run: () => Promise<unknown>) {
     setPending(label);
@@ -379,6 +381,8 @@ export function NasDiskSetup({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
+                        // Enter also confirms IME candidates; Safari reports that keydown as 229, not isComposing.
+                        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                         void mkdir();
                       } else if (e.key === "Escape") {
                         e.preventDefault();

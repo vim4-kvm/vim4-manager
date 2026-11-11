@@ -98,6 +98,16 @@ try {
   assert.equal(await page.getByRole("button", { name: "Create" }).isDisabled(), true);
   await newName.fill("安装包");
   await shot(page, "nasdisk-mkdir");
+  // Enter that confirms an IME candidate must not create the folder (Chrome flags isComposing, Safari only keyCode 229).
+  const mkdirs = requests.length;
+  await newName.dispatchEvent("keydown", { key: "Enter", isComposing: true, bubbles: true });
+  await newName.evaluate((input) => {
+    const event = new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
+    Object.defineProperty(event, "keyCode", { get: () => 229 });
+    input.dispatchEvent(event);
+  });
+  await page.waitForTimeout(100);
+  assert.equal(requests.length, mkdirs, "IME confirmation does not submit the folder name");
   await newName.press("Enter");
   await page.getByText("No subfolders").waitFor();
   assert.deepEqual(requests.at(-1), { path: "/api/storage/mkdir", body: { id: "home", path: "/工具", name: "安装包" } });
